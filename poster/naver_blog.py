@@ -267,36 +267,75 @@ async def _get_editor_frame(page: Page) -> Page:
     return page
 
 
-async def _fill_title(page: Page, title: str):
-    target = await _get_editor_frame(page)
-    title_sels = [
-        "div[contenteditable='true'][data-placeholder='제목']",  # SE4 확인된 셀렉터
-        ".se-title-text",
-        "[data-se-type='title'] [contenteditable]",
-        ".title_input",
-        "input[name='title']",
-        "[placeholder='제목']",
+async def _close_help_panel(page: Page):
+    """도움말 패널 닫기 (SE ONE 에디터 초기 실행 시 자동으로 열림)"""
+    close_sels = [
+        "button[aria-label*='닫기']",
+        ".se-help-panel .se-close-btn",
+        ".help_panel .close",
+        "button.se-close-btn",
+        "[class*='help'][class*='close']",
+        "[class*='helpPanel'] button",
     ]
-    for sel in title_sels:
+    for sel in close_sels:
         try:
-            t = target.locator(sel).first
-            if await t.count():
-                await t.click()
-                await _delay(300, 500)
-                await target.keyboard.press("Control+a")
-                await target.keyboard.type(title, delay=20)
-                logger.info(f"제목 입력 완료 ({sel}): {title[:40]}")
+            btn = page.locator(sel).first
+            if await btn.count():
+                await btn.click()
+                await _delay(500, 800)
+                logger.info(f"도움말 패널 닫음: {sel}")
                 return
         except Exception:
             continue
+    # 키보드 Escape로도 시도
+    try:
+        await page.keyboard.press("Escape")
+        await _delay(300, 500)
+    except Exception:
+        pass
+
+
+async def _fill_title(page: Page, title: str):
+    """제목 입력 — 메인 페이지와 iframe 모두 탐색"""
+    target = await _get_editor_frame(page)
+
+    # SE ONE 에디터: 제목은 iframe 내부에서 첫 번째 contenteditable 또는 .se-title-text
+    title_sels = [
+        # SE ONE 제목 (contenteditable div, placeholder는 CSS pseudo-element)
+        ".se-title-text",
+        "[data-se-type='title']",
+        ".se-section-oglink .se-title",
+        # 일반 contenteditable (이 중 첫 번째가 제목일 가능성)
+        "div[contenteditable='true']",
+        # input 형태
+        "input[name='title']",
+        "[placeholder='제목']",
+        "[data-placeholder='제목']",
+    ]
+
+    # 먼저 메인 페이지(write_page)에서 탐색
+    for search_target in [page, target]:
+        for sel in title_sels:
+            try:
+                t = search_target.locator(sel).first
+                if await t.count():
+                    await t.click()
+                    await _delay(300, 500)
+                    await page.keyboard.press("Control+a")
+                    await page.keyboard.type(title, delay=20)
+                    logger.info(f"제목 입력 완료 ({sel}): {title[:40]}")
+                    return
+            except Exception:
+                continue
+
     logger.warning("제목 입력 영역을 찾지 못함")
 
 
 async def _type_in_editor(page: Page, text: str):
     target = await _get_editor_frame(page)
     body_sels = [
-        "div[contenteditable='true']:not([data-placeholder='제목'])",  # SE4
-        ".se-text-paragraph",
+        ".se-text-paragraph",  # SE ONE 본문 (확인됨)
+        "div[contenteditable='true']:not([data-placeholder='제목'])",
         "[data-se-type='text'] [contenteditable]",
         ".se-component-content",
         ".se-main-container",
@@ -315,7 +354,7 @@ async def _type_in_editor(page: Page, text: str):
             continue
 
     if not clicked:
-        await target.keyboard.press("Tab")
+        await page.keyboard.press("Tab")  # Frame에는 keyboard 없음 — page 사용
 
     await _delay(500, 800)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
@@ -323,12 +362,12 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             if line.strip():
-                await target.keyboard.type(line.strip(), delay=15)
+                await page.keyboard.type(line.strip(), delay=15)  # page.keyboard 사용
             if j < len(lines) - 1:
-                await target.keyboard.press("Enter")
+                await page.keyboard.press("Enter")
         if i < len(paragraphs) - 1:
-            await target.keyboard.press("Enter")
-            await target.keyboard.press("Enter")
+            await page.keyboard.press("Enter")
+            await page.keyboard.press("Enter")
         await _delay(100, 200)
 
 
@@ -349,7 +388,7 @@ async def _add_tags(page: Page, tags: list[str]):
                     await tag_box.click()
                     await _delay(200, 400)
                     await tag_box.fill(tag)
-                    await target.keyboard.press("Enter")
+                    await page.keyboard.press("Enter")  # page.keyboard 사용
                     await _delay(300, 500)
                 logger.info(f"태그 {len(tags)}개 입력 완료")
                 return
@@ -469,6 +508,10 @@ async def _post(
         logger.info(f"에디터 진입 성공: {write_page.url}")
         await _delay(2000, 3000)
         await _screenshot(write_page, "editor_ready")
+
+        # 도움말 패널 닫기 (SE ONE 에디터 첫 실행 시 자동 열림)
+        await _close_help_panel(write_page)
+        await _delay(500, 1000)
 
         # 제목 / 본문 / 태그 입력
         await _fill_title(write_page, title)
