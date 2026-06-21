@@ -449,33 +449,34 @@ async def _add_tags(page: Page, tags: list[str]):
     logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
-async def _publish(page: Page) -> str | None:
+async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
     """
     SE ONE 에디터 발행 흐름:
-    1. 도움말 패널 닫기 (발행 버튼 덮고 있음)
-    2. 발행 버튼 클릭 (iframe 상단 우측 녹색 버튼)
-    3. 발행 설정 패널 → '발행하기' 버튼 클릭
-    4. 게시 완료 후 URL 반환
+    1. 도움말 패널 닫기
+    2. 상단 '발행' 버튼 클릭 (설정 패널 열림)
+    3. 설정 패널에 태그 입력
+    4. 패널 하단 '✓ 발행' 버튼 클릭 (Y좌표로 상단 버튼과 구분)
+    5. 게시 완료 후 URL 반환
     """
-    # 발행 전 도움말 재닫기 (덮고 있으면 클릭 불가)
     await _close_help_panel(page)
     await _delay(1000, 1500)
     await _screenshot(page, "before_publish")
 
     target = await _get_editor_frame(page)
 
-    # 1단계: 발행 버튼 클릭 (메인 페이지 → iframe 순서)
+    # 1단계: 상단 발행 버튼 클릭 (설정 패널 열기)
     clicked = False
     for search_target, label in [(page, "메인페이지"), (target, "에디터프레임")]:
-        # JS로 정확한 발행 버튼 탐색 (slick 등 오탐 제외)
         try:
             js_result = await search_target.evaluate("""
                 () => {
                     const btns = [...document.querySelectorAll('button')];
-                    // 정확히 '발행' 텍스트인 버튼 (발행하기/발행설정 등은 제외)
+                    // 상단의 발행 버튼: Y좌표가 작음 (뷰포트 상단)
                     const pub = btns.find(b => {
                         const txt = b.textContent.trim();
-                        return txt === '발행' || txt === '발행 ';
+                        if (txt !== '발행') return false;
+                        const rect = b.getBoundingClientRect();
+                        return rect.y < 100;  // 헤더 영역 (상단 100px 이내)
                     });
                     if (pub) {
                         pub.click();
@@ -492,19 +493,17 @@ async def _publish(page: Page) -> str | None:
         except Exception as e:
             logger.warning(f"JS 발행 탐색 실패 ({label}): {e.__class__.__name__}")
 
-        # CSS 셀렉터 폴백
         if not clicked:
-            for sel in ["button:has-text('발행')", ".publish_btn", ".se-publish-btn"]:
+            for sel in [".publish_btn", ".se-publish-btn"]:
                 try:
                     btn = search_target.locator(sel).first
                     if await btn.count():
-                        logger.info(f"발행 버튼 CSS 클릭 ({label}): {sel}")
                         await btn.click(timeout=8000)
                         await _delay(2000, 3000)
                         clicked = True
                         break
-                except Exception as e:
-                    logger.warning(f"CSS 발행 클릭 실패 ({label}/{sel}): {e.__class__.__name__}")
+                except Exception:
+                    pass
         if clicked:
             break
 
@@ -514,74 +513,76 @@ async def _publish(page: Page) -> str | None:
         return None
 
     await _screenshot(page, "after_publish_click")
-
-    # 2단계: 발행 설정 패널 → '발행하기' 클릭
-    # SE ONE 에디터는 발행 클릭 후 설정 패널이 열림 (카테고리/태그 설정)
     logger.info("발행 설정 패널 대기 중...")
     await _delay(2000, 3000)
 
-    confirm_sels = [
-        "button:has-text('발행하기')",
-        "button:has-text('확인')",
-        "button:has-text('게시')",
-        ".btn_confirm",
-        ".se-publish-setting button:last-child",
-        "[class*='publish'] button:last-child",
-    ]
-    confirmed = False
-    for search_target, label in [(page, "메인페이지"), (target, "에디터프레임")]:
-        for sel in confirm_sels:
-            try:
-                btn = search_target.locator(sel).first
-                if await btn.count():
-                    logger.info(f"발행 확인 클릭 ({label}): {sel}")
-                    await btn.click(timeout=8000)
-                    await _delay(4000, 6000)
-                    confirmed = True
-                    break
-            except Exception:
-                continue
-        if confirmed:
-            break
-
-    # JS 폴백: 발행하기 버튼
-    if not confirmed:
+    # 2단계: 설정 패널 태그 입력 (발행 설정 패널에 태그 편집 영역 있음)
+    if tags:
         for t in [page, target]:
             try:
                 res = await t.evaluate("""
-                    () => {
-                        const btns = [...document.querySelectorAll('button')];
-                        const ok = btns.find(b => b.textContent.trim() === '발행하기' ||
-                                                   b.textContent.trim() === '확인' ||
-                                                   b.textContent.trim() === '게시');
-                        if (ok) { ok.click(); return ok.textContent.trim(); }
-                        return null;
+                    (tags) => {
+                        // 발행 설정 패널의 태그 입력창: placeholder에 '#태그' 포함
+                        const input = document.querySelector('input[placeholder*="태그"]');
+                        if (!input) return null;
+                        input.focus();
+                        for (const tag of tags.slice(0, 10)) {
+                            input.value = tag;
+                            input.dispatchEvent(new Event('input', {bubbles:true}));
+                            input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+                            input.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter', bubbles:true}));
+                        }
+                        return '태그입력완료';
                     }
-                """)
+                """, tags)
                 if res:
-                    logger.info(f"JS 발행 확인: {res}")
-                    await _delay(4000, 6000)
-                    confirmed = True
+                    logger.info(f"발행설정 태그 입력: {res}")
+                    await _delay(500, 800)
                     break
             except Exception:
                 continue
 
-    if not confirmed:
-        logger.warning("발행 확인 버튼 없음 — 발행 완료 여부 불확실")
+    # 3단계: 설정 패널 하단 '✓ 발행' 클릭
+    # 상단 발행 버튼(Y<100)과 구분하여 하단 확인 버튼(Y>200) 클릭
+    confirmed = False
+    for t in [page, target]:
+        try:
+            res = await t.evaluate("""
+                () => {
+                    const btns = [...document.querySelectorAll('button')];
+                    // 발행 텍스트 버튼 중 Y좌표가 200 이상인 것 (설정 패널 하단 확인 버튼)
+                    const confirmBtn = btns.find(b => {
+                        const txt = b.textContent.trim();
+                        if (!txt.includes('발행')) return false;
+                        const rect = b.getBoundingClientRect();
+                        return rect.y > 200 && rect.width > 30;
+                    });
+                    if (confirmBtn) {
+                        confirmBtn.click();
+                        const r = confirmBtn.getBoundingClientRect();
+                        return confirmBtn.className + '|y:' + Math.round(r.y);
+                    }
+                    return null;
+                }
+            """)
+            if res:
+                logger.info(f"발행 설정 확인 클릭: {res}")
+                await _delay(8000, 12000)  # 게시 완료 및 URL 이동 대기
+                confirmed = True
+                break
+        except Exception as e:
+            logger.warning(f"발행 확인 JS 실패: {e.__class__.__name__}")
 
     final_url = page.url
     logger.info(f"발행 후 URL: {final_url}")
     await _screenshot(page, "after_publish")
 
-    # 발행 성공 여부 판단: URL이 포스트 URL로 변경됐는지 확인
-    # 포스트 URL 패턴: blog.naver.com/{blog_id}/{post_no}
     if "Redirect=Write" not in final_url and "PostWriteForm" not in final_url:
-        logger.info(f"발행 성공 확인 — 포스트 URL: {final_url}")
+        logger.info(f"발행 성공 — 포스트 URL: {final_url}")
         return final_url
 
-    # URL 변경 안 됐어도 발행 확인이 됐다면 일단 반환
     if confirmed:
-        logger.info(f"발행 확인 클릭 완료 (URL은 미변경): {final_url}")
+        logger.info(f"발행 확인 완료 (URL 미변경, 발행설정 패널 통과): {final_url}")
         return final_url
 
     logger.error("발행 최종 실패")
@@ -664,16 +665,14 @@ async def _post(
         # 에디터 안정화 대기
         await _screenshot(write_page, "editor_ready2")
 
-        # 제목 / 본문 / 태그 입력
+        # 제목 / 본문 입력 (태그는 발행 설정 패널에서 입력)
         await _fill_title(write_page, title)
         await _delay(500, 800)
         await _type_in_editor(write_page, body)
         await _delay(1000, 1500)
-        await _add_tags(write_page, tags)
-        await _delay(500, 800)
 
-        # 발행
-        post_url = await _publish(write_page)
+        # 발행 (tags 전달 → 발행 설정 패널에서 태그 입력)
+        post_url = await _publish(write_page, tags=tags)
         await _save_cookies(ctx)
         await browser.close()
 
