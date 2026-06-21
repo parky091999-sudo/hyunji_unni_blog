@@ -1,6 +1,7 @@
 .env
 data/naver_cookies.json
 data/screenshots/
+data/screenshots_dl*/
 debug_shots/
 debug_shots2/
 logs/
