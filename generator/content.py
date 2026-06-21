@@ -291,6 +291,8 @@ def _parse_response(raw: str) -> dict | None:
             body = re.sub(r"^[*\-•]\s+", "", body, flags=re.MULTILINE)
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             body = re.sub(r"\n{3,}", "\n\n", body)
+            # "안녕하세요" 로 시작하는 첫 줄/단락 제거 (AI 패턴)
+            body = re.sub(r"^안녕하세요[^\n]*\n?", "", body, flags=re.IGNORECASE).lstrip()
             result["body"] = body.strip()
 
         if "title" not in result or "body" not in result:
