@@ -1,6 +1,31 @@
 [
   {
     "date": "2026-06-21",
+    "timestamp": "2026-06-21T20:05:05.190611+09:00",
+    "keyword": "여름 에어컨 관리",
+    "category": "요리식비",
+    "category_name": "요리&식비절약",
+    "title": "여름 에어컨 냄새, 필터 청소 5만원으로 집에서 해결한 방법! 꿉꿉한 냄새 안녕 👋",
+    "tags": [
+      "여름 에어컨 관리",
+      "에어컨 청소",
+      "에어컨 냄새",
+      "신혼 살림",
+      "전기세 절약",
+      "에어컨 필터",
+      "다이소 에어컨"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224322688198",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 0,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-21",
     "timestamp": "2026-06-21T19:58:38.817830+09:00",
     "keyword": "식비 절약 일주일 식단",
     "category": "요리식비",
