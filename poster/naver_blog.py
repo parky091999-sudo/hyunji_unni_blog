@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import random
+import re
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -348,24 +349,19 @@ async def _close_help_panel(page: Page):
 
 
 async def _fill_title(page: Page, title: str):
-    """제목 입력 — 메인 페이지와 iframe 모두 탐색"""
+    """제목 입력 — 메인 페이지와 iframe 모두 탐색. 입력 후 Tab으로 본문 포커스 이동"""
     target = await _get_editor_frame(page)
 
-    # SE ONE 에디터: 제목은 iframe 내부에서 첫 번째 contenteditable 또는 .se-title-text
     title_sels = [
-        # SE ONE 제목 (contenteditable div, placeholder는 CSS pseudo-element)
         ".se-title-text",
         "[data-se-type='title']",
-        ".se-section-oglink .se-title",
-        # 일반 contenteditable (이 중 첫 번째가 제목일 가능성)
+        ".se-section-title [contenteditable='true']",
         "div[contenteditable='true']",
-        # input 형태
         "input[name='title']",
         "[placeholder='제목']",
         "[data-placeholder='제목']",
     ]
 
-    # 먼저 메인 페이지(write_page)에서 탐색
     for search_target in [page, target]:
         for sel in title_sels:
             try:
@@ -375,7 +371,11 @@ async def _fill_title(page: Page, title: str):
                     await _delay(300, 500)
                     await page.keyboard.press("Control+a")
                     await page.keyboard.type(title, delay=20)
-                    logger.info(f"제목 입력 완료 ({sel}): {title[:40]}")
+                    await _delay(200, 400)
+                    # Tab으로 본문 영역으로 포커스 이동 (제목→본문)
+                    await page.keyboard.press("Tab")
+                    await _delay(300, 500)
+                    logger.info(f"제목 입력 + Tab 완료 ({sel}): {title[:40]}")
                     return
             except Exception:
                 continue
@@ -384,11 +384,19 @@ async def _fill_title(page: Page, title: str):
 
 
 async def _type_in_editor(page: Page, text: str):
+    """
+    본문 타이핑.
+    _fill_title()이 Tab으로 본문 포커스를 이미 이동했으므로,
+    .se-section-text 내부 요소만 클릭해 제목 재클릭을 방지한다.
+    """
     target = await _get_editor_frame(page)
     body_sels = [
-        ".se-text-paragraph",  # SE ONE 본문 (확인됨)
-        "div[contenteditable='true']:not([data-placeholder='제목'])",
-        "[data-se-type='text'] [contenteditable]",
+        # 제목 섹션(.se-section-title) 제외, 본문 섹션만 명시적으로 지정
+        ".se-section-text .se-text-paragraph",
+        ".se-section-text [contenteditable='true']",
+        ".se-main-container .se-text-paragraph:not(.se-title-text)",
+        # 범용 폴백
+        "div[contenteditable='true']:not([data-se-type='title'])",
         ".se-component-content",
         ".se-main-container",
         "[contenteditable='true']",
@@ -406,7 +414,8 @@ async def _type_in_editor(page: Page, text: str):
             continue
 
     if not clicked:
-        await page.keyboard.press("Tab")  # Frame에는 keyboard 없음 — page 사용
+        # 포커스가 이미 본문에 있을 수 있음 (Tab 이동 후)
+        logger.info("본문 셀렉터 없음 — Tab 포커스 유지로 타이핑 진행")
 
     await _delay(500, 800)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
@@ -414,7 +423,7 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             if line.strip():
-                await page.keyboard.type(line.strip(), delay=15)  # page.keyboard 사용
+                await page.keyboard.type(line.strip(), delay=15)
             if j < len(lines) - 1:
                 await page.keyboard.press("Enter")
         if i < len(paragraphs) - 1:
@@ -516,31 +525,32 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
     logger.info("발행 설정 패널 대기 중...")
     await _delay(2000, 3000)
 
-    # 2단계: 설정 패널 태그 입력 (발행 설정 패널에 태그 편집 영역 있음)
+    # 2단계: 설정 패널 태그 입력 — Playwright 키보드 직접 입력 (React 이벤트 호환)
     if tags:
+        tag_input_found = False
         for t in [page, target]:
             try:
-                res = await t.evaluate("""
-                    (tags) => {
-                        // 발행 설정 패널의 태그 입력창: placeholder에 '#태그' 포함
-                        const input = document.querySelector('input[placeholder*="태그"]');
-                        if (!input) return null;
-                        input.focus();
-                        for (const tag of tags.slice(0, 10)) {
-                            input.value = tag;
-                            input.dispatchEvent(new Event('input', {bubbles:true}));
-                            input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
-                            input.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter', bubbles:true}));
-                        }
-                        return '태그입력완료';
-                    }
-                """, tags)
-                if res:
-                    logger.info(f"발행설정 태그 입력: {res}")
-                    await _delay(500, 800)
-                    break
-            except Exception:
+                tag_loc = t.locator('input[placeholder*="태그"]').first
+                if not await tag_loc.count():
+                    continue
+                tag_input_found = True
+                for tag in tags[:10]:
+                    await tag_loc.click()
+                    await _delay(150, 250)
+                    # 기존 텍스트 지우고 입력
+                    await page.keyboard.press("Control+a")
+                    await page.keyboard.type(tag, delay=30)
+                    await _delay(200, 350)
+                    await page.keyboard.press("Enter")
+                    await _delay(350, 500)
+                logger.info(f"태그 {min(len(tags), 10)}개 입력 완료")
+                await _delay(500, 800)
+                break
+            except Exception as e:
+                logger.warning(f"태그 입력 실패: {e.__class__.__name__}")
                 continue
+        if not tag_input_found:
+            logger.warning("발행 설정 패널 태그 입력창 없음 — 태그 생략")
 
     # 3단계: 설정 패널 하단 '✓ 발행' 클릭
     # 상단 발행 버튼(Y<100)과 구분하여 하단 확인 버튼(Y>200) 클릭
@@ -573,19 +583,33 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
         except Exception as e:
             logger.warning(f"발행 확인 JS 실패: {e.__class__.__name__}")
 
+    # URL 변경 대기 (게시 완료 후 포스트 URL로 이동)
     final_url = page.url
-    logger.info(f"발행 후 URL: {final_url}")
+    logger.info(f"발행 후 URL (1차): {final_url}")
+
+    # URL이 아직 에디터면 추가 대기 (최대 15초)
+    if "Redirect=Write" in final_url or "PostWriteForm" in final_url:
+        if confirmed:
+            logger.info("URL 아직 에디터 — 추가 10초 대기")
+            await _delay(8000, 12000)
+            final_url = page.url
+            logger.info(f"발행 후 URL (2차): {final_url}")
+
     await _screenshot(page, "after_publish")
 
-    if "Redirect=Write" not in final_url and "PostWriteForm" not in final_url:
+    # 실제 포스트 URL 판별: 숫자 ID 포함 + 에디터 URL 아님
+    is_post_url = (
+        re.search(r"/\d{9,}", final_url) is not None
+        and "Redirect=Write" not in final_url
+        and "PostWriteForm" not in final_url
+    )
+
+    if is_post_url:
         logger.info(f"발행 성공 — 포스트 URL: {final_url}")
         return final_url
 
-    if confirmed:
-        logger.info(f"발행 확인 완료 (URL 미변경, 발행설정 패널 통과): {final_url}")
-        return final_url
-
-    logger.error("발행 최종 실패")
+    logger.error(f"발행 최종 실패 — URL: {final_url}")
+    await _screenshot(page, "publish_failed_final")
     return None
 
 
@@ -666,10 +690,15 @@ async def _post(
         await _screenshot(write_page, "editor_ready2")
 
         # 제목 / 본문 입력 (태그는 발행 설정 패널에서 입력)
+        logger.info(f"제목 입력 시작: {title[:40]}")
         await _fill_title(write_page, title)
         await _delay(500, 800)
+        await _screenshot(write_page, "after_title")
+
+        logger.info(f"본문 입력 시작 ({len(body)}자)")
         await _type_in_editor(write_page, body)
         await _delay(1000, 1500)
+        await _screenshot(write_page, "after_body")
 
         # 발행 (tags 전달 → 발행 설정 패널에서 태그 입력)
         post_url = await _publish(write_page, tags=tags)

@@ -20,12 +20,13 @@ _SYSTEM = """\
 
 작성 규칙:
 1. 제목: 핵심 키워드 포함, 클릭하고 싶은 제목 (20~35자), "~하는 법" "~꿀팁" "~추천" 형식
-2. 본문: 일반 텍스트 (HTML 태그 금지), 2000~3000자
+2. 본문: 일반 텍스트 (HTML 태그 금지), 반드시 2000자 이상 ~ 3000자 이하로 작성할 것
    - 소제목은 【소제목】 형식으로 표시
    - 항목 나열은 ✔ 기호 사용
    - 이모지 자유롭게 사용
    - 쿠팡 추천 상품 위치: [쿠팡추천1] [쿠팡추천2] 플레이스홀더
    - 마무리: "다음에는 ~도 알려드릴게요 😊" 스타일
+   - ※ 본문이 2000자 미만이면 절대 안 됨 — 더 풍부하게 작성할 것
 3. 태그: 5~8개 (SEO 핵심 키워드, 쉼표 구분)
 4. 쿠팡 힌트: 본문에 자연스럽게 추천할 상품 키워드 2개
 
@@ -35,7 +36,7 @@ TAGS: {태그1},{태그2},...
 COUPANG_HINT_1: {쿠팡 검색 키워드 1}
 COUPANG_HINT_2: {쿠팡 검색 키워드 2}
 ---
-{본문 (plain text)}
+{본문 (plain text, 반드시 2000자 이상)}
 """
 
 
@@ -101,7 +102,7 @@ def generate_post(keyword: str, api_key: str, trending: list[str] | None = None)
                 contents=user_msg,
                 config=gtypes.GenerateContentConfig(
                     system_instruction=_SYSTEM,
-                    max_output_tokens=4000,
+                    max_output_tokens=8192,
                     temperature=0.85,
                 ),
             )
@@ -111,7 +112,11 @@ def generate_post(keyword: str, api_key: str, trending: list[str] | None = None)
                 continue
             parsed = _parse_response(raw)
             if parsed:
-                logger.info(f"글 생성 완료: {parsed.get('title')!r} ({len(parsed.get('body',''))}자)")
+                body_len = len(parsed.get('body', ''))
+                logger.info(f"글 생성 완료: {parsed.get('title')!r} ({body_len}자)")
+                if body_len < 500:
+                    logger.warning(f"본문 너무 짧음 ({body_len}자) — 재생성 시도")
+                    continue
                 return parsed
         except Exception as e:
             logger.error(f"Gemini 생성 실패 (시도 {attempt}/{len(waits)+1}): {e}")

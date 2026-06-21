@@ -2,8 +2,11 @@
 포스팅 키워드 선정
 - 상시 에버그린 키워드 풀 + 시즌 보정
 - Google News RSS 트렌딩 보조 활용
+- 최근 30일 사용 키워드 중복 방지
 """
+import json
 import logging
+import os
 import random
 import re
 from datetime import datetime, timezone, timedelta
@@ -60,11 +63,45 @@ _SEASON: dict[int, list[str]] = {
 }
 
 
+_HISTORY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "post_history.json"
+)
+
+
+def _get_recent_keywords(days: int = 30) -> set[str]:
+    """최근 N일 이내 사용한 키워드 반환"""
+    try:
+        if not os.path.exists(_HISTORY_PATH):
+            return set()
+        with open(_HISTORY_PATH, encoding="utf-8") as f:
+            history = json.load(f)
+        cutoff = datetime.now(KST) - timedelta(days=days)
+        recent = set()
+        for h in history:
+            try:
+                ts = datetime.fromisoformat(h.get("timestamp", ""))
+                if ts >= cutoff and h.get("keyword"):
+                    recent.add(h["keyword"])
+            except Exception:
+                continue
+        return recent
+    except Exception as e:
+        logger.warning(f"이력 키워드 로드 실패: {e}")
+        return set()
+
+
 def pick_keyword() -> str:
-    """오늘 포스팅할 키워드 1개 선택"""
+    """오늘 포스팅할 키워드 1개 선택 — 최근 30일 중복 방지"""
     month = datetime.now(KST).month
     pool = _EVERGREEN + _SEASON.get(month, [])
-    return random.choice(pool)
+    recent = _get_recent_keywords(days=30)
+    fresh = [k for k in pool if k not in recent]
+    if not fresh:
+        logger.warning(f"모든 키워드가 최근 30일 내 사용됨 — 전체 풀에서 선택")
+        fresh = pool
+    keyword = random.choice(fresh)
+    logger.info(f"키워드 선택: {keyword!r} (신규 후보 {len(fresh)}/{len(pool)}개)")
+    return keyword
 
 
 def get_trending_bonus(limit: int = 5) -> list[str]:

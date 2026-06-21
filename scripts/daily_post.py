@@ -5,6 +5,7 @@ GitHub Actions: python -m scripts.daily_post
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone, timedelta
 
@@ -48,6 +49,15 @@ def _save_history(history: list):
 def _already_posted_today(history: list) -> bool:
     today = datetime.now(KST).strftime("%Y-%m-%d")
     return any(h.get("date") == today and h.get("status") == "posted" for h in history)
+
+
+def _is_real_post_url(url: str | None) -> bool:
+    """실제 게시된 포스트 URL인지 확인 (숫자 ID 포함, 에디터 URL 아님)"""
+    if not url:
+        return False
+    if "Redirect=Write" in url or "PostWriteForm" in url:
+        return False
+    return bool(re.search(r"/\d{9,}", url))
 
 
 def run():
@@ -98,6 +108,8 @@ def run():
     )
 
     # 4. 이력 저장
+    post_url = result.get("post_url") if result else None
+    is_posted = _is_real_post_url(post_url)
     now_str = datetime.now(KST).isoformat()
     entry = {
         "date":      datetime.now(KST).strftime("%Y-%m-%d"),
@@ -105,8 +117,8 @@ def run():
         "keyword":   keyword,
         "title":     post["title"],
         "tags":      post["tags"],
-        "status":    "posted" if result else "failed",
-        "post_url":  result.get("post_url") if result else None,
+        "status":    "posted" if is_posted else "failed",
+        "post_url":  post_url if is_posted else None,
     }
     history.insert(0, entry)
     _save_history(history[:200])
