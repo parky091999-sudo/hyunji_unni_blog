@@ -125,7 +125,6 @@ def _is_editor_page(url: str) -> bool:
     """에디터 페이지인지 URL로 판별 (느슨하게)"""
     if not url or "about:blank" in url:
         return False
-    # 확실한 에디터 URL 패턴
     good = ["postwrite", "PostWrite", "Redirect=Write", "editForm"]
     return any(g in url for g in good)
 
@@ -138,8 +137,6 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
 
     핵심: BlogHome에서 직접 CLICK만 사용 (CDN 차단 때문에 goto 불가)
     """
-
-    # BlogHome 접속 — section.blog.naver.com은 클라우드 IP 허용됨
     blog_home_url = "https://section.blog.naver.com/BlogHome.naver"
     logger.info(f"BlogHome 접속: {blog_home_url}")
     await page.goto(blog_home_url, wait_until="domcontentloaded", timeout=30000)
@@ -147,12 +144,10 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
     await _screenshot(page, "blog_home")
     logger.info(f"BlogHome URL: {page.url}")
 
-    # 로그인 필요 여부 체크 (BlogHome이 로그인 페이지로 리다이렉트됐는지)
     if "nidlogin" in page.url or "login" in page.url.lower():
         logger.warning("BlogHome이 로그인 페이지로 리다이렉트 — 세션 만료")
         return None
 
-    # 글쓰기 버튼 셀렉터 순서
     write_btn_sels = [
         "a:has-text('글쓰기')",
         ".btn_write",
@@ -171,10 +166,8 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
             href = await el.get_attribute("href") or ""
             logger.info(f"글쓰기 버튼 발견: {sel} | href={href!r}")
 
-            # 클릭 전 현재 페이지 수 확인
             pages_before = len(ctx.pages)
 
-            # 클릭: 새 탭 열릴 수 있음
             try:
                 async with ctx.expect_page(timeout=8000) as new_page_info:
                     await el.click()
@@ -183,7 +176,6 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
                 await _delay(2000, 3000)
                 await _screenshot(new_pg, "write_new_tab")
                 logger.info(f"새 탭 열림: {new_pg.url}")
-                # 에디터 요소 대기
                 try:
                     await new_pg.wait_for_selector(
                         "div[contenteditable='true'], .se-title-text, .se-main-container",
@@ -199,13 +191,11 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
             except Exception as e:
                 logger.info(f"새 탭 없음 ({e.__class__.__name__}) — 현재 페이지 확인")
 
-            # 새 탭 없는 경우: 현재 페이지에서 에디터 대기
             await _delay(3000, 5000)
             cur = page.url
             logger.info(f"클릭 후 현재 URL: {cur}")
             await _screenshot(page, "after_click_write")
 
-            # Redirect=Write 패턴: 추가 대기 후 에디터 확인
             if "Redirect=Write" in cur or _is_editor_page(cur):
                 logger.info(f"에디터 리다이렉트 감지: {cur}")
                 try:
@@ -216,7 +206,6 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
                     logger.info("현재 페이지에서 에디터 요소 확인")
                     return page
                 except Exception:
-                    # networkidle 대기 후 다시 확인
                     await page.wait_for_load_state("networkidle", timeout=15000)
                     await _delay(2000, 3000)
                     await _screenshot(page, "after_redirect_write")
@@ -229,7 +218,7 @@ async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str
         except Exception as e:
             logger.warning(f"글쓰기 버튼 시도 실패 ({sel}): {e}")
 
-    # 방법 2: 구형 PostWriteForm 시도 (blogId 파라미터 포함)
+    # 방법 2: 구형 PostWriteForm 시도
     for bid in dict.fromkeys(filter(None, [blog_id, naver_id])):
         url = f"https://blog.naver.com/PostWriteForm.naver?blogId={bid}"
         logger.info(f"[레거시] PostWriteForm: {url}")
@@ -269,14 +258,13 @@ async def _get_editor_frame(page: Page) -> Page:
 
 
 async def _dismiss_draft_popup(page: Page):
-    """'작성 중인 글이 있습니다' 팝업 → 취소 클릭 (이전 임시저장 무시하고 새 글 시작)"""
+    """'작성 중인 글이 있습니다' 팝업 → 취소 클릭"""
     targets = [page] + [f for f in page.frames if f.url != page.url]
     for t in targets:
         try:
             result = await t.evaluate("""
                 () => {
                     const btns = [...document.querySelectorAll('button')];
-                    // '취소' 버튼 (팝업 닫고 새 글 시작)
                     const cancel = btns.find(b => b.textContent.trim() === '취소');
                     if (cancel) { cancel.click(); return '취소_clicked'; }
                     return null;
@@ -294,7 +282,6 @@ async def _close_help_panel(page: Page):
     """도움말 패널 닫기 — slick-arrow 제외하고 실제 × 버튼만 클릭"""
     targets = [page] + [f for f in page.frames if f.url != page.url]
 
-    # CSS 셀렉터 시도 (slick-arrow 계열 제외)
     close_sels = [
         "button[aria-label*='닫기']",
         "button[aria-label*='닫']",
@@ -315,7 +302,6 @@ async def _close_help_panel(page: Page):
             except Exception:
                 continue
 
-    # JS 폴백: slick-arrow 제외한 닫기 버튼 탐색
     for t in targets:
         try:
             result = await t.evaluate("""
@@ -323,11 +309,9 @@ async def _close_help_panel(page: Page):
                     const btns = [...document.querySelectorAll('button')];
                     const closeBtn = btns.find(b => {
                         const cls = b.className || '';
-                        // slick carousel 버튼은 제외
                         if (cls.includes('slick')) return false;
                         const label = (b.getAttribute('aria-label') || '').toLowerCase();
                         const txt = b.textContent.trim();
-                        // 닫기/close 관련 버튼만
                         return label.includes('닫') || label.includes('close') ||
                                txt === '×' || txt === '✕' || txt === 'X' ||
                                cls.toLowerCase().includes('close') ||
@@ -372,7 +356,6 @@ async def _fill_title(page: Page, title: str):
                     await page.keyboard.press("Control+a")
                     await page.keyboard.type(title, delay=20)
                     await _delay(200, 400)
-                    # Tab으로 본문 영역으로 포커스 이동 (제목→본문)
                     await page.keyboard.press("Tab")
                     await _delay(300, 500)
                     logger.info(f"제목 입력 + Tab 완료 ({sel}): {title[:40]}")
@@ -391,11 +374,9 @@ async def _type_in_editor(page: Page, text: str):
     """
     target = await _get_editor_frame(page)
     body_sels = [
-        # 제목 섹션(.se-section-title) 제외, 본문 섹션만 명시적으로 지정
         ".se-section-text .se-text-paragraph",
         ".se-section-text [contenteditable='true']",
         ".se-main-container .se-text-paragraph:not(.se-title-text)",
-        # 범용 폴백
         "div[contenteditable='true']:not([data-se-type='title'])",
         ".se-component-content",
         ".se-main-container",
@@ -414,7 +395,6 @@ async def _type_in_editor(page: Page, text: str):
             continue
 
     if not clicked:
-        # 포커스가 이미 본문에 있을 수 있음 (Tab 이동 후)
         logger.info("본문 셀렉터 없음 — Tab 포커스 유지로 타이핑 진행")
 
     await _delay(500, 800)
@@ -430,6 +410,132 @@ async def _type_in_editor(page: Page, text: str):
             await page.keyboard.press("Enter")
             await page.keyboard.press("Enter")
         await _delay(100, 200)
+
+
+async def _insert_image_from_url(page: Page, image_url: str, alt_text: str = "") -> bool:
+    """
+    SE ONE 에디터 툴바 '사진' 버튼 → URL 입력 방식으로 이미지 삽입.
+    실패 시 False 반환 (호출자가 try/except로 감싸지 않아도 안전).
+    """
+    try:
+        target = await _get_editor_frame(page)
+
+        # 1. 사진 삽입 버튼 탐색 (툴바)
+        photo_btn_sels = [
+            "button[aria-label*='사진']",
+            "button[title*='사진']",
+            ".se-toolbar button[data-name='image']",
+            ".se-toolbar-item-image",
+            "button[data-se-menu-name='image']",
+            "[class*='toolbar'] button:has-text('사진')",
+        ]
+        clicked = False
+        for t in [page, target]:
+            for sel in photo_btn_sels:
+                try:
+                    btn = t.locator(sel).first
+                    if await btn.count():
+                        await btn.click()
+                        await _delay(1000, 1500)
+                        clicked = True
+                        logger.info(f"사진 버튼 클릭: {sel}")
+                        break
+                except Exception:
+                    continue
+            if clicked:
+                break
+
+        if not clicked:
+            logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
+            return False
+
+        # 2. "URL로 사진 올리기" 탭 클릭 시도
+        url_tab_sels = [
+            "button:has-text('URL')",
+            "[role='tab']:has-text('URL')",
+            "a:has-text('URL로')",
+            "li:has-text('URL')",
+        ]
+        for t in [page, target]:
+            for sel in url_tab_sels:
+                try:
+                    tab = t.locator(sel).first
+                    if await tab.count():
+                        await tab.click()
+                        await _delay(500, 800)
+                        logger.info(f"URL 탭 클릭: {sel}")
+                        break
+                except Exception:
+                    continue
+
+        # 3. URL 입력창에 URL 입력
+        url_input_sels = [
+            "input[placeholder*='URL']",
+            "input[type='url']",
+            "input[placeholder*='주소']",
+            "input[placeholder*='링크']",
+        ]
+        url_entered = False
+        for t in [page, target]:
+            for sel in url_input_sels:
+                try:
+                    inp = t.locator(sel).first
+                    if await inp.count():
+                        await inp.click()
+                        await _delay(300, 500)
+                        await inp.fill(image_url)
+                        await _delay(500, 800)
+                        url_entered = True
+                        logger.info(f"이미지 URL 입력: {image_url[:60]}...")
+                        break
+                except Exception:
+                    continue
+            if url_entered:
+                break
+
+        if not url_entered:
+            # 팝업 닫기 시도 후 종료
+            logger.warning("URL 입력창 없음 — 이미지 삽입 실패, 팝업 닫기 시도")
+            await page.keyboard.press("Escape")
+            return False
+
+        # 4. 확인/삽입 버튼 클릭
+        confirm_sels = [
+            "button:has-text('확인')",
+            "button:has-text('삽입')",
+            "button:has-text('적용')",
+            "button[type='submit']",
+        ]
+        confirmed = False
+        for t in [page, target]:
+            for sel in confirm_sels:
+                try:
+                    btn = t.locator(sel).first
+                    if await btn.count():
+                        await btn.click()
+                        await _delay(1500, 2500)
+                        confirmed = True
+                        logger.info(f"이미지 삽입 확인 클릭: {sel}")
+                        break
+                except Exception:
+                    continue
+            if confirmed:
+                break
+
+        if not confirmed:
+            await page.keyboard.press("Enter")
+            await _delay(1500, 2000)
+
+        logger.info(f"이미지 삽입 완료: {alt_text or image_url[:40]}")
+        return True
+
+    except Exception as e:
+        logger.warning(f"이미지 삽입 실패 (무시하고 계속): {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
 
 
 async def _add_tags(page: Page, tags: list[str]):
@@ -449,7 +555,7 @@ async def _add_tags(page: Page, tags: list[str]):
                     await tag_box.click()
                     await _delay(200, 400)
                     await tag_box.fill(tag)
-                    await page.keyboard.press("Enter")  # page.keyboard 사용
+                    await page.keyboard.press("Enter")
                     await _delay(300, 500)
                 logger.info(f"태그 {len(tags)}개 입력 완료")
                 return
@@ -480,12 +586,11 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
             js_result = await search_target.evaluate("""
                 () => {
                     const btns = [...document.querySelectorAll('button')];
-                    // 상단의 발행 버튼: Y좌표가 작음 (뷰포트 상단)
                     const pub = btns.find(b => {
                         const txt = b.textContent.trim();
                         if (txt !== '발행') return false;
                         const rect = b.getBoundingClientRect();
-                        return rect.y < 100;  // 헤더 영역 (상단 100px 이내)
+                        return rect.y < 100;
                     });
                     if (pub) {
                         pub.click();
@@ -525,7 +630,7 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
     logger.info("발행 설정 패널 대기 중...")
     await _delay(2000, 3000)
 
-    # 2단계: 설정 패널 태그 입력 — Playwright 키보드 직접 입력 (React 이벤트 호환)
+    # 2단계: 설정 패널 태그 입력
     if tags:
         tag_input_found = False
         for t in [page, target]:
@@ -537,7 +642,6 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
                 for tag in tags[:10]:
                     await tag_loc.click()
                     await _delay(150, 250)
-                    # 기존 텍스트 지우고 입력
                     await page.keyboard.press("Control+a")
                     await page.keyboard.type(tag, delay=30)
                     await _delay(200, 350)
@@ -553,14 +657,12 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
             logger.warning("발행 설정 패널 태그 입력창 없음 — 태그 생략")
 
     # 3단계: 설정 패널 하단 '✓ 발행' 클릭
-    # 상단 발행 버튼(Y<100)과 구분하여 하단 확인 버튼(Y>200) 클릭
     confirmed = False
     for t in [page, target]:
         try:
             res = await t.evaluate("""
                 () => {
                     const btns = [...document.querySelectorAll('button')];
-                    // 발행 텍스트 버튼 중 Y좌표가 200 이상인 것 (설정 패널 하단 확인 버튼)
                     const confirmBtn = btns.find(b => {
                         const txt = b.textContent.trim();
                         if (!txt.includes('발행')) return false;
@@ -577,17 +679,15 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
             """)
             if res:
                 logger.info(f"발행 설정 확인 클릭: {res}")
-                await _delay(8000, 12000)  # 게시 완료 및 URL 이동 대기
+                await _delay(8000, 12000)
                 confirmed = True
                 break
         except Exception as e:
             logger.warning(f"발행 확인 JS 실패: {e.__class__.__name__}")
 
-    # URL 변경 대기 (게시 완료 후 포스트 URL로 이동)
     final_url = page.url
     logger.info(f"발행 후 URL (1차): {final_url}")
 
-    # URL이 아직 에디터면 추가 대기 (최대 15초)
     if "Redirect=Write" in final_url or "PostWriteForm" in final_url:
         if confirmed:
             logger.info("URL 아직 에디터 — 추가 10초 대기")
@@ -597,7 +697,6 @@ async def _publish(page: Page, tags: list[str] | None = None) -> str | None:
 
     await _screenshot(page, "after_publish")
 
-    # 실제 포스트 URL 판별: 숫자 ID 포함 + 에디터 URL 아님
     is_post_url = (
         re.search(r"/\d{9,}", final_url) is not None
         and "Redirect=Write" not in final_url
@@ -621,6 +720,7 @@ async def _post(
     body: str,
     tags: list[str],
     naver_cookies: str = "",
+    images: list[dict] | None = None,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -637,10 +737,8 @@ async def _post(
         )
         page = await ctx.new_page()
 
-        # 쿠키 로드
         cookies_ok = await _load_cookies(ctx, naver_cookies)
 
-        # 쿠키 없거나 NID_AUT 없으면 ID/PW 로그인
         if not cookies_ok or not await _is_logged_in(page):
             logger.info("쿠키 없음 — ID/PW 로그인 시도")
             if not naver_id or not naver_pw:
@@ -652,11 +750,9 @@ async def _post(
                 return None
             await _save_cookies(ctx)
 
-        # 글쓰기 페이지 진입 (BlogHome → 클릭)
         write_page = await _navigate_to_write_page(ctx, page, naver_id, blog_id)
 
         if write_page is None:
-            # 세션 만료 가능성 — 강제 재로그인 후 재시도
             logger.info("에디터 진입 실패 — ID/PW 재로그인 후 재시도")
             if not naver_id or not naver_pw:
                 logger.error("ID/PW 없음 — 종료")
@@ -678,35 +774,65 @@ async def _post(
         await _delay(2000, 3000)
         await _screenshot(write_page, "editor_ready")
 
-        # 임시저장 팝업 처리 (이전 실패 세션의 임시저장 → 취소로 새 글 시작)
         await _dismiss_draft_popup(write_page)
         await _delay(500, 800)
 
-        # 도움말 패널 닫기 (SE ONE 에디터 첫 실행 시 자동 열림)
         await _close_help_panel(write_page)
         await _delay(1000, 1500)
 
-        # 에디터 안정화 대기
         await _screenshot(write_page, "editor_ready2")
 
-        # 제목 / 본문 입력 (태그는 발행 설정 패널에서 입력)
+        # 제목 입력
         logger.info(f"제목 입력 시작: {title[:40]}")
         await _fill_title(write_page, title)
         await _delay(500, 800)
         await _screenshot(write_page, "after_title")
 
-        logger.info(f"본문 입력 시작 ({len(body)}자)")
-        await _type_in_editor(write_page, body)
+        # 본문 타이핑 (1/3 지점까지)
+        paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+        split_point = max(1, len(paragraphs) // 3)
+        body_part1 = "\n\n".join(paragraphs[:split_point])
+        body_part2 = "\n\n".join(paragraphs[split_point:])
+
+        logger.info(f"본문 1부 입력 ({len(body_part1)}자)")
+        await _type_in_editor(write_page, body_part1)
+        await _delay(800, 1200)
+
+        # 이미지 삽입 (본문 사이)
+        images_inserted = 0
+        if images:
+            logger.info(f"이미지 삽입 시도 ({len(images)}장)")
+            for i, img in enumerate(images[:3]):  # 최대 3장
+                try:
+                    success = await _insert_image_from_url(
+                        write_page,
+                        image_url=img["url"],
+                        alt_text=img.get("alt_text", ""),
+                    )
+                    if success:
+                        images_inserted += 1
+                        await _delay(1000, 1500)
+                        logger.info(f"이미지 {i+1}번 삽입 성공")
+                    else:
+                        logger.warning(f"이미지 {i+1}번 삽입 실패 — 계속 진행")
+                except Exception as e:
+                    logger.warning(f"이미지 {i+1}번 삽입 예외 — 계속 진행: {e}")
+
+        # 본문 나머지 입력
+        if body_part2:
+            logger.info(f"본문 2부 입력 ({len(body_part2)}자)")
+            await _type_in_editor(write_page, body_part2)
         await _delay(1000, 1500)
         await _screenshot(write_page, "after_body")
+        logger.info(f"이미지 {images_inserted}장 삽입 완료")
 
-        # 발행 (tags 전달 → 발행 설정 패널에서 태그 입력)
+        # 발행
         post_url = await _publish(write_page, tags=tags)
         await _save_cookies(ctx)
         await browser.close()
 
         if post_url:
-            return {"post_url": post_url}
+            return {"post_url": post_url, "images_inserted": images_inserted}
         logger.error("발행 실패")
         return None
 
@@ -719,5 +845,8 @@ def post_to_naver_blog(
     body: str,
     tags: list[str],
     naver_cookies: str = "",
+    images: list[dict] | None = None,
 ) -> dict | None:
-    return asyncio.run(_post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies))
+    return asyncio.run(
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images)
+    )
