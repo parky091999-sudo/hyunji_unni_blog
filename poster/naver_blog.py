@@ -53,7 +53,9 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
 
     if cookies_json.strip():
         try:
-            raw = json.loads(cookies_json.strip())
+            # BOM(﻿) 제거 후 파싱
+            clean = cookies_json.strip().lstrip('﻿').strip()
+            raw = json.loads(clean)
             logger.info(f"환경변수 쿠키 파싱 성공 ({len(raw)}개)")
         except Exception as e:
             logger.warning(f"NAVER_COOKIES JSON 파싱 실패: {e}")
