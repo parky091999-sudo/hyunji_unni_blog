@@ -1,6 +1,12 @@
 """
 Playwright로 네이버 블로그 자동 포스팅
 SE3/SE4 에디터 기반 — 쿠키 세션 재사용으로 로그인 최소화
+
+[핵심 발견사항]
+- www.naver.com, GoBlogWrite.naver 는 Akamai CDN이 클라우드 IP 차단
+- section.blog.naver.com/BlogHome.naver 는 접근 가능
+- 글쓰기 버튼을 BlogHome에서 직접 클릭해야 에디터 진입 가능 (Referer 필요)
+- 새 탭이 열리면 그 탭을 에디터 페이지로 사용
 """
 import asyncio
 import json
@@ -8,7 +14,7 @@ import logging
 import os
 import random
 
-from playwright.async_api import async_playwright, Page, BrowserContext, Frame
+from playwright.async_api import async_playwright, Page, BrowserContext
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +34,6 @@ async def _delay(ms_min: int = 300, ms_max: int = 800):
 
 
 async def _screenshot(page: Page, name: str):
-    """디버그 스크린샷 저장"""
     try:
         os.makedirs(SHOT_DIR, exist_ok=True)
         path = os.path.join(SHOT_DIR, f"{name}.png")
@@ -47,9 +52,7 @@ async def _save_cookies(ctx: BrowserContext):
 
 
 async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
-    """저장된 쿠키 또는 환경변수 쿠키 로드"""
     raw = None
-
     if cookies_json.strip():
         try:
             clean = cookies_json.strip().lstrip('﻿').strip()
@@ -67,7 +70,6 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
             logger.warning(f"쿠키 파일 로드 실패: {e}")
 
     if not raw:
-        logger.error("로드할 쿠키 없음")
         return False
 
     clean = []
@@ -84,51 +86,21 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
         clean.append(entry)
 
     await ctx.add_cookies(clean)
-    logger.info(f"쿠키 {len(clean)}개 로드 완료")
+    logger.info(f"쿠키 {len(clean)}개 로드")
     return True
 
 
 async def _is_logged_in(page: Page) -> bool:
-    """NID_AUT 쿠키 존재 여부로 1차 로그인 체크"""
     cookies = await page.context.cookies()
     names = {c["name"] for c in cookies}
     logged = "NID_AUT" in names
-    logger.info(f"로그인 체크(쿠키): {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:8]})")
+    logger.info(f"로그인 쿠키 체크: {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:8]})")
     return logged
 
 
-async def _verify_session(page: Page) -> bool:
-    """네이버 메인 접속으로 실제 세션 유효성 확인"""
-    try:
-        await page.goto("https://www.naver.com", wait_until="domcontentloaded", timeout=20000)
-        await _delay(2000, 3000)
-        await _screenshot(page, "session_verify")
-        # 로그아웃 상태면 로그인 버튼이 보임
-        login_link_count = await page.locator(
-            "a.link_login, a[href*='nidlogin'], .gnb_login_area a"
-        ).count()
-        # 로그인 상태면 사용자 아이디/메뉴가 보임
-        logged_in_indicator = await page.locator(
-            ".gnb_my_area, .MyView-module, [class*='MyMenu'], .link_logout"
-        ).count()
-        logger.info(
-            f"세션 검증 — 로그인버튼: {login_link_count}, 로그인표시: {logged_in_indicator}, URL: {page.url}"
-        )
-        # BlogHome 리다이렉트 = 로그인 상태
-        if "BlogHome" in page.url or logged_in_indicator > 0:
-            return True
-        if login_link_count > 0 and logged_in_indicator == 0:
-            logger.warning("네이버 메인에서 로그아웃 상태 감지 — 세션 만료")
-            return False
-        return True  # 확실하지 않으면 로그인 상태로 간주
-    except Exception as e:
-        logger.warning(f"세션 검증 실패: {e}")
-        return True  # 오류 시 로그인 상태로 간주 (과도한 재시도 방지)
-
-
 async def _login(page: Page, naver_id: str, naver_pw: str) -> bool:
-    logger.info("네이버 로그인 시도")
-    await page.goto("https://nid.naver.com/nidlogin.login", wait_until="domcontentloaded")
+    logger.info("네이버 ID/PW 로그인 시도")
+    await page.goto("https://nid.naver.com/nidlogin.login", wait_until="domcontentloaded", timeout=30000)
     await _delay(1000, 2000)
 
     await page.locator("#id").fill(naver_id)
@@ -137,7 +109,6 @@ async def _login(page: Page, naver_id: str, naver_pw: str) -> bool:
     await _delay(400, 700)
     await page.locator("button[type='submit'].btn_login").click()
     await _delay(4000, 6000)
-
     await _screenshot(page, "after_login")
 
     cookies = await page.context.cookies()
@@ -149,176 +120,159 @@ async def _login(page: Page, naver_id: str, naver_pw: str) -> bool:
     return False
 
 
-def _looks_like_write_page(url: str) -> bool:
-    """URL이 글쓰기 에디터 페이지인지 판별"""
+def _is_editor_page(url: str) -> bool:
+    """에디터 페이지인지 URL로 판별 (느슨하게)"""
     if not url or "about:blank" in url:
         return False
-    bad = ["BlogHome.naver", "nid.naver.com", "section.blog.naver.com"]
-    if any(b in url for b in bad):
-        return False
-    good = [
-        "postwrite", "PostWrite", "editor", "/write", "editForm",
-        "Redirect=Write", "GoBlogWrite",  # 네이버 현재 글쓰기 리다이렉트 패턴
-    ]
+    # 확실한 에디터 URL 패턴
+    good = ["postwrite", "PostWrite", "Redirect=Write", "editForm"]
     return any(g in url for g in good)
 
 
-async def _navigate_to_write_page(page: Page, naver_id: str, blog_id: str) -> bool:
-    """글쓰기 에디터 페이지 진입 — 세 가지 방법 순차 시도"""
+async def _navigate_to_write_page(ctx: BrowserContext, page: Page, naver_id: str, blog_id: str) -> Page | None:
+    """
+    글쓰기 에디터 페이지 진입.
+    새 탭이 열리면 그 탭을 반환하고, 현재 페이지면 page 반환.
+    실패 시 None 반환.
 
-    # 방법 1: 알려진 글쓰기 URL 직접 이동
-    ids_to_try = list(dict.fromkeys(filter(None, [blog_id, naver_id])))
-    write_url_candidates = (
-        ["https://blog.naver.com/GoBlogWrite.naver"]  # 현행 글쓰기 진입점
-        + [f"https://blog.naver.com/{bid}/postwrite" for bid in ids_to_try]
-    )
-    for url in write_url_candidates:
-        logger.info(f"[방법1] 이동: {url}")
+    핵심: BlogHome에서 직접 CLICK만 사용 (CDN 차단 때문에 goto 불가)
+    """
+
+    # BlogHome 접속 — section.blog.naver.com은 클라우드 IP 허용됨
+    blog_home_url = "https://section.blog.naver.com/BlogHome.naver"
+    logger.info(f"BlogHome 접속: {blog_home_url}")
+    await page.goto(blog_home_url, wait_until="domcontentloaded", timeout=30000)
+    await _delay(2000, 3000)
+    await _screenshot(page, "blog_home")
+    logger.info(f"BlogHome URL: {page.url}")
+
+    # 로그인 필요 여부 체크 (BlogHome이 로그인 페이지로 리다이렉트됐는지)
+    if "nidlogin" in page.url or "login" in page.url.lower():
+        logger.warning("BlogHome이 로그인 페이지로 리다이렉트 — 세션 만료")
+        return None
+
+    # 글쓰기 버튼 셀렉터 순서
+    write_btn_sels = [
+        "a:has-text('글쓰기')",
+        ".btn_write",
+        "a.write_btn",
+        "button:has-text('글쓰기')",
+        "[href*='GoBlogWrite']",
+        "[href*='PostWriteForm']",
+    ]
+
+    for sel in write_btn_sels:
         try:
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            el = page.locator(sel).first
+            if not await el.count():
+                continue
+
+            href = await el.get_attribute("href") or ""
+            logger.info(f"글쓰기 버튼 발견: {sel} | href={href!r}")
+
+            # 클릭 전 현재 페이지 수 확인
+            pages_before = len(ctx.pages)
+
+            # 클릭: 새 탭 열릴 수 있음
+            try:
+                async with ctx.expect_page(timeout=8000) as new_page_info:
+                    await el.click()
+                new_pg = await new_page_info.value
+                await new_pg.wait_for_load_state("domcontentloaded", timeout=20000)
+                await _delay(2000, 3000)
+                await _screenshot(new_pg, "write_new_tab")
+                logger.info(f"새 탭 열림: {new_pg.url}")
+                # 에디터 요소 대기
+                try:
+                    await new_pg.wait_for_selector(
+                        "div[contenteditable='true'], .se-title-text, .se-main-container",
+                        timeout=15000,
+                    )
+                    logger.info(f"새 탭 에디터 확인 완료: {new_pg.url}")
+                    return new_pg
+                except Exception:
+                    logger.info(f"새 탭 에디터 요소 없음 — URL: {new_pg.url}")
+                    if _is_editor_page(new_pg.url):
+                        return new_pg
+                    await new_pg.close()
+            except Exception as e:
+                logger.info(f"새 탭 없음 ({e.__class__.__name__}) — 현재 페이지 확인")
+
+            # 새 탭 없는 경우: 현재 페이지에서 에디터 대기
+            await _delay(3000, 5000)
+            cur = page.url
+            logger.info(f"클릭 후 현재 URL: {cur}")
+            await _screenshot(page, "after_click_write")
+
+            # Redirect=Write 패턴: 추가 대기 후 에디터 확인
+            if "Redirect=Write" in cur or _is_editor_page(cur):
+                logger.info(f"에디터 리다이렉트 감지: {cur}")
+                try:
+                    await page.wait_for_selector(
+                        "div[contenteditable='true'], .se-title-text, .se-main-container",
+                        timeout=15000,
+                    )
+                    logger.info("현재 페이지에서 에디터 요소 확인")
+                    return page
+                except Exception:
+                    # networkidle 대기 후 다시 확인
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                    await _delay(2000, 3000)
+                    await _screenshot(page, "after_redirect_write")
+                    ed_count = await page.locator("div[contenteditable='true'], .se-title-text").count()
+                    if ed_count > 0:
+                        logger.info(f"에디터 요소 {ed_count}개 확인")
+                        return page
+
+            break
+        except Exception as e:
+            logger.warning(f"글쓰기 버튼 시도 실패 ({sel}): {e}")
+
+    # 방법 2: 구형 PostWriteForm 시도 (blogId 파라미터 포함)
+    for bid in dict.fromkeys(filter(None, [blog_id, naver_id])):
+        url = f"https://blog.naver.com/PostWriteForm.naver?blogId={bid}"
+        logger.info(f"[레거시] PostWriteForm: {url}")
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             await _delay(2000, 3000)
             cur = page.url
-            await _screenshot(page, "try1_write")
-            logger.info(f"결과 URL: {cur}")
-            if _looks_like_write_page(cur):
-                logger.info(f"방법1 성공: {cur}")
-                return True
-            # URL로 판단 어렵다면 에디터 요소 존재 여부 확인
-            editor_count = await page.locator(
-                "div[contenteditable='true'], .se-title-text, .se-main-container"
-            ).count()
-            if editor_count > 0:
-                logger.info(f"방법1 성공 (에디터 요소 {editor_count}개 감지): {cur}")
-                return True
+            await _screenshot(page, f"legacy_{bid}")
+            logger.info(f"레거시 결과: {cur}")
+            ed_count = await page.locator("div[contenteditable='true'], .se-title-text").count()
+            if ed_count > 0:
+                logger.info(f"레거시 에디터 {ed_count}개 확인")
+                return page
         except Exception as e:
-            logger.warning(f"방법1 실패 ({url}): {e}")
-
-    # 방법 2: 블로그 홈 → 글쓰기 버튼 클릭
-    home_id = blog_id or naver_id
-    logger.info(f"[방법2] 블로그 홈 진입: {home_id}")
-    try:
-        await page.goto(f"https://blog.naver.com/{home_id}", wait_until="domcontentloaded", timeout=25000)
-        await _delay(2000, 3000)
-        await _screenshot(page, "try2_blog_home")
-        logger.info(f"블로그 홈 URL: {page.url}")
-
-        write_btn_sels = [
-            ".btn_write",
-            "a.write_btn",
-            "a:has-text('글쓰기')",
-            "button:has-text('글쓰기')",
-            "[href*='postwrite']",
-            "[href*='PostWriteForm']",
-        ]
-        for sel in write_btn_sels:
-            try:
-                el = page.locator(sel).first
-                if not await el.count():
-                    continue
-
-                href = await el.get_attribute("href") or ""
-                logger.info(f"글쓰기 버튼 발견: {sel} | href={href!r}")
-
-                # href가 직접 이동 가능한 URL이면 goto 사용 (networkidle로 리다이렉트 체인 따라감)
-                if href and href not in ("#", "") and "javascript:" not in href.lower():
-                    goto_url = href if href.startswith("http") else f"https://blog.naver.com{href}"
-                    logger.info(f"글쓰기 href 직접 이동: {goto_url}")
-                    await page.goto(goto_url, wait_until="networkidle", timeout=35000)
-                    await _delay(2000, 3000)
-                    await _screenshot(page, "try2_href_nav")
-                    cur = page.url
-                    logger.info(f"href 이동 후 URL: {cur}")
-                    if _looks_like_write_page(cur):
-                        return True
-                    # 에디터 요소로도 확인
-                    ed_count = await page.locator(
-                        "div[contenteditable='true'], .se-title-text, .se-main-container"
-                    ).count()
-                    if ed_count > 0:
-                        logger.info(f"href 이동 성공 (에디터 요소 {ed_count}개): {cur}")
-                        return True
-
-                # 클릭 — 새 탭 열릴 경우 expect_page로 캡처
-                try:
-                    async with page.context.expect_page(timeout=6000) as new_page_info:
-                        await el.click()
-                    new_page = await new_page_info.value
-                    await new_page.wait_for_load_state("domcontentloaded", timeout=15000)
-                    target_url = new_page.url
-                    logger.info(f"새 탭 열림: {target_url}")
-                    await _screenshot(new_page, "try2_new_tab")
-                    await new_page.close()
-                    if _looks_like_write_page(target_url):
-                        await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
-                        await _delay(2000, 3000)
-                        await _screenshot(page, "try2_write_page")
-                        return True
-                except Exception:
-                    # 새 탭 없음 — 현재 페이지 URL 확인
-                    await _delay(3000, 4000)
-                    cur = page.url
-                    logger.info(f"글쓰기 클릭 후 URL: {cur}")
-                    await _screenshot(page, "try2_after_click")
-                    if _looks_like_write_page(cur):
-                        return True
-                break
-            except Exception as e:
-                logger.debug(f"셀렉터 {sel}: {e}")
-    except Exception as e:
-        logger.warning(f"방법2 실패: {e}")
-
-    # 방법 3: 구형 PostWriteForm (최후 수단) - 여러 파라미터 조합
-    for bid in ids_to_try:
-        for params in [f"blogId={bid}", f"blogId={bid}&postNo=0", f"blogId={bid}&from=blog"]:
-            url = f"https://blog.naver.com/PostWriteForm.naver?{params}"
-            logger.info(f"[방법3] 레거시: {url}")
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                await _delay(3000, 5000)
-                cur = page.url
-                await _screenshot(page, f"try3_{bid}")
-                logger.info(f"레거시 결과: {cur}")
-                if _looks_like_write_page(cur):
-                    logger.info("방법3 성공")
-                    return True
-            except Exception as e:
-                logger.warning(f"방법3 실패: {e}")
+            logger.warning(f"레거시 실패: {e}")
 
     logger.error("모든 방법으로 글쓰기 페이지 진입 실패")
-    return False
+    return None
 
 
-async def _get_editor_frame(page: Page):
-    """에디터 frame 반환 — iframe 내부 또는 메인 페이지"""
-    await _delay(500, 1000)
-    # 에디터 관련 frame URL 패턴 우선
+async def _get_editor_frame(page: Page) -> Page:
+    """에디터가 iframe 안에 있으면 해당 frame 반환"""
+    await _delay(500, 800)
     for frame in page.frames:
         url = frame.url or ""
         if any(kw in url for kw in ["editor", "se.naver", "postwrite", "editForm"]):
-            logger.info(f"에디터 frame 발견 (URL): {url}")
-            return frame
-    # contenteditable 있는 frame 탐색
-    for frame in page.frames:
+            logger.info(f"에디터 frame (URL): {url}")
+            return frame  # type: ignore
         try:
             count = await frame.locator("div[contenteditable='true']").count()
             if count > 0:
-                logger.info(f"에디터 frame 발견 (contenteditable): {frame.url}")
-                return frame
+                logger.info(f"에디터 frame (contenteditable): {url}")
+                return frame  # type: ignore
         except Exception:
             continue
     return page
 
 
 async def _fill_title(page: Page, title: str):
-    """제목 입력 — SE4 에디터 기준 확인된 셀렉터 우선"""
     target = await _get_editor_frame(page)
     title_sels = [
-        # SE4 신형 에디터 (확인된 셀렉터)
-        "div[contenteditable='true'][data-placeholder='제목']",
-        # 구형 SE3 셀렉터
+        "div[contenteditable='true'][data-placeholder='제목']",  # SE4 확인된 셀렉터
         ".se-title-text",
         "[data-se-type='title'] [contenteditable]",
-        # 기타 폴백
         ".title_input",
         "input[name='title']",
         "[placeholder='제목']",
@@ -329,7 +283,6 @@ async def _fill_title(page: Page, title: str):
             if await t.count():
                 await t.click()
                 await _delay(300, 500)
-                # contenteditable은 Ctrl+A → 타이핑으로 입력
                 await target.keyboard.press("Control+a")
                 await target.keyboard.type(title, delay=20)
                 logger.info(f"제목 입력 완료 ({sel}): {title[:40]}")
@@ -340,18 +293,13 @@ async def _fill_title(page: Page, title: str):
 
 
 async def _type_in_editor(page: Page, text: str):
-    """본문 영역에 내용 입력 — SE4 확인된 셀렉터 우선"""
     target = await _get_editor_frame(page)
-
     body_sels = [
-        # SE4 신형: 제목이 아닌 contenteditable (확인된 패턴)
-        "div[contenteditable='true']:not([data-placeholder='제목'])",
-        # SE3 구형
+        "div[contenteditable='true']:not([data-placeholder='제목'])",  # SE4
         ".se-text-paragraph",
         "[data-se-type='text'] [contenteditable]",
         ".se-component-content",
         ".se-main-container",
-        # 최후 폴백
         "[contenteditable='true']",
     ]
     clicked = False
@@ -370,7 +318,6 @@ async def _type_in_editor(page: Page, text: str):
         await target.keyboard.press("Tab")
 
     await _delay(500, 800)
-
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     for i, para in enumerate(paragraphs):
         lines = para.split("\n")
@@ -387,14 +334,14 @@ async def _type_in_editor(page: Page, text: str):
 
 async def _add_tags(page: Page, tags: list[str]):
     target = await _get_editor_frame(page)
-    tag_selectors = [
+    tag_sels = [
         ".tag_input input",
         ".se-tag input",
         "[placeholder*='태그']",
         "input[class*='tag']",
         ".HashTagArea input",
     ]
-    for sel in tag_selectors:
+    for sel in tag_sels:
         try:
             tag_box = target.locator(sel).first
             if await tag_box.count():
@@ -415,16 +362,16 @@ async def _publish(page: Page) -> str | None:
     await _screenshot(page, "before_publish")
     target = await _get_editor_frame(page)
 
-    publish_selectors = [
+    pub_sels = [
         "button:has-text('발행')",
-        ".publish_btn",
         "button:has-text('게시')",
+        ".publish_btn",
         "[data-gdl-area='bottom'] button:last-child",
         "button.confirm",
         ".btn_submit",
     ]
     clicked = False
-    for sel in publish_selectors:
+    for sel in pub_sels:
         try:
             btn = target.locator(sel).first
             if await btn.count():
@@ -455,10 +402,7 @@ async def _publish(page: Page) -> str | None:
     final_url = page.url
     logger.info(f"발행 후 URL: {final_url}")
     await _screenshot(page, "after_publish")
-
-    if "about:blank" in final_url or not final_url:
-        return None
-    return final_url
+    return final_url if final_url and "about:blank" not in final_url else None
 
 
 async def _post(
@@ -488,20 +432,11 @@ async def _post(
         # 쿠키 로드
         cookies_ok = await _load_cookies(ctx, naver_cookies)
 
-        # 로그인 상태 확인 (쿠키 → 실제 세션 검증 → ID/PW 로그인 순)
-        needs_login = False
+        # 쿠키 없거나 NID_AUT 없으면 ID/PW 로그인
         if not cookies_ok or not await _is_logged_in(page):
-            needs_login = True
-        else:
-            # 쿠키가 있어도 실제 세션이 만료됐을 수 있으므로 검증
-            if not await _verify_session(page):
-                logger.info("세션 만료 확인 — ID/PW 재로그인")
-                needs_login = True
-
-        if needs_login:
-            logger.info("ID/PW 로그인 시도")
+            logger.info("쿠키 없음 — ID/PW 로그인 시도")
             if not naver_id or not naver_pw:
-                logger.error("ID/PW 없음 - 로그인 불가")
+                logger.error("ID/PW 없음 — 종료")
                 await browser.close()
                 return None
             if not await _login(page, naver_id, naver_pw):
@@ -509,30 +444,42 @@ async def _post(
                 return None
             await _save_cookies(ctx)
 
-        # 글쓰기 페이지 진입
-        if not await _navigate_to_write_page(page, naver_id, blog_id):
-            logger.error("글쓰기 페이지 진입 실패 — 종료")
+        # 글쓰기 페이지 진입 (BlogHome → 클릭)
+        write_page = await _navigate_to_write_page(ctx, page, naver_id, blog_id)
+
+        if write_page is None:
+            # 세션 만료 가능성 — 강제 재로그인 후 재시도
+            logger.info("에디터 진입 실패 — ID/PW 재로그인 후 재시도")
+            if not naver_id or not naver_pw:
+                logger.error("ID/PW 없음 — 종료")
+                await browser.close()
+                return None
+            login_page = await ctx.new_page()
+            if not await _login(login_page, naver_id, naver_pw):
+                await browser.close()
+                return None
+            await _save_cookies(ctx)
+            write_page = await _navigate_to_write_page(ctx, login_page, naver_id, blog_id)
+
+        if write_page is None:
+            logger.error("재시도 후에도 에디터 진입 실패 — 종료")
             await browser.close()
             return None
 
-        logger.info(f"글쓰기 에디터 진입 성공: {page.url}")
+        logger.info(f"에디터 진입 성공: {write_page.url}")
         await _delay(2000, 3000)
-        await _screenshot(page, "editor_ready")
+        await _screenshot(write_page, "editor_ready")
 
-        # 제목 입력
-        await _fill_title(page, title)
+        # 제목 / 본문 / 태그 입력
+        await _fill_title(write_page, title)
         await _delay(500, 800)
-
-        # 본문 입력
-        await _type_in_editor(page, body)
+        await _type_in_editor(write_page, body)
         await _delay(1000, 1500)
-
-        # 태그 입력
-        await _add_tags(page, tags)
+        await _add_tags(write_page, tags)
         await _delay(500, 800)
 
         # 발행
-        post_url = await _publish(page)
+        post_url = await _publish(write_page)
         await _save_cookies(ctx)
         await browser.close()
 
