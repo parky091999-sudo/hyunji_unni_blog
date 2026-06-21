@@ -375,8 +375,17 @@ async def _type_in_editor(page: Page, text: str):
     본문 타이핑.
     _fill_title()이 Tab으로 본문 포커스를 이미 이동했으므로,
     .se-section-text 내부 요소만 클릭해 제목 재클릭을 방지한다.
+    이미지 삽입 후에도 커서가 문서 끝에 위치하도록 Ctrl+End 사용.
     """
     target = await _get_editor_frame(page)
+
+    # 먼저 Ctrl+End로 문서 끝으로 이동 (이미지 삽입 후 커서 위치 보정)
+    try:
+        await page.keyboard.press("Control+End")
+        await _delay(150, 250)
+    except Exception:
+        pass
+
     body_sels = [
         ".se-section-text .se-text-paragraph",
         ".se-section-text [contenteditable='true']",
@@ -389,11 +398,15 @@ async def _type_in_editor(page: Page, text: str):
     clicked = False
     for sel in body_sels:
         try:
-            loc = target.locator(sel).first
+            # .last 로 가장 마지막 단락 클릭 (이미지 뒤 새 단락에 커서 위치)
+            loc = target.locator(sel).last
             if await loc.count():
                 await loc.click()
                 clicked = True
                 logger.info(f"에디터 본문 클릭: {sel}")
+                # 클릭 후 End 키로 해당 단락 끝으로 커서 이동
+                await page.keyboard.press("End")
+                await _delay(100, 200)
                 break
         except Exception:
             continue
@@ -401,7 +414,7 @@ async def _type_in_editor(page: Page, text: str):
     if not clicked:
         logger.info("본문 셀렉터 없음 — Tab 포커스 유지로 타이핑 진행")
 
-    await _delay(500, 800)
+    await _delay(400, 700)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     for i, para in enumerate(paragraphs):
         lines = para.split("\n")
@@ -590,6 +603,12 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
 
         except Exception as e:
             logger.warning(f"방법1 실패 ({e.__class__.__name__}: {str(e)[:60]}) — 방법2 시도")
+            # 방법1이 사진 업로드 팝업을 열었을 수 있으므로 Escape로 닫기
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
 
         # ── 방법 2: 모든 프레임 file input 직접 설정 ───────────────
         for frame in _all_frames():
@@ -635,7 +654,20 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                 """, [img_b64, img_mime])
                 if result:
                     await asyncio.sleep(2)
-                    logger.info(f"이미지 삽입 성공 (방법3 DataTransfer)")
+                    # 팝업이 열려있을 수 있으므로 닫기
+                    try:
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.5)
+                    except Exception:
+                        pass
+                    # 실제 이미지 삽입 여부 확인
+                    try:
+                        img_count = await target.evaluate(
+                            "() => document.querySelectorAll('.se-section-image, .se-image-resource, .se-module-image').length"
+                        )
+                        logger.info(f"이미지 삽입 성공 (방법3 DataTransfer) — 에디터 이미지 수: {img_count}")
+                    except Exception:
+                        logger.info("이미지 삽입 성공 (방법3 DataTransfer)")
                     return True
         except Exception as e:
             logger.warning(f"방법3 DataTransfer 실패: {e}")
@@ -655,6 +687,12 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             pass
         return False
     finally:
+        # 어떤 경로로 종료되어도 사진 팝업이 남아있지 않도록 Escape
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
+        except Exception:
+            pass
         try:
             if local_path and os.path.exists(local_path):
                 os.unlink(local_path)
@@ -948,6 +986,12 @@ async def _post(
                             if ok:
                                 images_inserted += 1
                                 logger.info(f"이미지 {img_idx+1}번 삽입 성공 (마커 위치)")
+                                # 이미지 삽입 후 문서 끝으로 커서 이동 (다음 세그먼트 타이핑 위치 보정)
+                                try:
+                                    await write_page.keyboard.press("Control+End")
+                                    await _delay(300, 500)
+                                except Exception:
+                                    pass
                             else:
                                 logger.warning(f"이미지 {img_idx+1}번 삽입 실패 — 계속")
                         else:
