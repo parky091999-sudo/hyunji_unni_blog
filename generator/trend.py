@@ -18,7 +18,7 @@ KST = timezone(timedelta(hours=9))
 _CACHE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "data", "trend_cache.json"
 )
-_CACHE_TTL_DAYS = 7
+_CACHE_TTL_DAYS = 1
 
 # 생활/살림 관련 키워드 필터 — 이 단어 포함 뉴스 우선
 _LIFE_KEYWORDS = re.compile(
@@ -26,7 +26,9 @@ _LIFE_KEYWORDS = re.compile(
     r"날씨|계절|이사|인테리어|가전|가구|결혼|신혼|청소|정리|수납"
 )
 _SKIP = re.compile(
-    r"북한|무기|전쟁|핵|테러|사망|사고|화재|범죄|살인|마약|자살|부고|피해|사건|정치|선거"
+    r"북한|무기|전쟁|핵|테러|사망|사고|화재|범죄|살인|마약|자살|부고|피해|사건|정치|선거|"
+    r"트럼프|바이든|푸틴|시진핑|네타냐후|총리|의원|여당|야당|검찰|기소|법원|판결|외교|국방|"
+    r"대통령|국회|정당|총선|대선|시장|도지사|장관|수석|참모|의혹|비리|부패|탄핵"
 )
 
 

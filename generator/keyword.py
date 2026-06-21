@@ -225,7 +225,11 @@ def pick_keyword() -> dict:
 
 def get_trending_bonus(limit: int = 5) -> list[str]:
     """Google News RSS에서 생활 관련 트렌딩 키워드 보조 수집"""
-    _SKIP = re.compile(r"북한|무기|전쟁|핵|테러|사망|사고|화재|범죄|살인|마약|자살|부고|피해|사건")
+    _SKIP = re.compile(
+        r"북한|무기|전쟁|핵|테러|사망|사고|화재|범죄|살인|마약|자살|부고|피해|사건|정치|선거|"
+        r"트럼프|바이든|푸틴|시진핑|총리|의원|여당|야당|검찰|기소|법원|판결|외교|국방|"
+        r"대통령|국회|정당|총선|대선|장관|수석|참모|의혹|비리|부패|탄핵"
+    )
     try:
         r = requests.get(
             "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko",
