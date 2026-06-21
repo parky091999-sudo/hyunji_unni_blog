@@ -267,23 +267,41 @@ async def _get_editor_frame(page: Page) -> Page:
     return page
 
 
+async def _dismiss_draft_popup(page: Page):
+    """'작성 중인 글이 있습니다' 팝업 → 취소 클릭 (이전 임시저장 무시하고 새 글 시작)"""
+    targets = [page] + [f for f in page.frames if f.url != page.url]
+    for t in targets:
+        try:
+            result = await t.evaluate("""
+                () => {
+                    const btns = [...document.querySelectorAll('button')];
+                    // '취소' 버튼 (팝업 닫고 새 글 시작)
+                    const cancel = btns.find(b => b.textContent.trim() === '취소');
+                    if (cancel) { cancel.click(); return '취소_clicked'; }
+                    return null;
+                }
+            """)
+            if result:
+                await _delay(800, 1200)
+                logger.info(f"임시저장 팝업 취소: {result}")
+                return
+        except Exception:
+            continue
+
+
 async def _close_help_panel(page: Page):
-    """도움말 패널 닫기 (SE ONE 에디터 초기 실행 시 자동으로 열림)"""
+    """도움말 패널 닫기 — slick-arrow 제외하고 실제 × 버튼만 클릭"""
+    targets = [page] + [f for f in page.frames if f.url != page.url]
+
+    # CSS 셀렉터 시도 (slick-arrow 계열 제외)
     close_sels = [
         "button[aria-label*='닫기']",
         "button[aria-label*='닫']",
-        ".se-help-panel .se-close-btn",
-        ".se-help-panel button",
-        ".help_panel .close",
+        "button[aria-label*='close' i]",
+        ".se-help-panel-close",
+        ".se-help-panel > button",
         "button.se-close-btn",
-        "[class*='help'] button",
-        "[class*='Help'] button",
-        "[class*='helpPanel'] button",
-        "[class*='help'][class*='close']",
-        "[class*='Help'][class*='Close']",
     ]
-    # 메인 페이지와 모든 프레임에서 탐색
-    targets = [page] + [f for f in page.frames if f.url != page.url]
     for t in targets:
         for sel in close_sels:
             try:
@@ -291,25 +309,32 @@ async def _close_help_panel(page: Page):
                 if await btn.count():
                     await btn.click()
                     await _delay(500, 800)
-                    logger.info(f"도움말 패널 닫음: {sel}")
+                    logger.info(f"도움말 패널 닫음 (CSS): {sel}")
                     return
             except Exception:
                 continue
 
-    # JS 폴백: 도움말 패널의 버튼을 찾아 클릭
+    # JS 폴백: slick-arrow 제외한 닫기 버튼 탐색
     for t in targets:
         try:
             result = await t.evaluate("""
                 () => {
-                    const candidates = [
-                        document.querySelector('[class*="help"] button'),
-                        document.querySelector('[class*="Help"] button'),
-                        document.querySelector('button[aria-label*="닫"]'),
-                        document.querySelector('button[aria-label*="close"]'),
-                        document.querySelector('button[aria-label*="Close"]'),
-                    ];
-                    for (const btn of candidates) {
-                        if (btn) { btn.click(); return btn.className || 'clicked'; }
+                    const btns = [...document.querySelectorAll('button')];
+                    const closeBtn = btns.find(b => {
+                        const cls = b.className || '';
+                        // slick carousel 버튼은 제외
+                        if (cls.includes('slick')) return false;
+                        const label = (b.getAttribute('aria-label') || '').toLowerCase();
+                        const txt = b.textContent.trim();
+                        // 닫기/close 관련 버튼만
+                        return label.includes('닫') || label.includes('close') ||
+                               txt === '×' || txt === '✕' || txt === 'X' ||
+                               cls.toLowerCase().includes('close') ||
+                               cls.toLowerCase().includes('dismiss');
+                    });
+                    if (closeBtn) {
+                        closeBtn.click();
+                        return closeBtn.className + '|' + closeBtn.textContent.trim().slice(0, 10);
                     }
                     return null;
                 }
@@ -320,13 +345,6 @@ async def _close_help_panel(page: Page):
                 return
         except Exception:
             continue
-
-    # 키보드 Escape
-    try:
-        await page.keyboard.press("Escape")
-        await _delay(300, 500)
-    except Exception:
-        pass
 
 
 async def _fill_title(page: Page, title: str):
@@ -432,118 +450,142 @@ async def _add_tags(page: Page, tags: list[str]):
 
 
 async def _publish(page: Page) -> str | None:
-    # 발행 전 도움말 패널 닫기 재시도 (패널이 발행 버튼을 가릴 수 있음)
+    """
+    SE ONE 에디터 발행 흐름:
+    1. 도움말 패널 닫기 (발행 버튼 덮고 있음)
+    2. 발행 버튼 클릭 (iframe 상단 우측 녹색 버튼)
+    3. 발행 설정 패널 → '발행하기' 버튼 클릭
+    4. 게시 완료 후 URL 반환
+    """
+    # 발행 전 도움말 재닫기 (덮고 있으면 클릭 불가)
     await _close_help_panel(page)
     await _delay(1000, 1500)
     await _screenshot(page, "before_publish")
 
     target = await _get_editor_frame(page)
 
-    pub_sels = [
-        "button:has-text('발행')",
-        "button:has-text('게시')",
-        ".publish_btn",
-        ".se-publish-btn",
-        "[class*='publish'] button",
-        "[class*='Publish'] button",
-        "button.confirm",
-        ".btn_submit",
-    ]
-
+    # 1단계: 발행 버튼 클릭 (메인 페이지 → iframe 순서)
     clicked = False
-    # 메인 페이지 먼저 탐색 (발행 버튼은 보통 에디터 외부 상위 페이지에 있음)
     for search_target, label in [(page, "메인페이지"), (target, "에디터프레임")]:
-        for sel in pub_sels:
-            try:
-                btn = search_target.locator(sel).first
-                cnt = await btn.count()
-                if cnt == 0:
-                    continue
-                logger.info(f"발행 버튼 발견 ({label}): {sel}")
-                try:
-                    await btn.click(timeout=10000)
-                except Exception as e1:
-                    logger.warning(f"일반 클릭 실패, force 시도: {e1.__class__.__name__}")
-                    await btn.click(force=True, timeout=5000)
-                await _delay(2000, 3000)
-                clicked = True
-                break
-            except Exception as e:
-                logger.warning(f"발행 클릭 실패 ({label} / {sel}): {e.__class__.__name__}")
-                continue
-        if clicked:
-            break
-
-    if not clicked:
-        # JS 폴백: 메인 페이지에서 '발행' 버튼 클릭
-        logger.info("JS로 발행 버튼 탐색 (메인 페이지)")
+        # JS로 정확한 발행 버튼 탐색 (slick 등 오탐 제외)
         try:
-            js_result = await page.evaluate("""
+            js_result = await search_target.evaluate("""
                 () => {
-                    const els = [...document.querySelectorAll('button, a, [role="button"]')];
-                    const pub = els.find(el => el.textContent.trim() === '발행' ||
-                                                el.textContent.trim().startsWith('발행'));
+                    const btns = [...document.querySelectorAll('button')];
+                    // 정확히 '발행' 텍스트인 버튼 (발행하기/발행설정 등은 제외)
+                    const pub = btns.find(b => {
+                        const txt = b.textContent.trim();
+                        return txt === '발행' || txt === '발행 ';
+                    });
                     if (pub) {
                         pub.click();
-                        return (pub.className || 'btn') + '|' + pub.textContent.trim().slice(0, 20);
+                        return (pub.className || 'btn') + '|' + pub.textContent.trim();
                     }
                     return null;
                 }
             """)
             if js_result:
-                logger.info(f"JS 발행 클릭 성공 (메인페이지): {js_result}")
+                logger.info(f"발행 버튼 JS 클릭 ({label}): {js_result}")
                 await _delay(2000, 3000)
                 clicked = True
+                break
         except Exception as e:
-            logger.warning(f"JS 클릭 실패 (메인페이지): {e}")
+            logger.warning(f"JS 발행 탐색 실패 ({label}): {e.__class__.__name__}")
 
-    if not clicked:
-        # JS 폴백: 모든 iframe에서 탐색
-        for frame in page.frames:
-            if frame.url == page.url:
-                continue
-            try:
-                js_result = await frame.evaluate("""
-                    () => {
-                        const els = [...document.querySelectorAll('button, [role="button"]')];
-                        const pub = els.find(el => el.textContent.trim() === '발행' ||
-                                                    el.textContent.trim().startsWith('발행'));
-                        if (pub) {
-                            pub.click();
-                            return (pub.className || 'btn') + '|' + pub.textContent.trim().slice(0, 20);
-                        }
-                        return null;
-                    }
-                """)
-                if js_result:
-                    logger.info(f"JS 발행 클릭 성공 (iframe): {js_result}")
-                    await _delay(2000, 3000)
-                    clicked = True
-                    break
-            except Exception:
-                continue
+        # CSS 셀렉터 폴백
+        if not clicked:
+            for sel in ["button:has-text('발행')", ".publish_btn", ".se-publish-btn"]:
+                try:
+                    btn = search_target.locator(sel).first
+                    if await btn.count():
+                        logger.info(f"발행 버튼 CSS 클릭 ({label}): {sel}")
+                        await btn.click(timeout=8000)
+                        await _delay(2000, 3000)
+                        clicked = True
+                        break
+                except Exception as e:
+                    logger.warning(f"CSS 발행 클릭 실패 ({label}/{sel}): {e.__class__.__name__}")
+        if clicked:
+            break
 
     if not clicked:
         logger.error("발행 버튼 없음")
         await _screenshot(page, "publish_btn_not_found")
         return None
 
-    # 발행 확인 팝업 (메인 + 프레임 모두 탐색)
-    for search_target in [page, target]:
-        for sel in ["button:has-text('확인')", "button:has-text('발행하기')", ".btn_confirm"]:
+    await _screenshot(page, "after_publish_click")
+
+    # 2단계: 발행 설정 패널 → '발행하기' 클릭
+    # SE ONE 에디터는 발행 클릭 후 설정 패널이 열림 (카테고리/태그 설정)
+    logger.info("발행 설정 패널 대기 중...")
+    await _delay(2000, 3000)
+
+    confirm_sels = [
+        "button:has-text('발행하기')",
+        "button:has-text('확인')",
+        "button:has-text('게시')",
+        ".btn_confirm",
+        ".se-publish-setting button:last-child",
+        "[class*='publish'] button:last-child",
+    ]
+    confirmed = False
+    for search_target, label in [(page, "메인페이지"), (target, "에디터프레임")]:
+        for sel in confirm_sels:
             try:
                 btn = search_target.locator(sel).first
                 if await btn.count():
-                    await btn.click()
-                    await _delay(3000, 5000)
+                    logger.info(f"발행 확인 클릭 ({label}): {sel}")
+                    await btn.click(timeout=8000)
+                    await _delay(4000, 6000)
+                    confirmed = True
+                    break
+            except Exception:
+                continue
+        if confirmed:
+            break
+
+    # JS 폴백: 발행하기 버튼
+    if not confirmed:
+        for t in [page, target]:
+            try:
+                res = await t.evaluate("""
+                    () => {
+                        const btns = [...document.querySelectorAll('button')];
+                        const ok = btns.find(b => b.textContent.trim() === '발행하기' ||
+                                                   b.textContent.trim() === '확인' ||
+                                                   b.textContent.trim() === '게시');
+                        if (ok) { ok.click(); return ok.textContent.trim(); }
+                        return null;
+                    }
+                """)
+                if res:
+                    logger.info(f"JS 발행 확인: {res}")
+                    await _delay(4000, 6000)
+                    confirmed = True
                     break
             except Exception:
                 continue
 
+    if not confirmed:
+        logger.warning("발행 확인 버튼 없음 — 발행 완료 여부 불확실")
+
     final_url = page.url
     logger.info(f"발행 후 URL: {final_url}")
     await _screenshot(page, "after_publish")
-    return final_url if final_url and "about:blank" not in final_url else None
+
+    # 발행 성공 여부 판단: URL이 포스트 URL로 변경됐는지 확인
+    # 포스트 URL 패턴: blog.naver.com/{blog_id}/{post_no}
+    if "Redirect=Write" not in final_url and "PostWriteForm" not in final_url:
+        logger.info(f"발행 성공 확인 — 포스트 URL: {final_url}")
+        return final_url
+
+    # URL 변경 안 됐어도 발행 확인이 됐다면 일단 반환
+    if confirmed:
+        logger.info(f"발행 확인 클릭 완료 (URL은 미변경): {final_url}")
+        return final_url
+
+    logger.error("발행 최종 실패")
+    return None
 
 
 async def _post(
@@ -611,9 +653,16 @@ async def _post(
         await _delay(2000, 3000)
         await _screenshot(write_page, "editor_ready")
 
+        # 임시저장 팝업 처리 (이전 실패 세션의 임시저장 → 취소로 새 글 시작)
+        await _dismiss_draft_popup(write_page)
+        await _delay(500, 800)
+
         # 도움말 패널 닫기 (SE ONE 에디터 첫 실행 시 자동 열림)
         await _close_help_panel(write_page)
-        await _delay(500, 1000)
+        await _delay(1000, 1500)
+
+        # 에디터 안정화 대기
+        await _screenshot(write_page, "editor_ready2")
 
         # 제목 / 본문 / 태그 입력
         await _fill_title(write_page, title)
