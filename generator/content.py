@@ -91,8 +91,10 @@ def generate_post(keyword: str, api_key: str, trending: list[str] | None = None)
 
     user_msg = f"오늘 포스팅 키워드: {keyword}{trend_note}\n\n위 주제로 블로그 글을 작성해줘."
 
+    # 503/500 transient 에러 대비 지수 백오프 재시도
+    waits = [15, 40, 90, 180]  # 시도 간 대기(초): 15 → 40 → 90 → 180
     client = genai.Client(api_key=api_key)
-    for attempt in range(1, 4):  # 최대 3회 재시도
+    for attempt in range(1, len(waits) + 2):  # 최대 5회
         try:
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -112,9 +114,9 @@ def generate_post(keyword: str, api_key: str, trending: list[str] | None = None)
                 logger.info(f"글 생성 완료: {parsed.get('title')!r} ({len(parsed.get('body',''))}자)")
                 return parsed
         except Exception as e:
-            logger.error(f"Gemini 생성 실패 (시도 {attempt}/3): {e}")
-            if attempt < 3:
-                wait = 2 ** attempt  # 2s, 4s
+            logger.error(f"Gemini 생성 실패 (시도 {attempt}/{len(waits)+1}): {e}")
+            if attempt <= len(waits):
+                wait = waits[attempt - 1]
                 logger.info(f"{wait}초 후 재시도...")
                 time.sleep(wait)
     return None
