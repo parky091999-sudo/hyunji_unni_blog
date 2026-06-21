@@ -156,29 +156,42 @@ def _looks_like_write_page(url: str) -> bool:
     bad = ["BlogHome.naver", "nid.naver.com", "section.blog.naver.com"]
     if any(b in url for b in bad):
         return False
-    good = ["postwrite", "PostWrite", "editor", "/write", "editForm"]
+    good = [
+        "postwrite", "PostWrite", "editor", "/write", "editForm",
+        "Redirect=Write", "GoBlogWrite",  # 네이버 현재 글쓰기 리다이렉트 패턴
+    ]
     return any(g in url for g in good)
 
 
 async def _navigate_to_write_page(page: Page, naver_id: str, blog_id: str) -> bool:
     """글쓰기 에디터 페이지 진입 — 세 가지 방법 순차 시도"""
 
-    # 방법 1: /postwrite URL 직접 이동 (신형 에디터)
+    # 방법 1: 알려진 글쓰기 URL 직접 이동
     ids_to_try = list(dict.fromkeys(filter(None, [blog_id, naver_id])))
-    for bid in ids_to_try:
-        url = f"https://blog.naver.com/{bid}/postwrite"
-        logger.info(f"[방법1] postwrite URL: {url}")
+    write_url_candidates = (
+        ["https://blog.naver.com/GoBlogWrite.naver"]  # 현행 글쓰기 진입점
+        + [f"https://blog.naver.com/{bid}/postwrite" for bid in ids_to_try]
+    )
+    for url in write_url_candidates:
+        logger.info(f"[방법1] 이동: {url}")
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            await page.goto(url, wait_until="networkidle", timeout=30000)
             await _delay(2000, 3000)
             cur = page.url
-            await _screenshot(page, f"try1_{bid}")
+            await _screenshot(page, "try1_write")
             logger.info(f"결과 URL: {cur}")
             if _looks_like_write_page(cur):
-                logger.info("방법1 성공")
+                logger.info(f"방법1 성공: {cur}")
+                return True
+            # URL로 판단 어렵다면 에디터 요소 존재 여부 확인
+            editor_count = await page.locator(
+                "div[contenteditable='true'], .se-title-text, .se-main-container"
+            ).count()
+            if editor_count > 0:
+                logger.info(f"방법1 성공 (에디터 요소 {editor_count}개 감지): {cur}")
                 return True
         except Exception as e:
-            logger.warning(f"방법1 실패 ({bid}): {e}")
+            logger.warning(f"방법1 실패 ({url}): {e}")
 
     # 방법 2: 블로그 홈 → 글쓰기 버튼 클릭
     home_id = blog_id or naver_id
@@ -206,14 +219,23 @@ async def _navigate_to_write_page(page: Page, naver_id: str, blog_id: str) -> bo
                 href = await el.get_attribute("href") or ""
                 logger.info(f"글쓰기 버튼 발견: {sel} | href={href!r}")
 
-                # href가 직접 이동 가능한 URL이면 goto 사용
+                # href가 직접 이동 가능한 URL이면 goto 사용 (networkidle로 리다이렉트 체인 따라감)
                 if href and href not in ("#", "") and "javascript:" not in href.lower():
                     goto_url = href if href.startswith("http") else f"https://blog.naver.com{href}"
                     logger.info(f"글쓰기 href 직접 이동: {goto_url}")
-                    await page.goto(goto_url, wait_until="domcontentloaded", timeout=25000)
+                    await page.goto(goto_url, wait_until="networkidle", timeout=35000)
                     await _delay(2000, 3000)
                     await _screenshot(page, "try2_href_nav")
-                    if _looks_like_write_page(page.url):
+                    cur = page.url
+                    logger.info(f"href 이동 후 URL: {cur}")
+                    if _looks_like_write_page(cur):
+                        return True
+                    # 에디터 요소로도 확인
+                    ed_count = await page.locator(
+                        "div[contenteditable='true'], .se-title-text, .se-main-container"
+                    ).count()
+                    if ed_count > 0:
+                        logger.info(f"href 이동 성공 (에디터 요소 {ed_count}개): {cur}")
                         return True
 
                 # 클릭 — 새 탭 열릴 경우 expect_page로 캡처
