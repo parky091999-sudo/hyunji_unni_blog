@@ -89,12 +89,41 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
 
 
 async def _is_logged_in(page: Page) -> bool:
-    """NID_AUT 쿠키 존재 여부로 로그인 체크 (URL 이동 없음)"""
+    """NID_AUT 쿠키 존재 여부로 1차 로그인 체크"""
     cookies = await page.context.cookies()
     names = {c["name"] for c in cookies}
     logged = "NID_AUT" in names
-    logger.info(f"로그인 체크: {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:8]})")
+    logger.info(f"로그인 체크(쿠키): {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:8]})")
     return logged
+
+
+async def _verify_session(page: Page) -> bool:
+    """네이버 메인 접속으로 실제 세션 유효성 확인"""
+    try:
+        await page.goto("https://www.naver.com", wait_until="domcontentloaded", timeout=20000)
+        await _delay(2000, 3000)
+        await _screenshot(page, "session_verify")
+        # 로그아웃 상태면 로그인 버튼이 보임
+        login_link_count = await page.locator(
+            "a.link_login, a[href*='nidlogin'], .gnb_login_area a"
+        ).count()
+        # 로그인 상태면 사용자 아이디/메뉴가 보임
+        logged_in_indicator = await page.locator(
+            ".gnb_my_area, .MyView-module, [class*='MyMenu'], .link_logout"
+        ).count()
+        logger.info(
+            f"세션 검증 — 로그인버튼: {login_link_count}, 로그인표시: {logged_in_indicator}, URL: {page.url}"
+        )
+        # BlogHome 리다이렉트 = 로그인 상태
+        if "BlogHome" in page.url or logged_in_indicator > 0:
+            return True
+        if login_link_count > 0 and logged_in_indicator == 0:
+            logger.warning("네이버 메인에서 로그아웃 상태 감지 — 세션 만료")
+            return False
+        return True  # 확실하지 않으면 로그인 상태로 간주
+    except Exception as e:
+        logger.warning(f"세션 검증 실패: {e}")
+        return True  # 오류 시 로그인 상태로 간주 (과도한 재시도 방지)
 
 
 async def _login(page: Page, naver_id: str, naver_pw: str) -> bool:
@@ -173,29 +202,40 @@ async def _navigate_to_write_page(page: Page, naver_id: str, blog_id: str) -> bo
                 el = page.locator(sel).first
                 if not await el.count():
                     continue
-                logger.info(f"글쓰기 버튼 발견: {sel}")
 
-                # 새 탭 감지
-                new_pages: list = []
-                page.context.on("page", new_pages.append)
-                await el.click()
-                await _delay(3000, 4000)
-                page.context.remove_listener("page", new_pages.append)
+                href = await el.get_attribute("href") or ""
+                logger.info(f"글쓰기 버튼 발견: {sel} | href={href!r}")
 
-                if new_pages:
-                    np = new_pages[0]
-                    await np.wait_for_load_state("domcontentloaded", timeout=15000)
-                    target_url = np.url
-                    logger.info(f"새 탭: {target_url}")
-                    await np.close()
+                # href가 직접 이동 가능한 URL이면 goto 사용
+                if href and href not in ("#", "") and "javascript:" not in href.lower():
+                    goto_url = href if href.startswith("http") else f"https://blog.naver.com{href}"
+                    logger.info(f"글쓰기 href 직접 이동: {goto_url}")
+                    await page.goto(goto_url, wait_until="domcontentloaded", timeout=25000)
+                    await _delay(2000, 3000)
+                    await _screenshot(page, "try2_href_nav")
+                    if _looks_like_write_page(page.url):
+                        return True
+
+                # 클릭 — 새 탭 열릴 경우 expect_page로 캡처
+                try:
+                    async with page.context.expect_page(timeout=6000) as new_page_info:
+                        await el.click()
+                    new_page = await new_page_info.value
+                    await new_page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    target_url = new_page.url
+                    logger.info(f"새 탭 열림: {target_url}")
+                    await _screenshot(new_page, "try2_new_tab")
+                    await new_page.close()
                     if _looks_like_write_page(target_url):
                         await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
                         await _delay(2000, 3000)
                         await _screenshot(page, "try2_write_page")
                         return True
-                else:
+                except Exception:
+                    # 새 탭 없음 — 현재 페이지 URL 확인
+                    await _delay(3000, 4000)
                     cur = page.url
-                    logger.info(f"클릭 후 URL: {cur}")
+                    logger.info(f"글쓰기 클릭 후 URL: {cur}")
                     await _screenshot(page, "try2_after_click")
                     if _looks_like_write_page(cur):
                         return True
@@ -426,9 +466,18 @@ async def _post(
         # 쿠키 로드
         cookies_ok = await _load_cookies(ctx, naver_cookies)
 
-        # 로그인 상태 확인
+        # 로그인 상태 확인 (쿠키 → 실제 세션 검증 → ID/PW 로그인 순)
+        needs_login = False
         if not cookies_ok or not await _is_logged_in(page):
-            logger.info("쿠키 없음 또는 미인증 - ID/PW 로그인 시도")
+            needs_login = True
+        else:
+            # 쿠키가 있어도 실제 세션이 만료됐을 수 있으므로 검증
+            if not await _verify_session(page):
+                logger.info("세션 만료 확인 — ID/PW 재로그인")
+                needs_login = True
+
+        if needs_login:
+            logger.info("ID/PW 로그인 시도")
             if not naver_id or not naver_pw:
                 logger.error("ID/PW 없음 - 로그인 불가")
                 await browser.close()
