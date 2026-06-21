@@ -921,8 +921,7 @@ async def _post(
 
         if has_markers and images:
             # 마커 기반 인터리브: 텍스트 세그먼트 → 이미지 → 반복
-            # 이미지 삽입 최대 3개 제한 (타임아웃 문제 해결 전까지)
-            MAX_IMG = 3
+            MAX_IMG = 7
             parts = _PHOTO_MARKER.split(body)
             # parts = [text0, idx1, text1, idx2, text2, ...]
             logger.info(f"[사진N] 마커 {len(marker_positions)}개 발견 — 인터리브 삽입 (최대 {MAX_IMG}장)")
