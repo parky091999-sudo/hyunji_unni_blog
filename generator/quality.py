@@ -65,7 +65,13 @@ _TABLE_MARKER = re.compile(r"\[표시작\].*?\[표끝\]", re.DOTALL)
 _FAQ_MARKER = re.compile(r"\[FAQ시작\].*?\[FAQ끝\]", re.DOTALL)
 
 
-def score_content(title: str, body: str, tags: list[str]) -> dict:
+def score_content(
+    title: str,
+    body: str,
+    tags: list[str],
+    table_str: str = "",
+    faq_str: str = "",
+) -> dict:
     """
     블로그 글 품질 점수화.
 
@@ -114,17 +120,19 @@ def score_content(title: str, body: str, tags: list[str]) -> dict:
     else:
         issues.append("소제목 없음 — 질문형 소제목 추가 권장")
 
-    # 4. 표 포함 (10점)
-    if _TABLE_MARKER.search(body):
+    # 4. 표 포함 (10점) — 마커가 이미 포맷으로 교체됐으므로 table_str로 판단
+    has_table = bool(table_str) or bool(_TABLE_MARKER.search(body))
+    if has_table:
         score += 10
     else:
-        issues.append("표([표시작]...[표끝]) 없음 — 비교표 추가 권장")
+        issues.append("표 없음 — 비교표 추가 권장")
 
-    # 5. FAQ 포함 (10점)
-    if _FAQ_MARKER.search(body):
+    # 5. FAQ 포함 (10점) — 마커가 이미 포맷으로 교체됐으므로 faq_str로 판단
+    has_faq = bool(faq_str) or bool(_FAQ_MARKER.search(body))
+    if has_faq:
         score += 10
     else:
-        issues.append("FAQ([FAQ시작]...[FAQ끝]) 없음 — FAQ 섹션 추가 권장")
+        issues.append("FAQ 없음 — FAQ 섹션 추가 권장")
 
     # 6. 1인칭 경험 표현 (10점)
     personal_count = len(_PERSONAL_KEYWORDS.findall(body))
@@ -188,8 +196,8 @@ def score_content(title: str, body: str, tags: list[str]) -> dict:
             "body_length": body_len,
             "ai_patterns_found": ai_deduct // 5,
             "subheadings": len(subheadings),
-            "has_table": bool(_TABLE_MARKER.search(body)),
-            "has_faq": bool(_FAQ_MARKER.search(body)),
+            "has_table": has_table,
+            "has_faq": has_faq,
             "personal_count": personal_count,
             "data_count": data_count,
             "tag_count": tag_count,

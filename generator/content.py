@@ -81,6 +81,42 @@ COUPANG_HINT_2: {쿠팡 검색 키워드 2}
 """
 
 
+def _format_text_table(table_str: str) -> str:
+    """파이프 구분 표 문자열 → 블로그에 보이기 좋은 텍스트 표"""
+    rows = [r.strip() for r in table_str.strip().split("\n") if r.strip()]
+    if not rows:
+        return ""
+    parsed = [[c.strip() for c in r.split("|")] for r in rows]
+    col_count = max(len(r) for r in parsed)
+    # 각 컬럼 최대 너비 계산
+    widths = []
+    for c in range(col_count):
+        w = max((len(r[c]) if c < len(r) else 0) for r in parsed)
+        widths.append(max(w, 4))
+    sep = "  |  ".join("-" * w for w in widths)
+    lines_out = []
+    for i, row in enumerate(parsed):
+        cells = [row[c].ljust(widths[c]) if c < len(row) else " " * widths[c] for c in range(col_count)]
+        lines_out.append("  |  ".join(cells))
+        if i == 0:
+            lines_out.append(sep)
+    return "\n".join(lines_out)
+
+
+def _format_faq_text(faq_str: str) -> str:
+    """Q/A 블록 → 블로그 본문에 읽기 좋은 FAQ 텍스트"""
+    lines = [l.strip() for l in faq_str.strip().split("\n") if l.strip()]
+    result = ["자주 묻는 질문"]
+    for line in lines:
+        if line.startswith("Q:"):
+            result.append(f"\n{line}")
+        elif line.startswith("A:"):
+            result.append(line)
+        else:
+            result.append(line)
+    return "\n".join(result)
+
+
 def _parse_response(raw: str) -> dict | None:
     try:
         lines = raw.strip().splitlines()
@@ -107,17 +143,30 @@ def _parse_response(raw: str) -> dict | None:
         if body_start is not None:
             body_raw = "\n".join(lines[body_start:]).strip()
 
-            # 표 마커 추출
+            # 표 마커 추출 (내용은 별도 저장)
             table_match = re.search(r"\[표시작\](.*?)\[표끝\]", body_raw, re.DOTALL)
             result["table_str"] = table_match.group(1).strip() if table_match else ""
 
-            # FAQ 마커 추출
+            # FAQ 마커 추출 (내용은 별도 저장)
             faq_match = re.search(r"\[FAQ시작\](.*?)\[FAQ끝\]", body_raw, re.DOTALL)
             result["faq_str"] = faq_match.group(1).strip() if faq_match else ""
 
+            body = body_raw
+            # 표 마커 → 읽기 좋은 텍스트 표로 교체 (마커 노출 방지)
+            if table_match:
+                body = body.replace(
+                    table_match.group(0),
+                    _format_text_table(table_match.group(1).strip()),
+                )
+            # FAQ 마커 → 읽기 좋은 텍스트로 교체 (마커 노출 방지)
+            if faq_match:
+                body = body.replace(
+                    faq_match.group(0),
+                    _format_faq_text(faq_match.group(1).strip()),
+                )
             # [쿠팡추천N] 플레이스홀더 제거
-            body = re.sub(r"\[쿠팡추천\d+\]", "", body_raw)
-            result["body"] = body
+            body = re.sub(r"\[쿠팡추천\d+\]", "", body)
+            result["body"] = body.strip()
 
         if "title" not in result or "body" not in result:
             logger.warning("파싱 실패")

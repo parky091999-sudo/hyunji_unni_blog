@@ -132,6 +132,8 @@ def run():
             title=candidate.get("title", ""),
             body=candidate.get("body", ""),
             tags=candidate.get("tags", []),
+            table_str=candidate.get("table_str", ""),
+            faq_str=candidate.get("faq_str", ""),
         )
         logger.info(f"품질 점수: {qr['score']}/100 ({'통과' if qr['pass'] else '재생성'})")
 

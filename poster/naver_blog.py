@@ -14,6 +14,8 @@ import logging
 import os
 import random
 import re
+import tempfile
+import urllib.request
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -412,130 +414,132 @@ async def _type_in_editor(page: Page, text: str):
         await _delay(100, 200)
 
 
-async def _insert_image_from_url(page: Page, image_url: str, alt_text: str = "") -> bool:
+def _download_image_to_temp(url: str) -> str | None:
+    """이미지 URL → 임시 파일로 다운로드. 경로 반환, 실패 시 None."""
+    try:
+        suffix = ".jpg" if "jpg" in url.lower() else ".png"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            tmp.write(resp.read())
+        tmp.close()
+        logger.info(f"이미지 다운로드 완료: {tmp.name}")
+        return tmp.name
+    except Exception as e:
+        logger.warning(f"이미지 다운로드 실패: {e}")
+        return None
+
+
+async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") -> bool:
     """
-    SE ONE 에디터 툴바 '사진' 버튼 → URL 입력 방식으로 이미지 삽입.
-    실패 시 False 반환 (호출자가 try/except로 감싸지 않아도 안전).
+    SE ONE 에디터에 이미지 삽입 — '파일에서 올리기' 방식.
+    hidden file input을 직접 활성화해서 set_input_files() 사용.
+    실패해도 에디터 상태 복구 후 False 반환 (포스팅 플로우 보호).
     """
     try:
         target = await _get_editor_frame(page)
 
-        # 1. 사진 삽입 버튼 탐색 (툴바)
-        photo_btn_sels = [
-            "button[aria-label*='사진']",
-            "button[title*='사진']",
-            ".se-toolbar button[data-name='image']",
-            ".se-toolbar-item-image",
-            "button[data-se-menu-name='image']",
-            "[class*='toolbar'] button:has-text('사진')",
-        ]
+        # 1. 사진 버튼 클릭 (JS로 탐색)
         clicked = False
-        for t in [page, target]:
-            for sel in photo_btn_sels:
-                try:
-                    btn = t.locator(sel).first
-                    if await btn.count():
-                        await btn.click()
-                        await _delay(1000, 1500)
-                        clicked = True
-                        logger.info(f"사진 버튼 클릭: {sel}")
-                        break
-                except Exception:
-                    continue
-            if clicked:
-                break
+        for t in [target, page]:
+            try:
+                result = await t.evaluate("""
+                    () => {
+                        const btns = [...document.querySelectorAll('button, .se-toolbar-item')];
+                        const btn = btns.find(b => {
+                            const txt = (b.textContent || '').trim();
+                            const title = b.getAttribute('title') || '';
+                            const label = b.getAttribute('aria-label') || '';
+                            const cls = b.className || '';
+                            return txt === '사진' || title.includes('사진') ||
+                                   label.includes('사진') || cls.includes('image') ||
+                                   cls.includes('photo');
+                        });
+                        if (btn) { btn.click(); return btn.className || 'clicked'; }
+                        return null;
+                    }
+                """)
+                if result:
+                    clicked = True
+                    await _delay(1500, 2500)
+                    logger.info(f"사진 버튼 JS 클릭: {result}")
+                    break
+            except Exception:
+                continue
 
         if not clicked:
             logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
             return False
 
-        # 2. "URL로 사진 올리기" 탭 클릭 시도
-        url_tab_sels = [
-            "button:has-text('URL')",
-            "[role='tab']:has-text('URL')",
-            "a:has-text('URL로')",
-            "li:has-text('URL')",
-        ]
+        # 2. 파일 인풋 요소 찾아서 직접 파일 설정
+        file_set = False
         for t in [page, target]:
-            for sel in url_tab_sels:
-                try:
-                    tab = t.locator(sel).first
-                    if await tab.count():
-                        await tab.click()
-                        await _delay(500, 800)
-                        logger.info(f"URL 탭 클릭: {sel}")
-                        break
-                except Exception:
-                    continue
+            try:
+                file_inputs = t.locator("input[type='file']")
+                cnt = await file_inputs.count()
+                if cnt > 0:
+                    # 모든 file input 시도 (숨겨진 것도 포함)
+                    for i in range(cnt):
+                        try:
+                            fi = file_inputs.nth(i)
+                            await fi.set_input_files(local_path)
+                            await _delay(3000, 5000)
+                            file_set = True
+                            logger.info(f"파일 업로드 완료: {local_path}")
+                            break
+                        except Exception:
+                            continue
+                if file_set:
+                    break
+            except Exception:
+                continue
 
-        # 3. URL 입력창에 URL 입력
-        url_input_sels = [
-            "input[placeholder*='URL']",
-            "input[type='url']",
-            "input[placeholder*='주소']",
-            "input[placeholder*='링크']",
-        ]
-        url_entered = False
-        for t in [page, target]:
-            for sel in url_input_sels:
-                try:
-                    inp = t.locator(sel).first
-                    if await inp.count():
-                        await inp.click()
-                        await _delay(300, 500)
-                        await inp.fill(image_url)
-                        await _delay(500, 800)
-                        url_entered = True
-                        logger.info(f"이미지 URL 입력: {image_url[:60]}...")
-                        break
-                except Exception:
-                    continue
-            if url_entered:
-                break
-
-        if not url_entered:
-            # 팝업 닫기 시도 후 종료
-            logger.warning("URL 입력창 없음 — 이미지 삽입 실패, 팝업 닫기 시도")
+        if not file_set:
+            logger.warning("file input 없음 — 이미지 업로드 실패, 다이얼로그 닫기")
             await page.keyboard.press("Escape")
+            await _delay(500, 800)
             return False
 
-        # 4. 확인/삽입 버튼 클릭
-        confirm_sels = [
-            "button:has-text('확인')",
-            "button:has-text('삽입')",
-            "button:has-text('적용')",
-            "button[type='submit']",
-        ]
-        confirmed = False
+        # 3. '확인' 버튼 클릭 (이미지 다이얼로그 닫기)
         for t in [page, target]:
-            for sel in confirm_sels:
-                try:
-                    btn = t.locator(sel).first
-                    if await btn.count():
-                        await btn.click()
-                        await _delay(1500, 2500)
-                        confirmed = True
-                        logger.info(f"이미지 삽입 확인 클릭: {sel}")
-                        break
-                except Exception:
-                    continue
-            if confirmed:
-                break
+            try:
+                res = await t.evaluate("""
+                    () => {
+                        const btns = [...document.querySelectorAll('button')];
+                        const ok = btns.find(b => {
+                            const txt = b.textContent.trim();
+                            return txt === '확인' || txt === '삽입' || txt === '적용' || txt === '올리기';
+                        });
+                        if (ok) { ok.click(); return ok.textContent.trim(); }
+                        return null;
+                    }
+                """)
+                if res:
+                    logger.info(f"이미지 다이얼로그 확인: {res}")
+                    await _delay(2000, 3000)
+                    break
+            except Exception:
+                continue
 
-        if not confirmed:
-            await page.keyboard.press("Enter")
-            await _delay(1500, 2000)
-
-        logger.info(f"이미지 삽입 완료: {alt_text or image_url[:40]}")
+        await _screenshot(page, f"after_image_{alt_text[:10] if alt_text else 'img'}")
+        logger.info(f"이미지 삽입 완료: {alt_text}")
         return True
 
     except Exception as e:
         logger.warning(f"이미지 삽입 실패 (무시하고 계속): {e}")
         try:
             await page.keyboard.press("Escape")
+            await _delay(500, 800)
         except Exception:
             pass
         return False
+    finally:
+        # 임시 파일 삭제
+        try:
+            if local_path and os.path.exists(local_path):
+                os.unlink(local_path)
+        except Exception:
+            pass
 
 
 async def _add_tags(page: Page, tags: list[str]):
@@ -798,15 +802,19 @@ async def _post(
         await _type_in_editor(write_page, body_part1)
         await _delay(800, 1200)
 
-        # 이미지 삽입 (본문 사이)
+        # 이미지 삽입 (본문 사이) — 파일 다운로드 후 set_input_files 방식
         images_inserted = 0
         if images:
             logger.info(f"이미지 삽입 시도 ({len(images)}장)")
             for i, img in enumerate(images[:3]):  # 최대 3장
                 try:
-                    success = await _insert_image_from_url(
+                    local_path = _download_image_to_temp(img["url"])
+                    if not local_path:
+                        logger.warning(f"이미지 {i+1}번 다운로드 실패 — 건너뜀")
+                        continue
+                    success = await _insert_image_file(
                         write_page,
-                        image_url=img["url"],
+                        local_path=local_path,
                         alt_text=img.get("alt_text", ""),
                     )
                     if success:
