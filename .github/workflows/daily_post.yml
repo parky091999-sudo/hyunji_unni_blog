@@ -5,6 +5,11 @@ on:
     # 매일 KST 10:00 (UTC 01:00)
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      force_post:
+        description: "오늘 이미 포스팅했어도 강제 실행 (true/false)"
+        required: false
+        default: "false"
 
 jobs:
   post:
@@ -35,6 +40,7 @@ jobs:
           NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
         run: python -m scripts.daily_post
 
       - name: 스크린샷 아티팩트 업로드 (디버그)

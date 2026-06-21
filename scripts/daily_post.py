@@ -81,10 +81,13 @@ def run():
         logger.error("NAVER_ID 없음 — 종료")
         return
 
+    force = os.environ.get("FORCE_POST", "false").lower() == "true"
     history = _load_history()
-    if _already_posted_today(history):
-        logger.info("오늘 이미 포스팅 완료 — 건너뜀")
+    if _already_posted_today(history) and not force:
+        logger.info("오늘 이미 포스팅 완료 — 건너뜀 (강제실행: FORCE_POST=true)")
         return
+    if force:
+        logger.info("FORCE_POST=true — 오늘 중복 체크 무시하고 강제 실행")
 
     # ── 1. 키워드 선정 (카테고리 기반) ──────────────────────────
     from generator.keyword import pick_keyword
