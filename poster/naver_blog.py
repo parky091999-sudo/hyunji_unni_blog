@@ -503,13 +503,13 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
 
         # ── 방법 1: 파일 선택창 통합 인터셉터 ──────────────────────
         try:
-            async with page.expect_file_chooser(timeout=15000) as fc_info:
+            async with page.expect_file_chooser(timeout=8000) as fc_info:
                 # 1a. 에디터에 포커스 확보
                 try:
                     ed = target.locator("[contenteditable='true']").first
                     if await ed.count():
                         await ed.click()
-                        await _delay(300, 500)
+                        await _delay(200, 400)
                 except Exception:
                     pass
 
@@ -518,7 +518,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                     raise RuntimeError("사진 버튼 없음")
 
                 # 1c. 다이얼로그 대기 후 '내 PC에서' 탐색
-                await asyncio.sleep(4)
+                await asyncio.sleep(2.5)
                 await _screenshot(page, "after_photo_btn", full_page=True)
 
                 # 모든 프레임에서 버튼 탐색 (로그 포함)
@@ -537,7 +537,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                                 .filter(e => {
                                     const t = (e.textContent || '').toLowerCase();
                                     const c = (e.className || '').toLowerCase();
-                                    return ['파일','pc','업로드','upload','local'].some(k => t.includes(k)||c.includes(k));
+                                    return ['파일','pc','업로드','upload','local'].some(k=>t.includes(k)||c.includes(k));
                                 })
                                 .map(e => ({tag:e.tagName, txt:e.textContent.trim().slice(0,25), cls:e.className.slice(0,40)}))
                                 .slice(0,5)
@@ -551,9 +551,15 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                         try:
                             btn = frame.locator(sel).first
                             if await btn.count() > 0:
-                                vis = await btn.is_visible(timeout=1000)
-                                logger.info(f"'내 PC에서' 발견: {sel} (visible={vis})")
-                                await btn.click(timeout=3000)
+                                # 보이는 버튼만 클릭 (timeout 없이 빠르게 확인)
+                                try:
+                                    vis = await btn.is_visible(timeout=500)
+                                except Exception:
+                                    vis = False
+                                if not vis:
+                                    continue
+                                logger.info(f"'내 PC에서' 발견 클릭: {sel}")
+                                await btn.click(timeout=2000)
                                 break
                         except Exception:
                             continue
@@ -561,11 +567,11 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                         continue
                     break
                 else:
-                    logger.info("'내 PC에서' 버튼 없음 — 사진 버튼이 직접 파일창 트리거 가능성")
+                    logger.info("'내 PC에서' 버튼 없음 — 파일창 직접 트리거 여부 대기")
 
             fc = await fc_info.value
             await fc.set_files(local_path)
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
 
             # 확인 버튼 (있는 경우)
             for ok_sel in ["text=확인", "text=삽입", "text=적용", "text=올리기", "text=등록"]:
@@ -915,9 +921,11 @@ async def _post(
 
         if has_markers and images:
             # 마커 기반 인터리브: 텍스트 세그먼트 → 이미지 → 반복
+            # 이미지 삽입 최대 3개 제한 (타임아웃 문제 해결 전까지)
+            MAX_IMG = 3
             parts = _PHOTO_MARKER.split(body)
             # parts = [text0, idx1, text1, idx2, text2, ...]
-            logger.info(f"[사진N] 마커 {len(marker_positions)}개 발견 — 인터리브 삽입")
+            logger.info(f"[사진N] 마커 {len(marker_positions)}개 발견 — 인터리브 삽입 (최대 {MAX_IMG}장)")
             i = 0
             seg_count = 0
             while i < len(parts):
@@ -929,7 +937,7 @@ async def _post(
                     seg_count += 1
                 if i + 1 < len(parts):
                     img_idx = int(parts[i + 1]) - 1  # 0-based
-                    if 0 <= img_idx < len(images):
+                    if 0 <= img_idx < len(images) and images_inserted < MAX_IMG:
                         img = images[img_idx]
                         local_path = _download_image_to_temp(img["url"])
                         if local_path:
