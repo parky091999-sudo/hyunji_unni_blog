@@ -36,11 +36,11 @@ async def _delay(ms_min: int = 300, ms_max: int = 800):
     await asyncio.sleep(random.uniform(ms_min / 1000, ms_max / 1000))
 
 
-async def _screenshot(page: Page, name: str):
+async def _screenshot(page: Page, name: str, full_page: bool = False):
     try:
         os.makedirs(SHOT_DIR, exist_ok=True)
         path = os.path.join(SHOT_DIR, f"{name}.png")
-        await page.screenshot(path=path, full_page=False)
+        await page.screenshot(path=path, full_page=full_page)
         logger.info(f"스크린샷: {path}")
     except Exception as e:
         logger.warning(f"스크린샷 실패: {e}")
@@ -431,28 +431,47 @@ def _download_image_to_temp(url: str) -> str | None:
 
 
 async def _click_photo_button(page: Page) -> bool:
-    """SE ONE 툴바 사진 버튼 클릭. 성공 시 True."""
+    """SE ONE 툴바 사진 버튼 Playwright 실제 클릭. 성공 시 True."""
     target = await _get_editor_frame(page)
+    # Playwright 실제 클릭 (JS click보다 다이얼로그 트리거 신뢰성 높음)
+    selectors = [
+        ".se-toolbar-item-image",
+        "button[data-name='image']",
+        ".se-toolbar button:has-text('사진')",
+        "[title='사진']",
+        "[aria-label='사진']",
+        "[aria-label*='image' i]",
+        ".se-toolbar-item:has-text('사진')",
+    ]
+    for t in [target, page]:
+        for sel in selectors:
+            try:
+                loc = t.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible(timeout=2000):
+                    await loc.click(timeout=3000)
+                    logger.info(f"사진 버튼 Playwright 클릭: {sel}")
+                    return True
+            except Exception:
+                continue
+    # fallback: JS 클릭
     for t in [target, page]:
         try:
             result = await t.evaluate("""
                 () => {
-                    const btns = [...document.querySelectorAll('button, .se-toolbar-item')];
-                    const btn = btns.find(b => {
+                    const candidates = [
+                        ...document.querySelectorAll('.se-toolbar-item, button')
+                    ];
+                    const btn = candidates.find(b => {
                         const txt = (b.textContent || '').trim();
-                        const title = b.getAttribute('title') || '';
-                        const label = b.getAttribute('aria-label') || '';
                         const cls = b.className || '';
-                        return txt === '사진' || title.includes('사진') ||
-                               label.includes('사진') || cls.includes('image') ||
-                               cls.includes('photo');
+                        return txt === '사진' || cls.includes('image') || cls.includes('photo');
                     });
-                    if (btn) { btn.click(); return btn.className || 'clicked'; }
+                    if (btn) { btn.dispatchEvent(new MouseEvent('click', {bubbles:true})); return btn.className; }
                     return null;
                 }
             """)
             if result:
-                logger.info(f"사진 버튼 클릭: {result}")
+                logger.info(f"사진 버튼 JS fallback 클릭: {result}")
                 return True
         except Exception:
             continue
@@ -474,11 +493,33 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
             return False
 
-        # 2. SE ONE 커스텀 다이얼로그 로딩 대기
-        await _delay(2000, 3000)
-        await _screenshot(page, "after_photo_btn")
+        # 2. SE ONE 커스텀 다이얼로그 로딩 대기 (툴바 근처에 팝오버 형식)
+        await _delay(2500, 3500)
+        await _screenshot(page, "after_photo_btn", full_page=True)  # 전체 페이지 캡처
 
-        # 3. '내 PC에서' 버튼 탐색 후 filechooser 인터셉트
+        target = await _get_editor_frame(page)
+
+        # 3. DOM에서 새로 생긴 다이얼로그 요소 로그
+        try:
+            dialog_info = await page.evaluate("""
+                () => {
+                    const keywords = ['pc에서', '파일', '업로드', 'upload', 'local', 'modal', 'dialog', 'layer', 'popup'];
+                    const found = [];
+                    document.querySelectorAll('button, label, a, div[role]').forEach(el => {
+                        const txt = (el.textContent || '').trim().toLowerCase();
+                        const cls = (el.className || '').toLowerCase();
+                        if (keywords.some(k => txt.includes(k) || cls.includes(k))) {
+                            found.push({ tag: el.tagName, txt: el.textContent.trim().slice(0, 30), cls: el.className.slice(0, 50) });
+                        }
+                    });
+                    return found.slice(0, 10);
+                }
+            """)
+            logger.info(f"사진 다이얼로그 DOM 탐색: {dialog_info}")
+        except Exception:
+            pass
+
+        # 4. '내 PC에서' 버튼 탐색 (page + frame 모두)
         pc_selectors = [
             "text=내 PC에서",
             "text=파일에서",
@@ -488,46 +529,51 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             "[class*='upload_pc']",
             "[class*='local_upload']",
             "[class*='pc_upload']",
+            "[class*='tabPC']",
         ]
-        for sel in pc_selectors:
+        for search_in in [page, target]:
+            for sel in pc_selectors:
+                try:
+                    btn = search_in.locator(sel).first
+                    if await btn.count() > 0:
+                        logger.info(f"'내 PC에서' 버튼 발견: {sel} (in {'frame' if search_in == target else 'page'})")
+                        async with page.expect_file_chooser(timeout=6000) as fc_info:
+                            await btn.click()
+                        fc = await fc_info.value
+                        await fc.set_files(local_path)
+                        logger.info(f"파일 선택 완료: {local_path}")
+                        await _delay(3000, 5000)
+                        for ok_sel in ["text=확인", "text=삽입", "text=적용", "text=올리기"]:
+                            try:
+                                ok_btn = page.locator(ok_sel).first
+                                if await ok_btn.count() and await ok_btn.is_visible(timeout=2000):
+                                    await ok_btn.click()
+                                    logger.info(f"이미지 확인 버튼: {ok_sel}")
+                                    await _delay(1500, 2000)
+                                    break
+                            except Exception:
+                                continue
+                        await _screenshot(page, f"after_image_{alt_text[:10] if alt_text else 'img'}")
+                        logger.info(f"이미지 삽입 완료: {alt_text}")
+                        return True
+                except Exception as e:
+                    logger.debug(f"이미지 업로드 시도 {sel}: {e}")
+                    continue
+
+        # Fallback: file input 직접 (프레임 포함)
+        for search_in in [page, target]:
             try:
-                btn = page.locator(sel).first
-                if await btn.count() > 0 and await btn.is_visible(timeout=1500):
-                    logger.info(f"'내 PC에서' 버튼 발견: {sel}")
-                    async with page.expect_file_chooser(timeout=6000) as fc_info:
-                        await btn.click()
-                    fc = await fc_info.value
-                    await fc.set_files(local_path)
-                    logger.info(f"파일 선택 완료: {local_path}")
+                file_input = search_in.locator("input[type='file']").first
+                if await file_input.count() > 0:
+                    await file_input.set_input_files(local_path)
+                    logger.info(f"file input 직접 설정: {local_path}")
                     await _delay(3000, 5000)
-                    # 확인/삽입 버튼
-                    for ok_sel in ["text=확인", "text=삽입", "text=적용", "text=올리기"]:
-                        try:
-                            ok_btn = page.locator(ok_sel).first
-                            if await ok_btn.count() and await ok_btn.is_visible(timeout=2000):
-                                await ok_btn.click()
-                                logger.info(f"이미지 확인 버튼: {ok_sel}")
-                                await _delay(1500, 2000)
-                                break
-                        except Exception:
-                            continue
-                    await _screenshot(page, f"after_image_{alt_text[:10] if alt_text else 'img'}")
-                    logger.info(f"이미지 삽입 완료: {alt_text}")
                     return True
-            except Exception as e:
-                logger.debug(f"이미지 업로드 시도 {sel}: {e}")
+            except Exception:
                 continue
 
-        # Fallback: 다이얼로그 없이 file input 직접 노출된 경우
-        file_input = page.locator("input[type='file']").first
-        if await file_input.count() > 0:
-            await file_input.set_input_files(local_path)
-            logger.info(f"file input 직접 설정: {local_path}")
-            await _delay(3000, 5000)
-            return True
-
         logger.warning("이미지 업로드 UI를 찾지 못함 — Escape로 복구")
-        await _screenshot(page, "image_dialog_fail")
+        await _screenshot(page, "image_dialog_fail", full_page=True)
         await page.keyboard.press("Escape")
         await _delay(500, 800)
         return False
