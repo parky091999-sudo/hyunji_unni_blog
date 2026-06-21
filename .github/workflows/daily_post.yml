@@ -31,6 +31,7 @@ jobs:
         env:
           NAVER_ID:       ${{ secrets.NAVER_ID }}
           NAVER_PW:       ${{ secrets.NAVER_PW }}
+          NAVER_BLOG_ID:  ${{ secrets.NAVER_BLOG_ID }}
           NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
