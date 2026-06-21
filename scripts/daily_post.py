@@ -47,7 +47,7 @@ def _save_history(history: list):
 
 def _already_posted_today(history: list) -> bool:
     today = datetime.now(KST).strftime("%Y-%m-%d")
-    return any(h.get("date") == today for h in history)
+    return any(h.get("date") == today and h.get("status") == "posted" for h in history)
 
 
 def run():

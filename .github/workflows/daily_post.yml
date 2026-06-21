@@ -29,17 +29,26 @@ jobs:
 
       - name: 포스팅 실행
         env:
-          NAVER_ID:      ${{ secrets.NAVER_ID }}
-          NAVER_PW:      ${{ secrets.NAVER_PW }}
-          NAVER_COOKIES: ${{ secrets.NAVER_COOKIES }}
+          NAVER_ID:       ${{ secrets.NAVER_ID }}
+          NAVER_PW:       ${{ secrets.NAVER_PW }}
+          NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python -m scripts.daily_post
 
-      - name: 포스팅 이력 + 갱신 쿠키 커밋
+      - name: 스크린샷 아티팩트 업로드 (디버그)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_id }}
+          path: data/screenshots/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: 포스팅 이력 커밋
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/
+          git add data/post_history.json
           git diff --staged --quiet || git commit -m "chore: 포스팅 이력 $(date +'%Y-%m-%d')"
           git push
