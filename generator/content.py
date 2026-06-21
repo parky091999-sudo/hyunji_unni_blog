@@ -5,6 +5,7 @@ body는 plain text (단락 구분 \n\n) — Playwright 타이핑용
 """
 import logging
 import re
+import time
 
 from google import genai
 from google.genai import types as gtypes
@@ -90,25 +91,30 @@ def generate_post(keyword: str, api_key: str, trending: list[str] | None = None)
 
     user_msg = f"오늘 포스팅 키워드: {keyword}{trend_note}\n\n위 주제로 블로그 글을 작성해줘."
 
-    try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=user_msg,
-            config=gtypes.GenerateContentConfig(
-                system_instruction=_SYSTEM,
-                max_output_tokens=4000,
-                temperature=0.85,
-            ),
-        )
-        raw = (resp.text or "").strip()
-        if not raw:
-            logger.error("Gemini 빈 응답")
-            return None
-        parsed = _parse_response(raw)
-        if parsed:
-            logger.info(f"글 생성 완료: {parsed.get('title')!r} ({len(parsed.get('body',''))}자)")
-        return parsed
-    except Exception as e:
-        logger.error(f"Gemini 생성 실패: {e}")
-        return None
+    client = genai.Client(api_key=api_key)
+    for attempt in range(1, 4):  # 최대 3회 재시도
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_msg,
+                config=gtypes.GenerateContentConfig(
+                    system_instruction=_SYSTEM,
+                    max_output_tokens=4000,
+                    temperature=0.85,
+                ),
+            )
+            raw = (resp.text or "").strip()
+            if not raw:
+                logger.error(f"Gemini 빈 응답 (시도 {attempt})")
+                continue
+            parsed = _parse_response(raw)
+            if parsed:
+                logger.info(f"글 생성 완료: {parsed.get('title')!r} ({len(parsed.get('body',''))}자)")
+                return parsed
+        except Exception as e:
+            logger.error(f"Gemini 생성 실패 (시도 {attempt}/3): {e}")
+            if attempt < 3:
+                wait = 2 ** attempt  # 2s, 4s
+                logger.info(f"{wait}초 후 재시도...")
+                time.sleep(wait)
+    return None
