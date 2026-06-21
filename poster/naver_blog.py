@@ -430,93 +430,74 @@ def _download_image_to_temp(url: str) -> str | None:
         return None
 
 
+async def _click_photo_button(page: Page) -> bool:
+    """SE ONE 툴바 사진 버튼 클릭. 성공 시 True."""
+    target = await _get_editor_frame(page)
+    for t in [target, page]:
+        try:
+            result = await t.evaluate("""
+                () => {
+                    const btns = [...document.querySelectorAll('button, .se-toolbar-item')];
+                    const btn = btns.find(b => {
+                        const txt = (b.textContent || '').trim();
+                        const title = b.getAttribute('title') || '';
+                        const label = b.getAttribute('aria-label') || '';
+                        const cls = b.className || '';
+                        return txt === '사진' || title.includes('사진') ||
+                               label.includes('사진') || cls.includes('image') ||
+                               cls.includes('photo');
+                    });
+                    if (btn) { btn.click(); return btn.className || 'clicked'; }
+                    return null;
+                }
+            """)
+            if result:
+                logger.info(f"사진 버튼 클릭: {result}")
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") -> bool:
     """
-    SE ONE 에디터에 이미지 삽입 — '파일에서 올리기' 방식.
-    hidden file input을 직접 활성화해서 set_input_files() 사용.
-    실패해도 에디터 상태 복구 후 False 반환 (포스팅 플로우 보호).
+    SE ONE 에디터에 이미지 삽입.
+    Playwright expect_file_chooser()로 네이티브 파일 대화상자를 인터셉트.
+    실패해도 Escape로 복구 후 False 반환 (포스팅 플로우 보호).
     """
     try:
-        target = await _get_editor_frame(page)
+        # file chooser 인터셉터 + 사진 버튼 클릭을 동시에 시작
+        async with page.expect_file_chooser(timeout=8000) as fc_info:
+            clicked = await _click_photo_button(page)
+            if not clicked:
+                logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
+                return False
 
-        # 1. 사진 버튼 클릭 (JS로 탐색)
-        clicked = False
-        for t in [target, page]:
+            # 다이얼로그에 "내 PC에서" 버튼이 있을 경우 클릭 시도
+            await _delay(1000, 1500)
+            for selector in ["text=내 PC에서", "text=파일에서", "text=PC에서", "[class*='pc']", "[class*='local']"]:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.count() and await btn.is_visible(timeout=1000):
+                        await btn.click()
+                        logger.info(f"'내 PC에서' 버튼 클릭: {selector}")
+                        break
+                except Exception:
+                    continue
+
+        file_chooser = await fc_info.value
+        await file_chooser.set_files(local_path)
+        logger.info(f"파일 선택 완료: {local_path}")
+        await _delay(3000, 5000)
+
+        # 업로드 후 확인/삽입 버튼 클릭
+        for selector in ["text=확인", "text=삽입", "text=적용", "text=올리기"]:
             try:
-                result = await t.evaluate("""
-                    () => {
-                        const btns = [...document.querySelectorAll('button, .se-toolbar-item')];
-                        const btn = btns.find(b => {
-                            const txt = (b.textContent || '').trim();
-                            const title = b.getAttribute('title') || '';
-                            const label = b.getAttribute('aria-label') || '';
-                            const cls = b.className || '';
-                            return txt === '사진' || title.includes('사진') ||
-                                   label.includes('사진') || cls.includes('image') ||
-                                   cls.includes('photo');
-                        });
-                        if (btn) { btn.click(); return btn.className || 'clicked'; }
-                        return null;
-                    }
-                """)
-                if result:
-                    clicked = True
+                btn = page.locator(selector).first
+                if await btn.count() and await btn.is_visible(timeout=2000):
+                    await btn.click()
+                    logger.info(f"이미지 확인 버튼 클릭: {selector}")
                     await _delay(1500, 2500)
-                    logger.info(f"사진 버튼 JS 클릭: {result}")
-                    break
-            except Exception:
-                continue
-
-        if not clicked:
-            logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
-            return False
-
-        # 2. 파일 인풋 요소 찾아서 직접 파일 설정
-        file_set = False
-        for t in [page, target]:
-            try:
-                file_inputs = t.locator("input[type='file']")
-                cnt = await file_inputs.count()
-                if cnt > 0:
-                    # 모든 file input 시도 (숨겨진 것도 포함)
-                    for i in range(cnt):
-                        try:
-                            fi = file_inputs.nth(i)
-                            await fi.set_input_files(local_path)
-                            await _delay(3000, 5000)
-                            file_set = True
-                            logger.info(f"파일 업로드 완료: {local_path}")
-                            break
-                        except Exception:
-                            continue
-                if file_set:
-                    break
-            except Exception:
-                continue
-
-        if not file_set:
-            logger.warning("file input 없음 — 이미지 업로드 실패, 다이얼로그 닫기")
-            await page.keyboard.press("Escape")
-            await _delay(500, 800)
-            return False
-
-        # 3. '확인' 버튼 클릭 (이미지 다이얼로그 닫기)
-        for t in [page, target]:
-            try:
-                res = await t.evaluate("""
-                    () => {
-                        const btns = [...document.querySelectorAll('button')];
-                        const ok = btns.find(b => {
-                            const txt = b.textContent.trim();
-                            return txt === '확인' || txt === '삽입' || txt === '적용' || txt === '올리기';
-                        });
-                        if (ok) { ok.click(); return ok.textContent.trim(); }
-                        return null;
-                    }
-                """)
-                if res:
-                    logger.info(f"이미지 다이얼로그 확인: {res}")
-                    await _delay(2000, 3000)
                     break
             except Exception:
                 continue
@@ -534,7 +515,6 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             pass
         return False
     finally:
-        # 임시 파일 삭제
         try:
             if local_path and os.path.exists(local_path):
                 os.unlink(local_path)
