@@ -1,6 +1,6 @@
 """
 Playwright로 네이버 블로그 자동 포스팅
-SE3 에디터 기반 — 쿠키 세션 재사용으로 로그인 최소화
+SE3/SE4 에디터 기반 — 쿠키 세션 재사용으로 로그인 최소화
 """
 import asyncio
 import json
@@ -8,14 +8,13 @@ import logging
 import os
 import random
 
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, Page, BrowserContext, Frame
 
 logger = logging.getLogger(__name__)
 
 ROOT        = os.path.dirname(os.path.dirname(__file__))
 COOKIE_PATH = os.path.join(ROOT, "data", "naver_cookies.json")
 SHOT_DIR    = os.path.join(ROOT, "data", "screenshots")
-_WRITE_URL_TMPL = "https://blog.naver.com/PostWriteForm.naver?blogId={blog_id}"
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -53,7 +52,6 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
 
     if cookies_json.strip():
         try:
-            # BOM(﻿) 제거 후 파싱
             clean = cookies_json.strip().lstrip('﻿').strip()
             raw = json.loads(clean)
             logger.info(f"환경변수 쿠키 파싱 성공 ({len(raw)}개)")
@@ -72,7 +70,6 @@ async def _load_cookies(ctx: BrowserContext, cookies_json: str = "") -> bool:
         logger.error("로드할 쿠키 없음")
         return False
 
-    # Playwright add_cookies에 필요한 필드만 추출
     clean = []
     for c in raw:
         entry = {k: c[k] for k in ("name", "value", "domain", "path") if k in c}
@@ -96,7 +93,7 @@ async def _is_logged_in(page: Page) -> bool:
     cookies = await page.context.cookies()
     names = {c["name"] for c in cookies}
     logged = "NID_AUT" in names
-    logger.info(f"로그인 체크: {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:5]}...)")
+    logger.info(f"로그인 체크: {'OK' if logged else 'FAIL'} (쿠키: {sorted(names)[:8]})")
     return logged
 
 
@@ -123,27 +120,192 @@ async def _login(page: Page, naver_id: str, naver_pw: str) -> bool:
     return False
 
 
+def _looks_like_write_page(url: str) -> bool:
+    """URL이 글쓰기 에디터 페이지인지 판별"""
+    if not url or "about:blank" in url:
+        return False
+    bad = ["BlogHome.naver", "nid.naver.com", "section.blog.naver.com"]
+    if any(b in url for b in bad):
+        return False
+    good = ["postwrite", "PostWrite", "editor", "/write", "editForm"]
+    return any(g in url for g in good)
+
+
+async def _navigate_to_write_page(page: Page, naver_id: str, blog_id: str) -> bool:
+    """글쓰기 에디터 페이지 진입 — 세 가지 방법 순차 시도"""
+
+    # 방법 1: /postwrite URL 직접 이동 (신형 에디터)
+    ids_to_try = list(dict.fromkeys(filter(None, [blog_id, naver_id])))
+    for bid in ids_to_try:
+        url = f"https://blog.naver.com/{bid}/postwrite"
+        logger.info(f"[방법1] postwrite URL: {url}")
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            await _delay(2000, 3000)
+            cur = page.url
+            await _screenshot(page, f"try1_{bid}")
+            logger.info(f"결과 URL: {cur}")
+            if _looks_like_write_page(cur):
+                logger.info("방법1 성공")
+                return True
+        except Exception as e:
+            logger.warning(f"방법1 실패 ({bid}): {e}")
+
+    # 방법 2: 블로그 홈 → 글쓰기 버튼 클릭
+    home_id = blog_id or naver_id
+    logger.info(f"[방법2] 블로그 홈 진입: {home_id}")
+    try:
+        await page.goto(f"https://blog.naver.com/{home_id}", wait_until="domcontentloaded", timeout=25000)
+        await _delay(2000, 3000)
+        await _screenshot(page, "try2_blog_home")
+        logger.info(f"블로그 홈 URL: {page.url}")
+
+        write_btn_sels = [
+            ".btn_write",
+            "a.write_btn",
+            "a:has-text('글쓰기')",
+            "button:has-text('글쓰기')",
+            "[href*='postwrite']",
+            "[href*='PostWriteForm']",
+        ]
+        for sel in write_btn_sels:
+            try:
+                el = page.locator(sel).first
+                if not await el.count():
+                    continue
+                logger.info(f"글쓰기 버튼 발견: {sel}")
+
+                # 새 탭 감지
+                new_pages: list = []
+                page.context.on("page", new_pages.append)
+                await el.click()
+                await _delay(3000, 4000)
+                page.context.remove_listener("page", new_pages.append)
+
+                if new_pages:
+                    np = new_pages[0]
+                    await np.wait_for_load_state("domcontentloaded", timeout=15000)
+                    target_url = np.url
+                    logger.info(f"새 탭: {target_url}")
+                    await np.close()
+                    if _looks_like_write_page(target_url):
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
+                        await _delay(2000, 3000)
+                        await _screenshot(page, "try2_write_page")
+                        return True
+                else:
+                    cur = page.url
+                    logger.info(f"클릭 후 URL: {cur}")
+                    await _screenshot(page, "try2_after_click")
+                    if _looks_like_write_page(cur):
+                        return True
+                break
+            except Exception as e:
+                logger.debug(f"셀렉터 {sel}: {e}")
+    except Exception as e:
+        logger.warning(f"방법2 실패: {e}")
+
+    # 방법 3: 구형 PostWriteForm (최후 수단) - 여러 파라미터 조합
+    for bid in ids_to_try:
+        for params in [f"blogId={bid}", f"blogId={bid}&postNo=0", f"blogId={bid}&from=blog"]:
+            url = f"https://blog.naver.com/PostWriteForm.naver?{params}"
+            logger.info(f"[방법3] 레거시: {url}")
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                await _delay(3000, 5000)
+                cur = page.url
+                await _screenshot(page, f"try3_{bid}")
+                logger.info(f"레거시 결과: {cur}")
+                if _looks_like_write_page(cur):
+                    logger.info("방법3 성공")
+                    return True
+            except Exception as e:
+                logger.warning(f"방법3 실패: {e}")
+
+    logger.error("모든 방법으로 글쓰기 페이지 진입 실패")
+    return False
+
+
+async def _get_editor_frame(page: Page):
+    """에디터 frame 반환 — iframe 내부 또는 메인 페이지"""
+    await _delay(500, 1000)
+    # 에디터 관련 frame URL 패턴 우선
+    for frame in page.frames:
+        url = frame.url or ""
+        if any(kw in url for kw in ["editor", "se.naver", "postwrite", "editForm"]):
+            logger.info(f"에디터 frame 발견 (URL): {url}")
+            return frame
+    # contenteditable 있는 frame 탐색
+    for frame in page.frames:
+        try:
+            count = await frame.locator("div[contenteditable='true']").count()
+            if count > 0:
+                logger.info(f"에디터 frame 발견 (contenteditable): {frame.url}")
+                return frame
+        except Exception:
+            continue
+    return page
+
+
+async def _fill_title(page: Page, title: str):
+    """제목 입력 — SE4 에디터 기준 확인된 셀렉터 우선"""
+    target = await _get_editor_frame(page)
+    title_sels = [
+        # SE4 신형 에디터 (확인된 셀렉터)
+        "div[contenteditable='true'][data-placeholder='제목']",
+        # 구형 SE3 셀렉터
+        ".se-title-text",
+        "[data-se-type='title'] [contenteditable]",
+        # 기타 폴백
+        ".title_input",
+        "input[name='title']",
+        "[placeholder='제목']",
+    ]
+    for sel in title_sels:
+        try:
+            t = target.locator(sel).first
+            if await t.count():
+                await t.click()
+                await _delay(300, 500)
+                # contenteditable은 Ctrl+A → 타이핑으로 입력
+                await target.keyboard.press("Control+a")
+                await target.keyboard.type(title, delay=20)
+                logger.info(f"제목 입력 완료 ({sel}): {title[:40]}")
+                return
+        except Exception:
+            continue
+    logger.warning("제목 입력 영역을 찾지 못함")
+
+
 async def _type_in_editor(page: Page, text: str):
-    """SE3 에디터 본문 영역에 내용 입력"""
-    selectors = [
+    """본문 영역에 내용 입력 — SE4 확인된 셀렉터 우선"""
+    target = await _get_editor_frame(page)
+
+    body_sels = [
+        # SE4 신형: 제목이 아닌 contenteditable (확인된 패턴)
+        "div[contenteditable='true']:not([data-placeholder='제목'])",
+        # SE3 구형
         ".se-text-paragraph",
         "[data-se-type='text'] [contenteditable]",
         ".se-component-content",
+        ".se-main-container",
+        # 최후 폴백
+        "[contenteditable='true']",
     ]
     clicked = False
-    for sel in selectors:
+    for sel in body_sels:
         try:
-            loc = page.locator(sel).first
-            if await loc.count() > 0:
+            loc = target.locator(sel).first
+            if await loc.count():
                 await loc.click()
                 clicked = True
-                logger.info(f"에디터 클릭: {sel}")
+                logger.info(f"에디터 본문 클릭: {sel}")
                 break
         except Exception:
             continue
 
     if not clicked:
-        await page.keyboard.press("Tab")
+        await target.keyboard.press("Tab")
 
     await _delay(500, 800)
 
@@ -152,53 +314,58 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             if line.strip():
-                await page.keyboard.type(line.strip(), delay=15)
+                await target.keyboard.type(line.strip(), delay=15)
             if j < len(lines) - 1:
-                await page.keyboard.press("Enter")
+                await target.keyboard.press("Enter")
         if i < len(paragraphs) - 1:
-            await page.keyboard.press("Enter")
-            await page.keyboard.press("Enter")
+            await target.keyboard.press("Enter")
+            await target.keyboard.press("Enter")
         await _delay(100, 200)
 
 
 async def _add_tags(page: Page, tags: list[str]):
+    target = await _get_editor_frame(page)
     tag_selectors = [
         ".tag_input input",
         ".se-tag input",
         "[placeholder*='태그']",
         "input[class*='tag']",
+        ".HashTagArea input",
     ]
     for sel in tag_selectors:
         try:
-            tag_box = page.locator(sel).first
-            if await tag_box.count() > 0:
+            tag_box = target.locator(sel).first
+            if await tag_box.count():
                 for tag in tags[:10]:
                     await tag_box.click()
                     await _delay(200, 400)
                     await tag_box.fill(tag)
-                    await page.keyboard.press("Enter")
+                    await target.keyboard.press("Enter")
                     await _delay(300, 500)
                 logger.info(f"태그 {len(tags)}개 입력 완료")
                 return
         except Exception:
             continue
-    logger.warning("태그 입력 영역을 찾지 못함 - 태그 없이 진행")
+    logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
 async def _publish(page: Page) -> str | None:
     await _screenshot(page, "before_publish")
+    target = await _get_editor_frame(page)
 
     publish_selectors = [
         "button:has-text('발행')",
         ".publish_btn",
+        "button:has-text('게시')",
         "[data-gdl-area='bottom'] button:last-child",
         "button.confirm",
+        ".btn_submit",
     ]
     clicked = False
     for sel in publish_selectors:
         try:
-            btn = page.locator(sel).first
-            if await btn.count() > 0:
+            btn = target.locator(sel).first
+            if await btn.count():
                 logger.info(f"발행 버튼 클릭: {sel}")
                 await btn.click()
                 await _delay(2000, 3000)
@@ -208,20 +375,15 @@ async def _publish(page: Page) -> str | None:
             continue
 
     if not clicked:
-        logger.error("발행 버튼을 찾지 못함")
+        logger.error("발행 버튼 없음")
         await _screenshot(page, "publish_btn_not_found")
         return None
 
     # 발행 확인 팝업
-    confirm_selectors = [
-        "button:has-text('확인')",
-        "button:has-text('발행하기')",
-        ".btn_confirm",
-    ]
-    for sel in confirm_selectors:
+    for sel in ["button:has-text('확인')", "button:has-text('발행하기')", ".btn_confirm"]:
         try:
-            btn = page.locator(sel).first
-            if await btn.count() > 0:
+            btn = target.locator(sel).first
+            if await btn.count():
                 await btn.click()
                 await _delay(3000, 5000)
                 break
@@ -232,7 +394,7 @@ async def _publish(page: Page) -> str | None:
     logger.info(f"발행 후 URL: {final_url}")
     await _screenshot(page, "after_publish")
 
-    if "about:blank" in final_url or final_url == "":
+    if "about:blank" in final_url or not final_url:
         return None
     return final_url
 
@@ -276,38 +438,29 @@ async def _post(
                 return None
             await _save_cookies(ctx)
 
-        # 쓰기 페이지
-        write_url = _WRITE_URL_TMPL.format(blog_id=blog_id)
-        logger.info(f"쓰기 페이지 이동: {write_url}")
-        await page.goto(write_url, wait_until="networkidle", timeout=30000)
-        await _delay(3000, 5000)
-        await _screenshot(page, "write_page")
-        logger.info(f"현재 URL: {page.url}")
+        # 글쓰기 페이지 진입
+        if not await _navigate_to_write_page(page, naver_id, blog_id):
+            logger.error("글쓰기 페이지 진입 실패 — 종료")
+            await browser.close()
+            return None
+
+        logger.info(f"글쓰기 에디터 진입 성공: {page.url}")
+        await _delay(2000, 3000)
+        await _screenshot(page, "editor_ready")
 
         # 제목 입력
-        title_sels = [
-            ".se-title-text",
-            "[placeholder='제목']",
-            "[data-se-type='title'] [contenteditable]",
-        ]
-        for sel in title_sels:
-            try:
-                t = page.locator(sel).first
-                if await t.count() > 0:
-                    await t.click()
-                    await _delay(300, 500)
-                    await t.fill(title)
-                    logger.info(f"제목 입력 완료: {title[:30]}")
-                    break
-            except Exception:
-                continue
-
+        await _fill_title(page, title)
         await _delay(500, 800)
+
+        # 본문 입력
         await _type_in_editor(page, body)
         await _delay(1000, 1500)
+
+        # 태그 입력
         await _add_tags(page, tags)
         await _delay(500, 800)
 
+        # 발행
         post_url = await _publish(page)
         await _save_cookies(ctx)
         await browser.close()
