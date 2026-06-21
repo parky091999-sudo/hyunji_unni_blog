@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 ROOT        = os.path.dirname(os.path.dirname(__file__))
 COOKIE_PATH = os.path.join(ROOT, "data", "naver_cookies.json")
 SHOT_DIR    = os.path.join(ROOT, "data", "screenshots")
-WRITE_URL   = "https://blog.naver.com/PostWriteForm.naver"
+_WRITE_URL_TMPL = "https://blog.naver.com/PostWriteForm.naver?blogId={blog_id}"
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -240,6 +240,7 @@ async def _publish(page: Page) -> str | None:
 async def _post(
     naver_id: str,
     naver_pw: str,
+    blog_id: str,
     title: str,
     body: str,
     tags: list[str],
@@ -276,8 +277,9 @@ async def _post(
             await _save_cookies(ctx)
 
         # 쓰기 페이지
-        logger.info(f"쓰기 페이지 이동: {WRITE_URL}")
-        await page.goto(WRITE_URL, wait_until="networkidle", timeout=30000)
+        write_url = _WRITE_URL_TMPL.format(blog_id=blog_id)
+        logger.info(f"쓰기 페이지 이동: {write_url}")
+        await page.goto(write_url, wait_until="networkidle", timeout=30000)
         await _delay(3000, 5000)
         await _screenshot(page, "write_page")
         logger.info(f"현재 URL: {page.url}")
@@ -319,9 +321,10 @@ async def _post(
 def post_to_naver_blog(
     naver_id: str,
     naver_pw: str,
+    blog_id: str,
     title: str,
     body: str,
     tags: list[str],
     naver_cookies: str = "",
 ) -> dict | None:
-    return asyncio.run(_post(naver_id, naver_pw, title, body, tags, naver_cookies))
+    return asyncio.run(_post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies))

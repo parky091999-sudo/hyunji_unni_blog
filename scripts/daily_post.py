@@ -14,7 +14,7 @@ sys.path.insert(0, ROOT)
 from config import (
     DATA_DIR, LOG_DIR,
     GOOGLE_API_KEY, PEXELS_API_KEY,
-    NAVER_ID, NAVER_PW, NAVER_COOKIES,
+    NAVER_ID, NAVER_PW, NAVER_BLOG_ID, NAVER_COOKIES,
 )
 
 KST = timezone(timedelta(hours=9))
@@ -90,6 +90,7 @@ def run():
     result = post_to_naver_blog(
         naver_id=NAVER_ID,
         naver_pw=NAVER_PW,
+        blog_id=NAVER_BLOG_ID or NAVER_ID,
         title=post["title"],
         body=post["body"],
         tags=post["tags"],
