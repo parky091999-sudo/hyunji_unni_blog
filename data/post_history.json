@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "date": "2026-06-21",
+    "timestamp": "2026-06-21T23:51:06.461408+09:00",
+    "keyword": "자취 요리 초보 레시피",
+    "category": "요리식비",
+    "category_name": "요리&식비절약",
+    "title": "자취 요리 초보 레시피 | 현지언니가 성공한 3가지",
+    "tags": [
+      "자취요리",
+      "초보레시피",
+      "쉬운요리",
+      "신혼밥상",
+      "식비절약",
+      "현지언니레시피",
+      "집밥메뉴"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224322851884",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 7,
+    "images_inserted": 7,
+    "has_table": true,
+    "has_faq": true
+  }
+]
