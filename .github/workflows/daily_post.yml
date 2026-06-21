@@ -1,0 +1,45 @@
+name: 네이버 블로그 일일 포스팅
+
+on:
+  schedule:
+    # 매일 KST 10:00 (UTC 01:00)
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: Playwright 브라우저 설치
+        run: playwright install chromium --with-deps
+
+      - name: 포스팅 실행
+        env:
+          NAVER_ID:      ${{ secrets.NAVER_ID }}
+          NAVER_PW:      ${{ secrets.NAVER_PW }}
+          NAVER_COOKIES: ${{ secrets.NAVER_COOKIES }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python -m scripts.daily_post
+
+      - name: 포스팅 이력 + 갱신 쿠키 커밋
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "chore: 포스팅 이력 $(date +'%Y-%m-%d')"
+          git push
