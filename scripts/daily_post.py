@@ -163,16 +163,21 @@ def run():
     if post.get("coupang_hints"):
         logger.info(f"쿠팡 힌트: {post['coupang_hints']}")
 
-    # ── 4. 이미지 수집 ──────────────────────────────────────────
+    # ── 4. 이미지 수집 (image_keywords 활용 시 7장 위치별 수집) ──────
     images: list[dict] = []
+    image_keywords = post.get("image_keywords", [])
+    if image_keywords:
+        logger.info(f"이미지 키워드 {len(image_keywords)}개: {image_keywords}")
     if PEXELS_API_KEY:
         try:
             from generator.image import get_post_images
+            img_count = len(image_keywords) if image_keywords else 7
             images = get_post_images(
                 keyword=keyword,
                 api_key=PEXELS_API_KEY,
-                count=3,
+                count=img_count,
                 category=category,
+                image_keywords=image_keywords if image_keywords else None,
             )
             logger.info(f"이미지 수집: {len(images)}장")
         except Exception as e:

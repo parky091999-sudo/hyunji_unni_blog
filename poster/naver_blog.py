@@ -7,8 +7,10 @@ SE3/SE4 에디터 기반 — 쿠키 세션 재사용으로 로그인 최소화
 - section.blog.naver.com/BlogHome.naver 는 접근 가능
 - 글쓰기 버튼을 BlogHome에서 직접 클릭해야 에디터 진입 가능 (Referer 필요)
 - 새 탭이 열리면 그 탭을 에디터 페이지로 사용
+- [사진N] 마커: content.py가 body에 삽입 → 마커 위치에 이미지 삽입
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -405,13 +407,19 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             if line.strip():
-                await page.keyboard.type(line.strip(), delay=15)
+                # 인간적인 타이핑: 짧은 문장은 빠르게, 긴 문장은 느리게, 중간에 쉬는 구간
+                char_delay = random.randint(12, 35)
+                await page.keyboard.type(line.strip(), delay=char_delay)
+                # 문장 끝에 자연스러운 짧은 멈춤
+                if j < len(lines) - 1:
+                    await _delay(80, 250)
             if j < len(lines) - 1:
                 await page.keyboard.press("Enter")
         if i < len(paragraphs) - 1:
             await page.keyboard.press("Enter")
             await page.keyboard.press("Enter")
-        await _delay(100, 200)
+            # 단락 사이 더 긴 자연스러운 멈춤
+            await _delay(200, 600)
 
 
 def _download_image_to_temp(url: str) -> str | None:
@@ -480,106 +488,160 @@ async def _click_photo_button(page: Page) -> bool:
 
 async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") -> bool:
     """
-    SE ONE 에디터에 이미지 삽입.
-    1) 사진 버튼 클릭 → 커스텀 다이얼로그 열림
-    2) 다이얼로그 스크린샷 저장 후 '내 PC에서' 버튼 탐색
-    3) '내 PC에서' 클릭 시 파일 선택창(filechooser) 인터셉트
-    실패해도 Escape로 복구 후 False 반환.
+    SE ONE 에디터에 이미지 삽입 (3단계 Fallback).
+
+    방법1: expect_file_chooser 인터셉터 + 사진 버튼 클릭 → 다이얼로그 '내 PC에서' 클릭
+           (파일 선택창이 15초 내에 뜨면 성공)
+    방법2: 모든 프레임 input[type='file'] 직접 set_input_files
+    방법3: DataTransfer dragdrop 이벤트로 이미지 주입
     """
+    def _all_frames():
+        return [page] + [f for f in page.frames if f is not page]
+
     try:
-        # 1. 사진 버튼 클릭
-        clicked = await _click_photo_button(page)
-        if not clicked:
-            logger.warning("사진 버튼 없음 — 이미지 삽입 건너뜀")
-            return False
-
-        # 2. SE ONE 커스텀 다이얼로그 로딩 대기 (툴바 근처에 팝오버 형식)
-        await _delay(2500, 3500)
-        await _screenshot(page, "after_photo_btn", full_page=True)  # 전체 페이지 캡처
-
         target = await _get_editor_frame(page)
 
-        # 3. DOM에서 새로 생긴 다이얼로그 요소 로그
+        # ── 방법 1: 파일 선택창 통합 인터셉터 ──────────────────────
         try:
-            dialog_info = await page.evaluate("""
-                () => {
-                    const keywords = ['pc에서', '파일', '업로드', 'upload', 'local', 'modal', 'dialog', 'layer', 'popup'];
-                    const found = [];
-                    document.querySelectorAll('button, label, a, div[role]').forEach(el => {
-                        const txt = (el.textContent || '').trim().toLowerCase();
-                        const cls = (el.className || '').toLowerCase();
-                        if (keywords.some(k => txt.includes(k) || cls.includes(k))) {
-                            found.push({ tag: el.tagName, txt: el.textContent.trim().slice(0, 30), cls: el.className.slice(0, 50) });
-                        }
-                    });
-                    return found.slice(0, 10);
-                }
-            """)
-            logger.info(f"사진 다이얼로그 DOM 탐색: {dialog_info}")
-        except Exception:
-            pass
-
-        # 4. '내 PC에서' 버튼 탐색 (page + frame 모두)
-        pc_selectors = [
-            "text=내 PC에서",
-            "text=파일에서",
-            "text=PC에서",
-            "button:has-text('내 PC')",
-            "label:has-text('내 PC')",
-            "[class*='upload_pc']",
-            "[class*='local_upload']",
-            "[class*='pc_upload']",
-            "[class*='tabPC']",
-        ]
-        for search_in in [page, target]:
-            for sel in pc_selectors:
+            async with page.expect_file_chooser(timeout=15000) as fc_info:
+                # 1a. 에디터에 포커스 확보
                 try:
-                    btn = search_in.locator(sel).first
-                    if await btn.count() > 0:
-                        logger.info(f"'내 PC에서' 버튼 발견: {sel} (in {'frame' if search_in == target else 'page'})")
-                        async with page.expect_file_chooser(timeout=6000) as fc_info:
-                            await btn.click()
-                        fc = await fc_info.value
-                        await fc.set_files(local_path)
-                        logger.info(f"파일 선택 완료: {local_path}")
-                        await _delay(3000, 5000)
-                        for ok_sel in ["text=확인", "text=삽입", "text=적용", "text=올리기"]:
-                            try:
-                                ok_btn = page.locator(ok_sel).first
-                                if await ok_btn.count() and await ok_btn.is_visible(timeout=2000):
-                                    await ok_btn.click()
-                                    logger.info(f"이미지 확인 버튼: {ok_sel}")
-                                    await _delay(1500, 2000)
-                                    break
-                            except Exception:
-                                continue
-                        await _screenshot(page, f"after_image_{alt_text[:10] if alt_text else 'img'}")
-                        logger.info(f"이미지 삽입 완료: {alt_text}")
-                        return True
-                except Exception as e:
-                    logger.debug(f"이미지 업로드 시도 {sel}: {e}")
+                    ed = target.locator("[contenteditable='true']").first
+                    if await ed.count():
+                        await ed.click()
+                        await _delay(300, 500)
+                except Exception:
+                    pass
+
+                # 1b. 사진 버튼 클릭
+                if not await _click_photo_button(page):
+                    raise RuntimeError("사진 버튼 없음")
+
+                # 1c. 다이얼로그 대기 후 '내 PC에서' 탐색
+                await asyncio.sleep(4)
+                await _screenshot(page, "after_photo_btn", full_page=True)
+
+                # 모든 프레임에서 버튼 탐색 (로그 포함)
+                pc_sels = [
+                    "text=내 PC에서", "text=내PC에서", "text=컴퓨터에서",
+                    "text=파일에서", "text=PC에서", "text=파일 선택",
+                    "button:has-text('파일')", "label:has-text('파일')",
+                    "[class*='tabPC']", "[class*='upload_pc']",
+                    "[class*='local']", "[class*='pc_btn']",
+                ]
+                for frame in _all_frames():
+                    # 프레임 내 버튼 목록 디버그 로그
+                    try:
+                        btns = await frame.evaluate("""
+                            () => [...document.querySelectorAll('button,label,a')]
+                                .filter(e => {
+                                    const t = (e.textContent || '').toLowerCase();
+                                    const c = (e.className || '').toLowerCase();
+                                    return ['파일','pc','업로드','upload','local'].some(k => t.includes(k)||c.includes(k));
+                                })
+                                .map(e => ({tag:e.tagName, txt:e.textContent.trim().slice(0,25), cls:e.className.slice(0,40)}))
+                                .slice(0,5)
+                        """)
+                        if btns:
+                            logger.info(f"[frame {frame.url[:50]}] 버튼: {btns}")
+                    except Exception:
+                        pass
+
+                    for sel in pc_sels:
+                        try:
+                            btn = frame.locator(sel).first
+                            if await btn.count() > 0:
+                                vis = await btn.is_visible(timeout=1000)
+                                logger.info(f"'내 PC에서' 발견: {sel} (visible={vis})")
+                                await btn.click(timeout=3000)
+                                break
+                        except Exception:
+                            continue
+                    else:
+                        continue
+                    break
+                else:
+                    logger.info("'내 PC에서' 버튼 없음 — 사진 버튼이 직접 파일창 트리거 가능성")
+
+            fc = await fc_info.value
+            await fc.set_files(local_path)
+            await asyncio.sleep(4)
+
+            # 확인 버튼 (있는 경우)
+            for ok_sel in ["text=확인", "text=삽입", "text=적용", "text=올리기", "text=등록"]:
+                try:
+                    ok = page.locator(ok_sel).first
+                    if await ok.count() and await ok.is_visible(timeout=2000):
+                        await ok.click()
+                        await asyncio.sleep(1.5)
+                        break
+                except Exception:
                     continue
 
-        # Fallback: file input 직접 (프레임 포함)
-        for search_in in [page, target]:
+            await _screenshot(page, f"img_ok_{alt_text[:8] if alt_text else 'img'}")
+            logger.info(f"이미지 삽입 성공 (방법1): {alt_text or local_path}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"방법1 실패 ({e.__class__.__name__}: {str(e)[:60]}) — 방법2 시도")
+
+        # ── 방법 2: 모든 프레임 file input 직접 설정 ───────────────
+        for frame in _all_frames():
             try:
-                file_input = search_in.locator("input[type='file']").first
-                if await file_input.count() > 0:
-                    await file_input.set_input_files(local_path)
-                    logger.info(f"file input 직접 설정: {local_path}")
-                    await _delay(3000, 5000)
-                    return True
+                inputs = frame.locator("input[type='file']")
+                cnt = await inputs.count()
+                for j in range(cnt):
+                    try:
+                        await inputs.nth(j).set_input_files(local_path)
+                        await asyncio.sleep(3)
+                        logger.info(f"이미지 삽입 성공 (방법2 file input): {frame.url[:40]}")
+                        return True
+                    except Exception:
+                        continue
             except Exception:
                 continue
 
-        logger.warning("이미지 업로드 UI를 찾지 못함 — Escape로 복구")
-        await _screenshot(page, "image_dialog_fail", full_page=True)
+        # ── 방법 3: DataTransfer dragdrop 주입 ──────────────────────
+        try:
+            with open(local_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+            img_mime = "image/jpeg" if local_path.lower().endswith(".jpg") else "image/png"
+
+            for frame in [target, page]:
+                result = await frame.evaluate("""
+                    (args) => {
+                        const [b64, mime] = args;
+                        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                        const file = new File([bytes], 'photo.jpg', {type: mime});
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        const el = document.querySelector('[contenteditable="true"]')
+                                || document.querySelector('.se-main-container');
+                        if (!el) return false;
+                        el.focus();
+                        ['dragenter','dragover','drop'].forEach(name => {
+                            el.dispatchEvent(new DragEvent(name, {
+                                bubbles: true, cancelable: true, dataTransfer: dt
+                            }));
+                        });
+                        return true;
+                    }
+                """, [img_b64, img_mime])
+                if result:
+                    await asyncio.sleep(2)
+                    logger.info(f"이미지 삽입 성공 (방법3 DataTransfer)")
+                    return True
+        except Exception as e:
+            logger.warning(f"방법3 DataTransfer 실패: {e}")
+
+        logger.warning(f"이미지 삽입 모든 방법 실패 — 건너뜀")
+        await _screenshot(page, "image_all_failed", full_page=True)
         await page.keyboard.press("Escape")
         await _delay(500, 800)
         return False
 
     except Exception as e:
-        logger.warning(f"이미지 삽입 실패 (무시하고 계속): {e}")
+        logger.warning(f"이미지 삽입 예외 (계속 진행): {e}")
         try:
             await page.keyboard.press("Escape")
             await _delay(500, 800)
@@ -844,44 +906,82 @@ async def _post(
         await _delay(500, 800)
         await _screenshot(write_page, "after_title")
 
-        # 본문 타이핑 (1/3 지점까지)
-        paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
-        split_point = max(1, len(paragraphs) // 3)
-        body_part1 = "\n\n".join(paragraphs[:split_point])
-        body_part2 = "\n\n".join(paragraphs[split_point:])
+        # [사진N] 마커로 본문 분할 — 마커 위치에 이미지 삽입
+        _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
+        marker_positions = _PHOTO_MARKER.findall(body)
+        has_markers = bool(marker_positions)
 
-        logger.info(f"본문 1부 입력 ({len(body_part1)}자)")
-        await _type_in_editor(write_page, body_part1)
-        await _delay(800, 1200)
-
-        # 이미지 삽입 (본문 사이) — 파일 다운로드 후 set_input_files 방식
         images_inserted = 0
-        if images:
-            logger.info(f"이미지 삽입 시도 ({len(images)}장)")
-            for i, img in enumerate(images[:3]):  # 최대 3장
-                try:
-                    local_path = _download_image_to_temp(img["url"])
-                    if not local_path:
-                        logger.warning(f"이미지 {i+1}번 다운로드 실패 — 건너뜀")
-                        continue
-                    success = await _insert_image_file(
-                        write_page,
-                        local_path=local_path,
-                        alt_text=img.get("alt_text", ""),
-                    )
-                    if success:
-                        images_inserted += 1
-                        await _delay(1000, 1500)
-                        logger.info(f"이미지 {i+1}번 삽입 성공")
-                    else:
-                        logger.warning(f"이미지 {i+1}번 삽입 실패 — 계속 진행")
-                except Exception as e:
-                    logger.warning(f"이미지 {i+1}번 삽입 예외 — 계속 진행: {e}")
 
-        # 본문 나머지 입력
-        if body_part2:
-            logger.info(f"본문 2부 입력 ({len(body_part2)}자)")
-            await _type_in_editor(write_page, body_part2)
+        if has_markers and images:
+            # 마커 기반 인터리브: 텍스트 세그먼트 → 이미지 → 반복
+            parts = _PHOTO_MARKER.split(body)
+            # parts = [text0, idx1, text1, idx2, text2, ...]
+            logger.info(f"[사진N] 마커 {len(marker_positions)}개 발견 — 인터리브 삽입")
+            i = 0
+            seg_count = 0
+            while i < len(parts):
+                text_seg = parts[i].strip()
+                if text_seg:
+                    logger.info(f"본문 세그먼트 {seg_count+1} 입력 ({len(text_seg)}자)")
+                    await _type_in_editor(write_page, text_seg)
+                    await _delay(500, 800)
+                    seg_count += 1
+                if i + 1 < len(parts):
+                    img_idx = int(parts[i + 1]) - 1  # 0-based
+                    if 0 <= img_idx < len(images):
+                        img = images[img_idx]
+                        local_path = _download_image_to_temp(img["url"])
+                        if local_path:
+                            ok = await _insert_image_file(
+                                write_page,
+                                local_path=local_path,
+                                alt_text=img.get("alt_text", ""),
+                            )
+                            if ok:
+                                images_inserted += 1
+                                logger.info(f"이미지 {img_idx+1}번 삽입 성공 (마커 위치)")
+                            else:
+                                logger.warning(f"이미지 {img_idx+1}번 삽입 실패 — 계속")
+                        else:
+                            logger.warning(f"이미지 {img_idx+1}번 다운로드 실패")
+                    i += 2
+                else:
+                    i += 1
+
+        else:
+            # 마커 없거나 이미지 없음 → 기존 방식 (1/3 지점에 이미지 배치)
+            paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+            split_point = max(1, len(paragraphs) // 3)
+            body_part1 = "\n\n".join(paragraphs[:split_point])
+            body_part2 = "\n\n".join(paragraphs[split_point:])
+
+            logger.info(f"본문 1부 입력 ({len(body_part1)}자)")
+            await _type_in_editor(write_page, body_part1)
+            await _delay(800, 1200)
+
+            if images:
+                logger.info(f"이미지 삽입 시도 ({len(images)}장, 마커 없음)")
+                for i, img in enumerate(images[:3]):
+                    try:
+                        local_path = _download_image_to_temp(img["url"])
+                        if not local_path:
+                            continue
+                        ok = await _insert_image_file(
+                            write_page,
+                            local_path=local_path,
+                            alt_text=img.get("alt_text", ""),
+                        )
+                        if ok:
+                            images_inserted += 1
+                            await _delay(1000, 1500)
+                    except Exception as e:
+                        logger.warning(f"이미지 {i+1}번 예외: {e}")
+
+            if body_part2:
+                logger.info(f"본문 2부 입력 ({len(body_part2)}자)")
+                await _type_in_editor(write_page, body_part2)
+
         await _delay(1000, 1500)
         await _screenshot(write_page, "after_body")
         logger.info(f"이미지 {images_inserted}장 삽입 완료")

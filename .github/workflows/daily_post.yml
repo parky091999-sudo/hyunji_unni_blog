@@ -32,6 +32,13 @@ jobs:
       - name: Playwright 브라우저 설치
         run: playwright install chromium --with-deps
 
+      - name: 랜덤 딜레이 (봇 패턴 방지)
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 1800))
+          echo "랜덤 딜레이: ${DELAY}초 (최대 30분)"
+          sleep $DELAY
+
       - name: 포스팅 실행
         env:
           NAVER_ID:       ${{ secrets.NAVER_ID }}
