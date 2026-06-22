@@ -957,6 +957,7 @@ async def _post(
     naver_cookies: str = "",
     images: list[dict] | None = None,
     draft: bool = False,
+    allow_pw_login: bool = False,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -976,7 +977,18 @@ async def _post(
         cookies_ok = await _load_cookies(ctx, naver_cookies)
 
         if not cookies_ok or not await _is_logged_in(page):
-            logger.info("쿠키 없음 — ID/PW 로그인 시도")
+            # ⚠️ 보호조치 재발 방지: CI(데이터센터 IP)에서의 ID/PW 자동 로그인은
+            # 네이버가 '타인 로그인'으로 판단해 계정을 잠그는 가장 큰 트리거다.
+            # 따라서 기본적으로 쿠키만 사용하고, 쿠키가 죽으면 즉시 중단 + 알림.
+            if not allow_pw_login:
+                logger.error(
+                    "쿠키 무효/만료 — ID/PW 자동 로그인은 보호조치 위험으로 생략. "
+                    "새 쿠키 발급 후 NAVER_COOKIES 시크릿을 갱신하세요. (ALLOW_PW_LOGIN=true 면 강제 로그인)"
+                )
+                await _screenshot(page, "cookie_invalid_abort", full_page=True)
+                await browser.close()
+                return None
+            logger.warning("쿠키 실패 — ALLOW_PW_LOGIN=true 라 ID/PW 로그인 시도 (보호조치 위험 감수)")
             if not naver_id or not naver_pw:
                 logger.error("ID/PW 없음 — 종료")
                 await browser.close()
@@ -988,8 +1000,8 @@ async def _post(
 
         write_page = await _navigate_to_write_page(ctx, page, naver_id, blog_id)
 
-        if write_page is None:
-            logger.info("에디터 진입 실패 — ID/PW 재로그인 후 재시도")
+        if write_page is None and allow_pw_login:
+            logger.warning("에디터 진입 실패 — ALLOW_PW_LOGIN=true 라 ID/PW 재로그인 후 재시도")
             if not naver_id or not naver_pw:
                 logger.error("ID/PW 없음 — 종료")
                 await browser.close()
@@ -1002,7 +1014,10 @@ async def _post(
             write_page = await _navigate_to_write_page(ctx, login_page, naver_id, blog_id)
 
         if write_page is None:
-            logger.error("재시도 후에도 에디터 진입 실패 — 종료")
+            logger.error(
+                "에디터 진입 실패 — 종료. (쿠키 무효 가능성 — 새 쿠키 발급 권장. "
+                "ID/PW 자동 로그인은 보호조치 방지를 위해 비활성)"
+            )
             await browser.close()
             return None
 
@@ -1121,7 +1136,8 @@ def post_to_naver_blog(
     naver_cookies: str = "",
     images: list[dict] | None = None,
     draft: bool = False,
+    allow_pw_login: bool = False,
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft)
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login)
     )

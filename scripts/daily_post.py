@@ -200,6 +200,7 @@ def run():
         naver_cookies=NAVER_COOKIES,
         images=images if images else None,
         draft=draft,
+        allow_pw_login=os.environ.get("ALLOW_PW_LOGIN", "false").lower() == "true",
     )
 
     # ── 드래프트 검증 모드: 이력 기록 없이 결과만 로깅하고 종료 ──
@@ -248,7 +249,10 @@ def run():
             f"이미지: {entry['images_inserted']}장 삽입"
         )
     else:
-        logger.warning(f"포스팅 실패 (URL: {post_url})")
+        # 실패 시 프로세스를 비정상 종료해 GitHub Actions가 '실패'로 표시 → 알림이 가게 함
+        # (예전엔 exit 0 이라 본문 소실/쿠키 만료에도 초록불이 떠 모니터링 사각지대였음)
+        logger.error(f"포스팅 실패 — 쿠키 만료(보호조치) 또는 발행 오류 의심. URL: {post_url}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
