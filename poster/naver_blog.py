@@ -879,24 +879,29 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
             pass
         return False
 
-    # ── 셀 채우기 ──
+    # ── 셀 채우기: 첫 셀 클릭 후 Tab 이동 (Tab이 마지막 셀에서 새 행 자동 생성) ──
+    flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
     try:
-        cell_loc = target.locator(".se-section-table .se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th")
-        ccount = await cell_loc.count()
-        logger.info(f"표 셀 {ccount}개 (필요 {n_rows * n_cols})")
-        flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
+        first = target.locator(
+            ".se-section-table .se-cell [contenteditable], .se-cell [contenteditable], "
+            ".se-table-cell [contenteditable], table td, table th"
+        ).first
+        if not await first.count():
+            logger.warning("표 셀 못 찾음 — 채우기 생략")
+            return False
+        await first.click()
+        await _delay(200, 350)
         for i, text in enumerate(flat):
-            if i >= ccount:
-                break
-            try:
-                await cell_loc.nth(i).click()
-                await _delay(80, 150)
-                if text:
-                    await page.keyboard.type(text, delay=12)
-            except Exception:
-                continue
-        logger.info("표 셀 채우기 완료")
+            if text:
+                await page.keyboard.type(text, delay=12)
+            if i < len(flat) - 1:
+                await page.keyboard.press("Tab")  # 다음 셀 (마지막 셀이면 새 행 생성)
+                await _delay(90, 180)
+        await _screenshot(page, "after_table_fill", full_page=True)
+        # 표 밖으로 커서 이동 (이후 본문/이미지 위치 보정)
+        await page.keyboard.press("Escape")
         await page.keyboard.press("Control+End")
+        logger.info(f"표 셀 채우기 완료 (Tab 방식, {len(flat)}개)")
         return True
     except Exception as e:
         logger.warning(f"표 셀 채우기 실패: {e}")
