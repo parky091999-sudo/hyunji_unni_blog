@@ -10,6 +10,10 @@ on:
         description: "오늘 이미 포스팅했어도 강제 실행 (true/false)"
         required: false
         default: "false"
+      draft:
+        description: "임시저장 검증 모드 — 공개 발행 없이 본문/이미지만 확인 (true/false)"
+        required: false
+        default: "false"
 
 jobs:
   post:
@@ -48,6 +52,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
+          DRAFT:          ${{ github.event.inputs.draft || 'false' }}
         run: python -m scripts.daily_post
 
       - name: 스크린샷 아티팩트 업로드 (디버그)
