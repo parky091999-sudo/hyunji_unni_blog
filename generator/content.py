@@ -294,7 +294,10 @@ def _parse_response(raw: str) -> dict | None:
 
         for i, line in enumerate(lines):
             if line.startswith("TITLE:"):
-                result["title"] = line[6:].strip()
+                t = line[6:].strip()
+                # 제목 끝 (괄호) 카테고리 누출 제거: "...비법 (제품추천)" → "...비법"
+                t = re.sub(r"\s*[\(（][^)）]{0,14}[\)）]\s*$", "", t).strip()
+                result["title"] = t
             elif line.startswith("TAGS:"):
                 result["tags"] = [t.strip() for t in line[5:].split(",") if t.strip()]
             elif line.startswith("COUPANG_HINT_"):
@@ -361,6 +364,54 @@ def _parse_response(raw: str) -> dict | None:
     except Exception as e:
         logger.error(f"파싱 오류: {e}")
         return None
+
+
+_OUTLINE_SYSTEM = """\
+너는 '현지언니' 블로그 글의 기획자야. 키워드를 받아서 '횡설수설하지 않는 한 편의 일관된 글' 설계도를 짜.
+
+출력 형식 (정확히 이 4줄):
+제목: {핵심키워드를 앞에 + | + 후킹표현, 30자 이내. 카테고리명이나 (괄호) 절대 넣지 마}
+요점: {이 글이 독자에게 전하는 단 하나의 메시지/결론을 한 문장으로. 제목이 약속한 바로 그것}
+섹션: {요점을 뒷받침하는 소제목 4개를 | 로 구분. 순서대로 읽으면 하나의 이야기가 되도록}
+표주제: {비교표로 보여줄 것 한 줄 — 요점과 직결된 것만}
+
+규칙:
+- 제목과 요점은 반드시 일치 (제목이 '식비 10만원 아낀 법'이면 요점도 '어떻게 10만원 아꼈는지')
+- 섹션 4개는 서로 다른 얘기 나열이 아니라, 요점을 향해 쌓이는 흐름(기-승-전-결)
+- 한 글 = 한 주제. 곁가지·딴 얘기 금지.
+- 제목엔 카테고리명("제품추천" 등) 절대 붙이지 마.
+"""
+
+
+def _generate_outline(keyword: str, category: str, trending: list[str] | None, api_key: str) -> dict:
+    """글 설계도(제목/요점/섹션/표주제) 생성 → 본문 일관성 확보. 실패 시 빈 dict."""
+    trend = f"\n참고 트렌딩: {', '.join(trending[:3])}" if trending else ""
+    cat = f"\n카테고리(참고만): {category}" if category else ""
+    user = f"키워드: {keyword}{cat}{trend}\n\n위 키워드로 일관된 블로그 글 설계도를 짜줘."
+    try:
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=_OUTLINE_SYSTEM, max_output_tokens=1024, temperature=0.95,
+            ),
+        )
+        raw = (resp.text or "").strip()
+        out: dict = {}
+        fields = [("제목:", "title"), ("요점:", "thesis"), ("섹션:", "sections"), ("표주제:", "table_topic")]
+        for line in raw.splitlines():
+            s = line.strip()
+            for key, field in fields:
+                if s.startswith(key):
+                    out[field] = s.split(":", 1)[1].strip()
+        if out.get("title") and out.get("thesis"):
+            logger.info(f"설계도 OK — 제목:{out['title']!r} / 요점:{out['thesis']!r}")
+            return out
+        logger.warning("설계도 파싱 실패 — 설계도 없이 진행")
+    except Exception as e:
+        logger.warning(f"설계도 생성 실패 (무시): {e}")
+    return {}
 
 
 _REFINE_SYSTEM = """\
@@ -434,6 +485,20 @@ def generate_post(
 
     category_note = f"\n카테고리: {category}" if category else ""
 
+    # ── 설계도 먼저: 제목/요점/섹션 흐름을 잡아 '제목-본문 일치 + 한 가지 요점' 확보 ──
+    outline = _generate_outline(keyword, category, trending, api_key)
+    outline_note = ""
+    if outline:
+        outline_note = (
+            f"\n\n[글 설계도 — 반드시 이대로 써라]"
+            f"\n제목(이걸 TITLE 줄에 그대로, 괄호·카테고리명 없이): {outline['title']}"
+            f"\n★이 글의 단 하나의 요점: {outline['thesis']}"
+            f"\n  → 본문 전체가 이 요점만 향한다. 제목이 약속한 걸 본문에서 반드시 지킨다(제목-본문 불일치 금지)."
+            f"\n섹션 흐름(이 순서대로 [소제목] 4개, 각 섹션은 요점을 한 단계씩 쌓는다): {outline.get('sections', '')}"
+            f"\n비교표 주제(요점과 직결된 것만): {outline.get('table_topic', '')}"
+            f"\n곁가지·딴 얘기·관련없는 정보 나열 금지. 끝까지 읽으면 하나의 이야기가 되게."
+        )
+
     # 매 글마다 도입부 스타일을 랜덤으로 강제 → 천편일률 공식 도입부 방지 (유사문서/AI 신호 회피)
     intro_styles = [
         "구체적인 장면과 시간 묘사로 시작 (예: '어제 저녁 8시, 싱크대 앞에서')",
@@ -448,7 +513,8 @@ def generate_post(
         f"오늘 포스팅 키워드: {keyword}"
         f"{category_note}"
         f"{trend_note}"
-        f"\n\n위 키워드로 현지언니 블로그 글을 작성해줘."
+        f"{outline_note}"
+        f"\n\n위 설계도대로 현지언니 블로그 글을 작성해줘. 제목은 설계도 제목을 그대로 TITLE에 쓰고, 본문은 그 요점 하나만 끝까지 밀고 가."
         f"\n[이번 글 도입부 스타일] {intro_hint}"
         f" — '혹시 ~신가요 / 솔직히 저도 / 오늘은 제가 ~알려드릴게요 / 이 글 하나만'식 공식 도입부는 절대 금지."
         f"\n반드시 [표시작]...[표끝] 과 [FAQ시작]...[FAQ끝] 마커를 포함해야 해."
