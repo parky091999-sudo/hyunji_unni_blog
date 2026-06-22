@@ -893,43 +893,86 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
         except Exception:
             pass
 
-    # ── 현재 행 수 확인 후 부족하면 행 추가 ──
+    # ── 현재 행 수 확인 후 부족하면 행 추가 (셀 컨텍스트 메뉴 방식) ──
+    # 네이버 SE ONE: 표 버튼은 즉시 3x3 삽입(크기 팝업 없음). 행 추가는 툴바 버튼이 아니라
+    # 셀 포커스 시 나타나는 .se-cell-context-menu-button → 팝업의 '아래에 행 추가' 항목으로 동작.
     try:
         cur_cells = await target.locator(cell_sel).count()
     except Exception:
         cur_cells = 0
     cur_rows = (cur_cells // n_cols) if n_cols else 0
     logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
-    add_row_sels = [
-        "[aria-label*='아래에 행 추가']", "[aria-label*='아래 행 추가']", "[aria-label*='행 추가']",
-        "[data-name*='RowBelow']", "[data-name*='addRow']", "[data-name*='rowAdd']",
-        "[class*='add-row']", "[class*='row-add']", "[class*='AddRow']",
-    ]
-    for _ in range(max(0, n_rows - cur_rows)):
-        # 마지막 셀에 포커스 둔 뒤 행 추가 버튼 클릭
+
+    # 셀 컨텍스트 메뉴 트리거 버튼 구조 덤프 (디버그 — 클릭 실패해도 위치는 남김)
+    try:
+        ctx_dump = await target.evaluate("""() =>
+            [...document.querySelectorAll('.se-cell-context-menu-button')].map(b => {
+                const r = b.getBoundingClientRect();
+                return {cls:(b.className||'').slice(0,55), al:b.getAttribute('aria-label'),
+                        ttl:b.getAttribute('title'), x:Math.round(r.x), y:Math.round(r.y)};
+            }).slice(0,6)
+        """)
+        logger.info(f"[셀컨텍스트버튼] {ctx_dump}")
+    except Exception:
+        pass
+
+    async def _click_add_row_item() -> bool:
+        # 열려있는 컨텍스트 팝업에서 '아래에 행 추가'(우선) 또는 '행 추가' 항목 클릭
+        for pat in (r"아래.*행\s*추가", r"행\s*추가"):
+            for fr in [target, page]:
+                try:
+                    item = fr.get_by_text(re.compile(pat)).first
+                    if await item.count() and await item.is_visible(timeout=500):
+                        await item.click(timeout=1500)
+                        return True
+                except Exception:
+                    continue
+        return False
+
+    need = max(0, n_rows - cur_rows)
+    for ri in range(need):
         try:
-            await target.locator(cell_sel).last.click()
-            await _delay(150, 250)
+            await target.locator(cell_sel).last.click()   # 마지막 셀 포커스 → 컨텍스트 버튼 노출
+            await _delay(250, 400)
         except Exception:
             pass
         added = False
-        for sel in add_row_sels:
+        ctx_btns = target.locator(".se-cell-context-menu-button")
+        try:
+            nctx = await ctx_btns.count()
+        except Exception:
+            nctx = 0
+        for ci in range(nctx):
             try:
-                for fr in [target, page]:
-                    btn = fr.locator(sel).first
-                    if await btn.count() and await btn.is_visible(timeout=500):
-                        await btn.click(timeout=1500)
-                        added = True
-                        logger.info(f"행 추가 클릭: {sel}")
-                        break
-                if added:
+                await ctx_btns.nth(ci).click(timeout=1500)
+                await _delay(300, 500)
+                if ri == 0:   # 첫 시도만 팝업 메뉴 구조 덤프
+                    for fr in [target, page]:
+                        try:
+                            menu = await fr.evaluate("""() =>
+                                [...document.querySelectorAll('button,[role=menuitem],li,a,span')]
+                                  .filter(e => e.offsetParent && /행|칸|열|추가|삭제|위|아래|왼쪽|오른쪽/.test((e.textContent||'').trim()) && (e.textContent||'').trim().length<=14)
+                                  .map(e => ({txt:(e.textContent||'').trim().slice(0,14), cls:(e.className||'').slice(0,40)})).slice(0,18)
+                            """)
+                            if menu:
+                                logger.info(f"[셀메뉴팝업 ci={ci} {fr.url[:24]}] {menu}")
+                        except Exception:
+                            pass
+                if await _click_add_row_item():
+                    added = True
+                    logger.info(f"행 추가 클릭 (컨텍스트 메뉴 ci={ci})")
                     break
+                else:
+                    try:
+                        await page.keyboard.press("Escape")
+                    except Exception:
+                        pass
             except Exception:
                 continue
         if not added:
-            logger.warning("행 추가 버튼 못 찾음 — 중단")
+            logger.warning("행 추가 실패 — 컨텍스트 메뉴 항목 못 찾음, 중단")
             break
-        await _delay(250, 400)
+        await _delay(300, 500)
 
     # ── nth-click 으로 셀별 채우기 ──
     flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
