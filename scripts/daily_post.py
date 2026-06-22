@@ -163,6 +163,8 @@ def run():
     logger.info(f"태그: {post['tags']}")
     logger.info(f"표 포함: {'있음' if post.get('table_str') else '없음'}")
     logger.info(f"FAQ 포함: {'있음' if post.get('faq_str') else '없음'}")
+    # 디버그: 생성·퇴고된 본문 전문 (품질 육안 검토용 — 로그에서 확인)
+    logger.info("===== 본문 전문 시작 =====\n" + post.get("body", "") + "\n===== 본문 전문 끝 =====")
     if post.get("coupang_hints"):
         logger.info(f"쿠팡 힌트: {post['coupang_hints']}")
 
