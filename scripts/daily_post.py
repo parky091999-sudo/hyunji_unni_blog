@@ -82,8 +82,11 @@ def run():
         return
 
     force = os.environ.get("FORCE_POST", "false").lower() == "true"
+    draft = os.environ.get("DRAFT", "false").lower() == "true"
+    if draft:
+        logger.info("DRAFT=true — 임시저장 검증 모드 (공개 발행 안 함 / 중복체크 무시 / 이력 미기록)")
     history = _load_history()
-    if _already_posted_today(history) and not force:
+    if _already_posted_today(history) and not force and not draft:
         logger.info("오늘 이미 포스팅 완료 — 건너뜀 (강제실행: FORCE_POST=true)")
         return
     if force:
@@ -196,7 +199,23 @@ def run():
         tags=post["tags"],
         naver_cookies=NAVER_COOKIES,
         images=images if images else None,
+        draft=draft,
+        allow_pw_login=os.environ.get("ALLOW_PW_LOGIN", "false").lower() == "true",
     )
+
+    # ── 드래프트 검증 모드: 이력 기록 없이 결과만 로깅하고 종료 ──
+    if draft:
+        if result:
+            logger.info(
+                f"[DRAFT] 임시저장 결과: {result.get('post_url')} | "
+                f"에디터 본문 {result.get('editor_text_len')}자 | "
+                f"이미지 {result.get('images_inserted')}장 삽입"
+            )
+            logger.info("[DRAFT] 스크린샷(draft_after_save, after_body, body_verify_failed) 확인 요망")
+        else:
+            logger.error("[DRAFT] 포스팅 함수 None 반환 — 로그/스크린샷 확인 필요")
+        logger.info("[DRAFT] 이력 미기록 — 검증 모드 종료")
+        return
 
     # ── 6. 이력 저장 ─────────────────────────────────────────────
     post_url  = result.get("post_url") if result else None
@@ -230,7 +249,10 @@ def run():
             f"이미지: {entry['images_inserted']}장 삽입"
         )
     else:
-        logger.warning(f"포스팅 실패 (URL: {post_url})")
+        # 실패 시 프로세스를 비정상 종료해 GitHub Actions가 '실패'로 표시 → 알림이 가게 함
+        # (예전엔 exit 0 이라 본문 소실/쿠키 만료에도 초록불이 떠 모니터링 사각지대였음)
+        logger.error(f"포스팅 실패 — 쿠키 만료(보호조치) 또는 발행 오류 의심. URL: {post_url}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

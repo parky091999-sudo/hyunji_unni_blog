@@ -10,6 +10,15 @@ on:
         description: "오늘 이미 포스팅했어도 강제 실행 (true/false)"
         required: false
         default: "false"
+      draft:
+        description: "임시저장 검증 모드 — 공개 발행 없이 본문/이미지만 확인 (true/false)"
+        required: false
+        default: "false"
+
+# 동시 실행 차단: 같은 시각 여러 로그인/푸시가 겹쳐 네이버 봇 탐지·push 충돌 나는 것 방지
+concurrency:
+  group: naver-daily-post
+  cancel-in-progress: false
 
 jobs:
   post:
@@ -48,6 +57,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
+          DRAFT:          ${{ github.event.inputs.draft || 'false' }}
         run: python -m scripts.daily_post
 
       - name: 스크린샷 아티팩트 업로드 (디버그)
@@ -60,6 +70,9 @@ jobs:
           retention-days: 3
 
       - name: 포스팅 이력 커밋
+        # 드래프트(검증) 런에서는 이력을 안 남기므로 커밋 스텝 자체를 건너뛴다
+        # (브랜치에서 git pull --rebase origin main 충돌로 거짓 실패가 뜨던 문제도 제거)
+        if: github.event.inputs.draft != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

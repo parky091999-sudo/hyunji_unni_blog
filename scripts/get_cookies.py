@@ -35,7 +35,19 @@ async def main():
         sys.exit(1)
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=False)
+        # 사내 프록시/SSL검사로 playwright 번들 크로미움 다운로드가 막힌 환경 대비:
+        # 시스템에 설치된 Chrome → Edge → 번들 크로미움 순으로 시도
+        browser = None
+        for ch in ("chrome", "msedge", None):
+            try:
+                browser = await pw.chromium.launch(headless=False, channel=ch)
+                print(f"[브라우저] {ch or 'bundled chromium'} 사용")
+                break
+            except Exception as e:
+                print(f"[브라우저] {ch or 'chromium'} 실패: {str(e)[:70]}")
+        if browser is None:
+            print("[ERROR] 사용 가능한 브라우저가 없습니다 (Chrome/Edge 설치 필요)")
+            sys.exit(1)
         ctx = await browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
