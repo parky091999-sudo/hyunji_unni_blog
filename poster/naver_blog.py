@@ -593,7 +593,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
 
         # ── 방법 1: 파일 선택창 통합 인터셉터 ──────────────────────
         try:
-            async with page.expect_file_chooser(timeout=8000) as fc_info:
+            async with page.expect_file_chooser(timeout=12000) as fc_info:
                 # 1a. 에디터에 포커스 확보
                 try:
                     ed = target.locator("[contenteditable='true']").first
@@ -612,10 +612,13 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                 await _screenshot(page, "after_photo_btn", full_page=True)
 
                 # 모든 프레임에서 버튼 탐색 (로그 포함)
+                # ★실제 SE-ONE '파일 불러오기' 다이얼로그의 버튼 텍스트는 "내 컴퓨터" 임 (스크린샷 확인)
                 pc_sels = [
+                    "text=내 컴퓨터", "text=내컴퓨터",
                     "text=내 PC에서", "text=내PC에서", "text=컴퓨터에서",
                     "text=파일에서", "text=PC에서", "text=파일 선택",
-                    "button:has-text('파일')", "label:has-text('파일')",
+                    "button:has-text('내 컴퓨터')", "button:has-text('파일')",
+                    "label:has-text('파일')",
                     "[class*='tabPC']", "[class*='upload_pc']",
                     "[class*='local']", "[class*='pc_btn']",
                 ]
@@ -719,6 +722,26 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
         logger.warning(f"이미지 삽입 예외 (계속 진행): {e}")
         return False
     finally:
+        # '파일 불러오기' 업로드 다이얼로그가 남아있으면 X로 닫기 (Escape로는 안 닫힘 — 다음 이미지 시도 방해 방지)
+        try:
+            target = await _get_editor_frame(page)
+            for fr in [target, page]:
+                try:
+                    await fr.evaluate("""
+                        () => {
+                            const btns = [...document.querySelectorAll('button, a, [role=button]')];
+                            const x = btns.find(b => {
+                                const t = (b.textContent || '').trim();
+                                const a = (b.getAttribute('aria-label') || '').toLowerCase();
+                                return t === '×' || t === '✕' || a.includes('닫기') || a.includes('close');
+                            });
+                            if (x) x.click();
+                        }
+                    """)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # 어떤 경로로 종료되어도 사진 팝업이 남아있지 않도록 Escape
         try:
             await page.keyboard.press("Escape")
