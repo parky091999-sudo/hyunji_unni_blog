@@ -327,12 +327,9 @@ def _parse_response(raw: str) -> dict | None:
             result["faq_str"] = faq_match.group(1).strip() if faq_match else ""
 
             body = body_raw
-            # 표 마커 → 읽기 좋은 텍스트로 교체
+            # 표 마커 → [표삽입] 자리표시자 (poster가 진짜 네이버 표로 삽입). table_str로 데이터 전달.
             if table_match:
-                body = body.replace(
-                    table_match.group(0),
-                    _format_text_table(table_match.group(1).strip()),
-                )
+                body = body.replace(table_match.group(0), "\n[표삽입]\n")
             # FAQ 마커 → 읽기 좋은 텍스트로 교체
             if faq_match:
                 body = body.replace(
