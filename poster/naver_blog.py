@@ -879,30 +879,84 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
             pass
         return False
 
-    # ── 셀 채우기: 첫 셀 클릭 후 Tab 이동 (Tab이 마지막 셀에서 새 행 자동 생성) ──
+    # ── 표 편집 툴바 덤프 (디버그 — 행 추가 버튼 찾기) ──
+    cell_sel = ".se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th"
+    for fr in [target, page]:
+        try:
+            tbtns = await fr.evaluate("""() =>
+                [...document.querySelectorAll('button,[role=button]')]
+                  .filter(b => /행|열|추가|아래|row|col|insert/i.test((b.getAttribute('aria-label')||'')+(b.getAttribute('data-name')||'')+(b.className||'')))
+                  .map(b => ({al:b.getAttribute('aria-label'), dn:b.getAttribute('data-name'), cls:(b.className||'').slice(0,45)})).slice(0,14)
+            """)
+            if tbtns:
+                logger.info(f"[표툴바 {fr.url[:30]}] {tbtns}")
+        except Exception:
+            pass
+
+    # ── 현재 행 수 확인 후 부족하면 행 추가 ──
+    try:
+        cur_cells = await target.locator(cell_sel).count()
+    except Exception:
+        cur_cells = 0
+    cur_rows = (cur_cells // n_cols) if n_cols else 0
+    logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
+    add_row_sels = [
+        "[aria-label*='아래에 행 추가']", "[aria-label*='아래 행 추가']", "[aria-label*='행 추가']",
+        "[data-name*='RowBelow']", "[data-name*='addRow']", "[data-name*='rowAdd']",
+        "[class*='add-row']", "[class*='row-add']", "[class*='AddRow']",
+    ]
+    for _ in range(max(0, n_rows - cur_rows)):
+        # 마지막 셀에 포커스 둔 뒤 행 추가 버튼 클릭
+        try:
+            await target.locator(cell_sel).last.click()
+            await _delay(150, 250)
+        except Exception:
+            pass
+        added = False
+        for sel in add_row_sels:
+            try:
+                for fr in [target, page]:
+                    btn = fr.locator(sel).first
+                    if await btn.count() and await btn.is_visible(timeout=500):
+                        await btn.click(timeout=1500)
+                        added = True
+                        logger.info(f"행 추가 클릭: {sel}")
+                        break
+                if added:
+                    break
+            except Exception:
+                continue
+        if not added:
+            logger.warning("행 추가 버튼 못 찾음 — 중단")
+            break
+        await _delay(250, 400)
+
+    # ── nth-click 으로 셀별 채우기 ──
     flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
     try:
-        first = target.locator(
-            ".se-section-table .se-cell [contenteditable], .se-cell [contenteditable], "
-            ".se-table-cell [contenteditable], table td, table th"
-        ).first
-        if not await first.count():
-            logger.warning("표 셀 못 찾음 — 채우기 생략")
-            return False
-        await first.click()
-        await _delay(200, 350)
+        cell_loc = target.locator(cell_sel)
+        ccount = await cell_loc.count()
+        logger.info(f"표 셀 {ccount}개 (필요 {len(flat)})")
+        filled = 0
         for i, text in enumerate(flat):
-            if text:
-                await page.keyboard.type(text, delay=12)
-            if i < len(flat) - 1:
-                await page.keyboard.press("Tab")  # 다음 셀 (마지막 셀이면 새 행 생성)
-                await _delay(90, 180)
+            if i >= ccount:
+                break
+            try:
+                await cell_loc.nth(i).click()
+                await _delay(90, 160)
+                await page.keyboard.press("Control+a")
+                if text:
+                    await page.keyboard.type(text, delay=12)
+                else:
+                    await page.keyboard.press("Delete")
+                filled += 1
+            except Exception:
+                continue
         await _screenshot(page, "after_table_fill", full_page=True)
-        # 표 밖으로 커서 이동 (이후 본문/이미지 위치 보정)
         await page.keyboard.press("Escape")
         await page.keyboard.press("Control+End")
-        logger.info(f"표 셀 채우기 완료 (Tab 방식, {len(flat)}개)")
-        return True
+        logger.info(f"표 셀 채우기 완료 (nth 방식, {filled}/{len(flat)})")
+        return filled > 0
     except Exception as e:
         logger.warning(f"표 셀 채우기 실패: {e}")
         return False
