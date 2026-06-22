@@ -15,6 +15,11 @@ on:
         required: false
         default: "false"
 
+# 동시 실행 차단: 같은 시각 여러 로그인/푸시가 겹쳐 네이버 봇 탐지·push 충돌 나는 것 방지
+concurrency:
+  group: naver-daily-post
+  cancel-in-progress: false
+
 jobs:
   post:
     runs-on: ubuntu-latest
