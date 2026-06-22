@@ -345,6 +345,8 @@ def _parse_response(raw: str) -> dict | None:
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)
             body = re.sub(r"[✅💡🛒📌👉🧹🥄💰📦]\s*", "", body)
+            # [소제목] 마커 정리 — 깔끔한 단독 줄로 (Phase2 포스터가 제목 스타일 적용)
+            body = re.sub(r"^\[소제목\]\s*", "", body, flags=re.MULTILINE)
             body = re.sub(r"\n{3,}", "\n\n", body)
             # "안녕하세요" 로 시작하는 첫 줄/단락 제거 (AI 패턴)
             body = re.sub(r"^안녕하세요[^\n]*\n?", "", body, flags=re.IGNORECASE).lstrip()
