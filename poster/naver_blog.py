@@ -591,78 +591,58 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
         target = await _get_editor_frame(page)
         before = await _count_editor_images(target)
 
-        # ── 방법 1: 파일 선택창 통합 인터셉터 ──────────────────────
+        # ── 방법 1: 사진 버튼 → '파일 불러오기' 팝업 → '내 컴퓨터' 클릭을 file_chooser 로 감쌈 ──
+        # ★핵심: expect_file_chooser 윈도우는 '내 컴퓨터' 클릭 '직전'에 열어야 한다.
+        #   팝업 띄우기/버튼탐색까지 윈도우 안에서 하면 12초가 소진돼 클릭 직후 타임아웃 났었음.
         try:
-            async with page.expect_file_chooser(timeout=12000) as fc_info:
-                # 1a. 에디터에 포커스 확보
-                try:
-                    ed = target.locator("[contenteditable='true']").first
-                    if await ed.count():
-                        await ed.click()
-                        await _delay(200, 400)
-                except Exception:
-                    pass
+            # 1a. 에디터 포커스 + 사진 버튼 클릭 (팝업 열기) — file_chooser 윈도우 '밖'에서
+            try:
+                ed = target.locator("[contenteditable='true']").first
+                if await ed.count():
+                    await ed.click()
+                    await _delay(200, 400)
+            except Exception:
+                pass
+            if not await _click_photo_button(page):
+                raise RuntimeError("사진 버튼 없음")
 
-                # 1b. 사진 버튼 클릭
-                if not await _click_photo_button(page):
-                    raise RuntimeError("사진 버튼 없음")
-
-                # 1c. 다이얼로그 대기 후 '내 PC에서' 탐색
-                await asyncio.sleep(2.5)
-                await _screenshot(page, "after_photo_btn", full_page=True)
-
-                # 모든 프레임에서 버튼 탐색 (로그 포함)
-                # ★실제 SE-ONE '파일 불러오기' 다이얼로그의 버튼 텍스트는 "내 컴퓨터" 임 (스크린샷 확인)
-                pc_sels = [
-                    "text=내 컴퓨터", "text=내컴퓨터",
-                    "text=내 PC에서", "text=내PC에서", "text=컴퓨터에서",
-                    "text=파일에서", "text=PC에서", "text=파일 선택",
-                    "button:has-text('내 컴퓨터')", "button:has-text('파일')",
-                    "label:has-text('파일')",
-                    "[class*='tabPC']", "[class*='upload_pc']",
-                    "[class*='local']", "[class*='pc_btn']",
-                ]
-                for frame in _all_frames():
-                    # 프레임 내 버튼 목록 디버그 로그
-                    try:
-                        btns = await frame.evaluate("""
-                            () => [...document.querySelectorAll('button,label,a')]
-                                .filter(e => {
-                                    const t = (e.textContent || '').toLowerCase();
-                                    const c = (e.className || '').toLowerCase();
-                                    return ['파일','pc','업로드','upload','local'].some(k=>t.includes(k)||c.includes(k));
-                                })
-                                .map(e => ({tag:e.tagName, txt:e.textContent.trim().slice(0,25), cls:e.className.slice(0,40)}))
-                                .slice(0,5)
-                        """)
-                        if btns:
-                            logger.info(f"[frame {frame.url[:50]}] 버튼: {btns}")
-                    except Exception:
-                        pass
-
+            # 1b. '내 컴퓨터' 버튼이 뜰 때까지 폴링 (최대 ~8초, 모든 프레임)
+            pc_btn = None
+            pc_sels = (
+                "text=내 컴퓨터", "text=내컴퓨터", "button:has-text('내 컴퓨터')",
+                "[class*='file-source']", "text=내 PC에서",
+            )
+            for _ in range(16):
+                for fr in _all_frames():
                     for sel in pc_sels:
                         try:
-                            btn = frame.locator(sel).first
-                            if await btn.count() > 0:
-                                # 보이는 버튼만 클릭 (timeout 없이 빠르게 확인)
-                                try:
-                                    vis = await btn.is_visible(timeout=500)
-                                except Exception:
-                                    vis = False
-                                if not vis:
-                                    continue
-                                logger.info(f"'내 PC에서' 발견 클릭: {sel}")
-                                await btn.click(timeout=2000)
+                            loc = fr.locator(sel).first
+                            if await loc.count() and await loc.is_visible(timeout=300):
+                                pc_btn = loc
                                 break
                         except Exception:
                             continue
-                    else:
-                        continue
+                    if pc_btn:
+                        break
+                if pc_btn:
                     break
-                else:
-                    logger.info("'내 PC에서' 버튼 없음 — 파일창 직접 트리거 여부 대기")
+                await asyncio.sleep(0.5)
 
-            fc = await fc_info.value
+            await _screenshot(page, "after_photo_btn", full_page=True)
+
+            # 1c. file_chooser 윈도우로 '내 컴퓨터' 클릭'만' 감싸기 (올바른 타이밍)
+            if pc_btn is not None:
+                logger.info("'내 컴퓨터' 클릭 → 파일창 대기")
+                async with page.expect_file_chooser(timeout=10000) as fc_info:
+                    await pc_btn.click(timeout=3000)
+                fc = await fc_info.value
+            else:
+                # 팝업 없이 사진 버튼이 곧장 파일창을 여는 변형 대비
+                logger.info("'내 컴퓨터' 못 찾음 — 사진 버튼 직접 파일창 트리거 재시도")
+                async with page.expect_file_chooser(timeout=8000) as fc_info:
+                    await _click_photo_button(page)
+                fc = await fc_info.value
+
             await fc.set_files(local_path)
             await asyncio.sleep(3)
 
