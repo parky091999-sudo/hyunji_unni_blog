@@ -621,7 +621,20 @@ async def _move_cursor_to_paragraph_end(page: Page, para_idx: int):
             await _delay(150, 300)
             return
         idx = min(para_idx, cnt - 1)
-        await paras.nth(idx).click()
+        para = paras.nth(idx)
+        # 긴 문단은 화면에서 여러 줄로 줄바꿈된다. 요소 '중앙'을 클릭하면 가운데 시각 줄에
+        # 커서가 떨어지고 End가 그 줄 끝(=문단 중간)으로 가서 사진이 문장 중간에 박힌다.
+        # → 문단의 오른쪽-아래 끝을 클릭해 마지막 시각 줄로 간 뒤 End 로 진짜 문단 끝으로.
+        clicked = False
+        try:
+            box = await para.bounding_box()
+            if box and box["width"] > 6 and box["height"] > 6:
+                await para.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                clicked = True
+        except Exception:
+            pass
+        if not clicked:
+            await para.click()
         await page.keyboard.press("End")
         await _delay(150, 300)
     except Exception:
@@ -1112,7 +1125,47 @@ async def _save_draft(page: Page) -> str:
     return "DRAFT_NO_SAVE"
 
 
-async def _publish(page: Page, tags: list[str] | None = None, draft: bool = False) -> str | None:
+async def _select_category(page: Page, category_name: str) -> bool:
+    """발행 설정 패널에서 카테고리 선택. 패널은 에디터 프레임 안에 있고,
+    드롭다운 버튼=[class*='option_category'] [class*='selectbox_button'],
+    옵션=label[class*='radio_label'] (텍스트=카테고리명). 클래스 해시는 부분매치."""
+    if not category_name:
+        return False
+    target = await _get_editor_frame(page)
+    try:
+        opener = target.locator(
+            "[class*='option_category'] [class*='selectbox_button'], [class*='selectbox_button']"
+        ).first
+        await opener.click(timeout=2500)
+        await _delay(400, 700)
+        pat = re.compile(rf"^{re.escape(category_name)}$")
+        clicked = False
+        for sel in ["label[class*='radio_label']", "li[class*='item']", "span[class*='option']"]:
+            opt = target.locator(sel).filter(has_text=pat).first
+            if await opt.count():
+                await opt.click(timeout=2000)
+                clicked = True
+                break
+        if not clicked:
+            logger.warning(f"카테고리 옵션 못 찾음(기본값 유지): {category_name}")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            return False
+        await _delay(300, 500)
+        logger.info(f"카테고리 선택: {category_name}")
+        return True
+    except Exception as e:
+        logger.warning(f"카테고리 선택 실패(무시): {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+
+async def _publish(page: Page, tags: list[str] | None = None, draft: bool = False, category: str = "") -> str | None:
     """
     SE ONE 에디터 발행 흐름:
     1. 도움말 패널 닫기
@@ -1182,6 +1235,11 @@ async def _publish(page: Page, tags: list[str] | None = None, draft: bool = Fals
     await _screenshot(page, "after_publish_click")
     logger.info("발행 설정 패널 대기 중...")
     await _delay(2000, 3000)
+
+    # 2단계(추가): 카테고리 선택
+    if category:
+        await _select_category(page, category)
+        await _delay(400, 700)
 
     # 2단계: 설정 패널 태그 입력
     if tags:
@@ -1279,6 +1337,7 @@ async def _post(
     table_str: str = "",
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
+    category: str = "",
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1457,7 +1516,7 @@ async def _post(
         logger.info(f"이미지 {images_inserted}장 실제 삽입 완료 (검증: 에디터 이미지 수 기준)")
 
         # 발행 (draft=True 면 임시저장만)
-        post_url = await _publish(write_page, tags=tags, draft=draft)
+        post_url = await _publish(write_page, tags=tags, draft=draft, category=category)
         await _save_cookies(ctx)
         await browser.close()
 
@@ -1486,7 +1545,8 @@ def post_to_naver_blog(
     table_str: str = "",
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
+    category: str = "",
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings, faq_questions)
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings, faq_questions, category)
     )

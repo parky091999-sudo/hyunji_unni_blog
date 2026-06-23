@@ -206,6 +206,7 @@ def run():
         table_str=post.get("table_str", ""),
         subheadings=post.get("subheadings", []),
         faq_questions=post.get("faq_questions", []),
+        category="알뜰 살림 꿀팁",  # 살림/절약 일일글 카테고리
     )
 
     # ── 드래프트 검증 모드: 이력 기록 없이 결과만 로깅하고 종료 ──
