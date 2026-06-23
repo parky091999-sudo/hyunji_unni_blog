@@ -103,6 +103,7 @@ A: ...
 - 본문(이미지마커 제외) 1500자 이상.
 - 분량·시간·불세기는 현실적이고 정확하게. 위험하거나 틀린 조리법 금지.
 - [사진1]~[사진5] 정확히 5개. 표는 재료/분량으로 [표시작]...[표끝] 1개.
+- 재료표는 머리글 포함 8행 이내(2열). 양념이 많으면 한 행에 묶어라 (예: "양념 | 간장 2, 설탕 1, 다진마늘 0.5") — 양념마다 한 행씩 늘어놓지 말 것.
 - 소제목은 [소제목] 마커로 시작하는 한 줄. 이모지·기호 금지.
 - 한국어만.
 """.strip()
@@ -137,7 +138,7 @@ def generate_recipe(api_key: str, dish: str | None = None, recent: list[str] | N
                 if body_len < 400:
                     logger.warning(f"본문 너무 짧음 ({body_len}자) — 재생성")
                     continue
-                refined_raw = _refine_draft(raw, api_key)
+                refined_raw = _refine_draft(raw, api_key, min_photos=5)
                 if refined_raw != raw:
                     rp = _parse_response(refined_raw)
                     if rp and len(_IMAGE_MARKER.sub("", rp.get("body", ""))) >= 400:

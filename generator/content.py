@@ -462,7 +462,7 @@ _REFINE_SYSTEM = """\
 [절대 그대로 유지 — 건드리지 마]
 - 맨 위 TITLE: / TAGS: / COUPANG_HINT_*: / IMAGE_KEYWORDS: 줄과 값
 - --- 구분선
-- [사진1]~[사진7], [표시작]...[표끝], [FAQ시작]...[FAQ끝], [소제목] 마커 (위치·개수 그대로)
+- [사진N] 마커 전부(입력에 있는 개수·위치 그대로 — 숫자 추가/삭제 금지), [표시작]...[표끝], [FAQ시작]...[FAQ끝], [소제목] 마커
 - 출력은 입력과 똑같은 형식 (위 마커가 전부 살아있어야 함)
 
 [본문을 이렇게 고쳐라 — 12가지]
@@ -483,13 +483,14 @@ _REFINE_SYSTEM = """\
 """
 
 
-def _refine_draft(raw_draft: str, api_key: str) -> str:
-    """초안을 사람처럼 자연스럽게 퇴고. 형식/마커 보존 검증 통과 시만 채택, 아니면 원본 반환."""
+def _refine_draft(raw_draft: str, api_key: str, min_photos: int = 6) -> str:
+    """초안을 사람처럼 자연스럽게 퇴고. 형식/마커 보존 검증 통과 시만 채택, 아니면 원본 반환.
+    min_photos: 검증에 요구할 최소 [사진N] 마커 수 (일일글은 7개라 6, 레시피는 5개라 5)."""
     try:
         refined = _gen_text(api_key, f"아래 초안을 퇴고해줘:\n\n{raw_draft}", _REFINE_SYSTEM, 8192, 0.8)
         # 형식 보존 검증: 핵심 마커가 모두 살아있어야 채택
         if (refined and "TITLE:" in refined
-                and refined.count("[사진") >= 6
+                and refined.count("[사진") >= min_photos
                 and "[FAQ시작]" in refined and "[표시작]" in refined):
             return refined
         logger.warning("퇴고 결과 형식 깨짐 — 원본 유지")
