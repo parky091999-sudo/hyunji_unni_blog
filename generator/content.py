@@ -270,17 +270,19 @@ def _format_text_table(table_str: str) -> str:
 
 
 def _format_faq_text(faq_str: str) -> str:
-    """Q/A 블록 → 블로그 본문에 읽기 좋은 FAQ 텍스트"""
+    """Q/A 블록 → 블로그 본문 FAQ 텍스트. '자주 묻는 질문' 머리말 + 각 Q/A를 독립 단락
+    (빈 줄 구분)으로 둬 포스터가 머리말=소제목, 각 Q줄=굵게 스타일을 적용할 수 있게 한다."""
     lines = [l.strip() for l in faq_str.strip().split("\n") if l.strip()]
-    result = ["자주 묻는 질문"]
+    out = ["자주 묻는 질문", ""]
     for line in lines:
-        if line.startswith("Q:"):
-            result.append(f"\n{line}")
-        elif line.startswith("A:"):
-            result.append(line)
-        else:
-            result.append(line)
-    return "\n".join(result)
+        out.append(line)
+        out.append("")  # 각 줄 뒤 빈 줄 → 에디터에서 독립 단락
+    return "\n".join(out).strip()
+
+
+def _faq_questions(faq_str: str) -> list[str]:
+    """FAQ 원문에서 질문(Q) 줄만 추출 — 포스터가 해당 단락을 굵게 처리."""
+    return [l.strip() for l in faq_str.strip().split("\n") if l.strip().startswith("Q")]
 
 
 _IMAGE_MARKER = re.compile(r"\[사진\d+\]")
@@ -350,6 +352,11 @@ def _parse_response(raw: str) -> dict | None:
                 s.strip() for s in re.findall(r"^\[소제목\]\s*(.+)$", body, flags=re.MULTILINE) if s.strip()
             ]
             body = re.sub(r"^\[소제목\]\s*", "", body, flags=re.MULTILINE)
+            # FAQ 스타일링: '자주 묻는 질문' 머리말은 소제목 처리, 각 Q줄은 굵게
+            if result.get("faq_str"):
+                result["faq_questions"] = _faq_questions(result["faq_str"])
+                if "자주 묻는 질문" not in result["subheadings"]:
+                    result["subheadings"].append("자주 묻는 질문")
             body = re.sub(r"\n{3,}", "\n\n", body)
             # "안녕하세요" 로 시작하는 첫 줄/단락 제거 (AI 패턴)
             body = re.sub(r"^안녕하세요[^\n]*\n?", "", body, flags=re.IGNORECASE).lstrip()
@@ -361,6 +368,7 @@ def _parse_response(raw: str) -> dict | None:
 
         result.setdefault("tags", [])
         result.setdefault("subheadings", [])
+        result.setdefault("faq_questions", [])
         return result
     except Exception as e:
         logger.error(f"파싱 오류: {e}")

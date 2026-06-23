@@ -502,16 +502,19 @@ async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
         return False
 
 
-async def _style_subheadings(page: Page, subheadings: list[str], size_label: str = "19"):
-    """소제목 단락을 찾아 글자 크기 키움 + 굵게 — 제목 스타일."""
-    subs = [s.strip() for s in (subheadings or []) if s and s.strip()]
-    if not subs:
+async def _style_paragraphs(
+    page: Page, texts: list[str], size_label: str | None = "19", bold: bool = True, label: str = "스타일"
+):
+    """텍스트가 일치하는 본문 단락을 찾아 글자 크기(size_label) + 굵게(bold) 적용.
+    size_label=None 이면 크기 변경 없이 굵게만 (예: FAQ 질문줄)."""
+    items = [s.strip() for s in (texts or []) if s and s.strip()]
+    if not items:
         return
     target = await _get_editor_frame(page)
     paras = target.locator(".se-section-text .se-text-paragraph")
     styled = 0
     dumped = False
-    for sh in subs:
+    for tx in items:
         try:
             n = await paras.count()
         except Exception:
@@ -522,11 +525,11 @@ async def _style_subheadings(page: Page, subheadings: list[str], size_label: str
                 t = (await paras.nth(i).inner_text()).strip()
             except Exception:
                 continue
-            if t == sh:
+            if t == tx:
                 idx = i
                 break
         if idx < 0:
-            logger.info(f"소제목 단락 못 찾음(스킵): {sh[:20]}")
+            logger.info(f"{label} 단락 못 찾음(스킵): {tx[:20]}")
             continue
         try:
             await paras.nth(idx).click()
@@ -536,18 +539,20 @@ async def _style_subheadings(page: Page, subheadings: list[str], size_label: str
             await page.keyboard.press("End")
             await page.keyboard.up("Shift")
             await _delay(150, 260)
-            await _apply_size_to_selection(page, size_label, dump=not dumped)
-            dumped = True
-            await page.keyboard.press("Control+b")  # 굵게
+            if size_label:
+                await _apply_size_to_selection(page, size_label, dump=not dumped)
+                dumped = True
+            if bold:
+                await page.keyboard.press("Control+b")
             await _delay(150, 250)
             styled += 1
         except Exception as e:
-            logger.info(f"소제목 스타일 실패(스킵): {e}")
+            logger.info(f"{label} 적용 실패(스킵): {e}")
     try:
         await page.keyboard.press("Control+End")
     except Exception:
         pass
-    logger.info(f"소제목 스타일 적용 {styled}/{len(subs)}개 (크기 {size_label}+굵게)")
+    logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold})")
 
 
 def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
@@ -1273,6 +1278,7 @@ async def _post(
     allow_pw_login: bool = False,
     table_str: str = "",
     subheadings: list[str] | None = None,
+    faq_questions: list[str] | None = None,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1392,9 +1398,13 @@ async def _post(
         except Exception as e:
             logger.warning(f"글꼴 적용 예외(계속): {e}")
         try:
-            await _style_subheadings(write_page, subheadings or [], size_label="19")
+            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목")
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
+        try:
+            await _style_paragraphs(write_page, faq_questions or [], size_label=None, bold=True, label="FAQ질문")
+        except Exception as e:
+            logger.warning(f"FAQ 질문 스타일 예외(계속): {e}")
 
         # ── 진짜 네이버 표 삽입 (best-effort, 이미지보다 먼저 — 표는 text-paragraph 인덱스 안 바꿈) ──
         if table_str and table_anchor is not None:
@@ -1475,7 +1485,8 @@ def post_to_naver_blog(
     allow_pw_login: bool = False,
     table_str: str = "",
     subheadings: list[str] | None = None,
+    faq_questions: list[str] | None = None,
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings)
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings, faq_questions)
     )
