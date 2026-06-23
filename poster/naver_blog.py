@@ -621,7 +621,20 @@ async def _move_cursor_to_paragraph_end(page: Page, para_idx: int):
             await _delay(150, 300)
             return
         idx = min(para_idx, cnt - 1)
-        await paras.nth(idx).click()
+        para = paras.nth(idx)
+        # 긴 문단은 화면에서 여러 줄로 줄바꿈된다. 요소 '중앙'을 클릭하면 가운데 시각 줄에
+        # 커서가 떨어지고 End가 그 줄 끝(=문단 중간)으로 가서 사진이 문장 중간에 박힌다.
+        # → 문단의 오른쪽-아래 끝을 클릭해 마지막 시각 줄로 간 뒤 End 로 진짜 문단 끝으로.
+        clicked = False
+        try:
+            box = await para.bounding_box()
+            if box and box["width"] > 6 and box["height"] > 6:
+                await para.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                clicked = True
+        except Exception:
+            pass
+        if not clicked:
+            await para.click()
         await page.keyboard.press("End")
         await _delay(150, 300)
     except Exception:
