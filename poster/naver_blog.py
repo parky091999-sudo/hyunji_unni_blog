@@ -989,6 +989,24 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
             pass
         return False
 
+    # ── 실제 삽입된 표의 '열 수' 감지 ──
+    # 네이버 SE는 표 버튼 클릭 시 항상 기본 3열 표를 삽입한다(데이터 열 수와 무관).
+    # 따라서 셀 채우기·행 수 계산은 데이터의 n_cols 가 아니라 '실제 표의 열 수'에 맞춰야
+    # 줄밀림이 안 생긴다(2열 데이터를 3열 표에 순차로 부으면 전부 어긋남).
+    try:
+        grid_cols = await target.evaluate("""() => {
+            const t = document.querySelector('.se-section-table table, .se-table table, table');
+            if (!t) return 0;
+            const row = t.querySelector('tr');
+            return row ? row.children.length : 0;
+        }""")
+    except Exception:
+        grid_cols = 0
+    if not grid_cols or grid_cols < 1:
+        grid_cols = n_cols if n_cols >= 1 else 3
+    if grid_cols != n_cols:
+        logger.info(f"표 실제 열 수={grid_cols} (데이터 열 수={n_cols}) — 실제 열 수에 맞춰 채움")
+
     # ── 표 편집 툴바 덤프 (디버그 — 행 추가 버튼 찾기) ──
     cell_sel = ".se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th"
     for fr in [target, page]:
@@ -1012,7 +1030,7 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
         cur_cells = await target.locator(cell_sel).count()
     except Exception:
         cur_cells = 0
-    cur_rows = (cur_cells // n_cols) if n_cols else 0
+    cur_rows = (cur_cells // grid_cols) if grid_cols else 0
     logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
 
     row_add_sel = ".se-cell-controlbar-row .se-cell-add-button"
@@ -1020,7 +1038,7 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
 
     async def _row_count() -> int:
         try:
-            return ((await target.locator(cell_sel).count()) // n_cols) if n_cols else 0
+            return ((await target.locator(cell_sel).count()) // grid_cols) if grid_cols else 0
         except Exception:
             return 0
 
@@ -1059,7 +1077,8 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
     logger.info(f"행 추가 후 ≈{await _row_count()}행 (목표 {n_rows}, 시도 {attempts})")
 
     # ── nth-click 으로 셀별 채우기 ──
-    flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
+    # 각 행을 '실제 표의 열 수(grid_cols)'에 맞춰 패딩/절단 → 행 단위 정렬 보장(줄밀림 방지).
+    flat = [c for row in rows for c in (row + [""] * grid_cols)[:grid_cols]]
     try:
         cell_loc = target.locator(cell_sel)
         ccount = await cell_loc.count()
