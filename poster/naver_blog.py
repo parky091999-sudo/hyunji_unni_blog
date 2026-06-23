@@ -884,7 +884,22 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
 
     row_add_sel = ".se-cell-controlbar-row .se-cell-add-button"
     table_sel = ".se-section-table, table"
-    for _ in range(max(0, n_rows - cur_rows)):
+
+    async def _row_count() -> int:
+        try:
+            return ((await target.locator(cell_sel).count()) // n_cols) if n_cols else 0
+        except Exception:
+            return 0
+
+    # 클릭마다 컨트롤바가 재렌더되어(특히 CI 헤드리스에서 느림) 다음 클릭이 같은 버튼을
+    # 치는 레이스가 있다. 고정 횟수 대신 '행 수가 실제로 늘 때까지 폴링'하며 목표까지 반복.
+    attempts = 0
+    max_attempts = max(0, n_rows - cur_rows) + 5
+    while attempts < max_attempts:
+        cur = await _row_count()
+        if cur >= n_rows:
+            break
+        attempts += 1
         btns = target.locator(row_add_sel)
         try:
             bc = await btns.count()
@@ -895,22 +910,20 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
             break
         try:
             await btns.last.click(timeout=2000)          # 맨 아래 행 아래에 추가
-            await _delay(280, 460)
         except Exception:
-            # 컨트롤바가 표 hover 시 노출되는 경우 대비: 표 hover 후 강제 클릭
-            try:
+            try:  # 컨트롤바가 표 hover 시 노출되는 경우 대비
                 await target.locator(table_sel).first.hover()
-                await _delay(150, 250)
+                await _delay(120, 200)
                 await target.locator(row_add_sel).last.click(timeout=2000, force=True)
-                await _delay(280, 460)
             except Exception as e:
                 logger.warning(f"행 추가 클릭 실패: {e} — 중단")
                 break
-    try:
-        after_rows = ((await target.locator(cell_sel).count()) // n_cols) if n_cols else 0
-        logger.info(f"행 추가 후 ≈{after_rows}행 (목표 {n_rows})")
-    except Exception:
-        pass
+        # 행이 실제로 늘 때까지 대기 (race 방지)
+        for _ in range(8):
+            await _delay(140, 240)
+            if await _row_count() > cur:
+                break
+    logger.info(f"행 추가 후 ≈{await _row_count()}행 (목표 {n_rows}, 시도 {attempts})")
 
     # ── nth-click 으로 셀별 채우기 ──
     flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
