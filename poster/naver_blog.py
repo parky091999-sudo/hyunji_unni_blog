@@ -929,50 +929,68 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
                     continue
         return False
 
+    row_btn_sel = "[class*='context-menu-button-row']"   # 셀 툴바의 '행' 버튼
     need = max(0, n_rows - cur_rows)
     for ri in range(need):
+        # 마지막 셀을 진짜 '선택'해야 셀 툴바(merge/row/column…)가 화면 안으로 들어옴.
         try:
-            await target.locator(cell_sel).last.click()   # 마지막 셀 포커스 → 컨텍스트 버튼 노출
-            await _delay(250, 400)
+            last_cell = target.locator(cell_sel).last
+            await last_cell.click()
+            await _delay(180, 300)
+            await last_cell.click()          # 더블클릭으로 셀 선택 강제
+            await _delay(350, 550)
         except Exception:
             pass
-        added = False
-        ctx_btns = target.locator(".se-cell-context-menu-button")
-        try:
-            nctx = await ctx_btns.count()
-        except Exception:
-            nctx = 0
-        for ci in range(nctx):
+
+        if ri == 0:   # 행 버튼이 화면 안으로 들어왔는지 + 풀클래스 진단
             try:
-                await ctx_btns.nth(ci).click(timeout=1500)
-                await _delay(300, 500)
-                if ri == 0:   # 첫 시도만 팝업 메뉴 구조 덤프
-                    for fr in [target, page]:
-                        try:
-                            menu = await fr.evaluate("""() =>
-                                [...document.querySelectorAll('button,[role=menuitem],li,a,span')]
-                                  .filter(e => e.offsetParent && /행|칸|열|추가|삭제|위|아래|왼쪽|오른쪽/.test((e.textContent||'').trim()) && (e.textContent||'').trim().length<=14)
-                                  .map(e => ({txt:(e.textContent||'').trim().slice(0,14), cls:(e.className||'').slice(0,40)})).slice(0,18)
-                            """)
-                            if menu:
-                                logger.info(f"[셀메뉴팝업 ci={ci} {fr.url[:24]}] {menu}")
-                        except Exception:
-                            pass
-                if await _click_add_row_item():
-                    added = True
-                    logger.info(f"행 추가 클릭 (컨텍스트 메뉴 ci={ci})")
-                    break
-                else:
-                    try:
-                        await page.keyboard.press("Escape")
-                    except Exception:
-                        pass
+                diag = await target.evaluate("""() => {
+                    const b = document.querySelector("[class*='context-menu-button-row']");
+                    if(!b) return 'no-row-btn';
+                    const r=b.getBoundingClientRect();
+                    return {cls:b.className, vis:!!b.offsetParent, x:Math.round(r.x), y:Math.round(r.y), w:Math.round(r.width)};
+                }""")
+                logger.info(f"[행버튼진단] {diag}")
             except Exception:
-                continue
+                pass
+
+        added = False
+        # '행' 버튼 클릭 (일반 → force 폴백)
+        row_btn = target.locator(row_btn_sel).first
+        try:
+            if await row_btn.count():
+                try:
+                    await row_btn.click(timeout=1200)
+                except Exception:
+                    await row_btn.click(timeout=1200, force=True)
+                await _delay(400, 600)
+        except Exception:
+            pass
+
+        if ri == 0:   # 행 버튼 클릭 후 뜬 팝업 구조 덤프 (innerHTML)
+            for fr in [target, page]:
+                try:
+                    pop = await fr.evaluate("""() => {
+                        const ls=[...document.querySelectorAll("[class*='context-menu'],[class*='popup'],[class*='layer'],[role='menu']")]
+                          .filter(e=>e.offsetParent && /추가|삭제/.test(e.textContent||''));
+                        return ls.slice(0,4).map(e=>({cls:(e.className||'').slice(0,55), html:(e.innerHTML||'').replace(/\\s+/g,' ').slice(0,300)}));
+                    }""")
+                    if pop:
+                        logger.info(f"[행팝업 {fr.url[:24]}] {pop}")
+                except Exception:
+                    pass
+
+        if await _click_add_row_item():
+            added = True
+            logger.info("행 추가 클릭 성공")
         if not added:
-            logger.warning("행 추가 실패 — 컨텍스트 메뉴 항목 못 찾음, 중단")
+            logger.warning("행 추가 실패 — 중단")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
             break
-        await _delay(300, 500)
+        await _delay(350, 550)
 
     # ── nth-click 으로 셀별 채우기 ──
     flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
