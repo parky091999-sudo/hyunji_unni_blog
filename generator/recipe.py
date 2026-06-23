@@ -8,10 +8,7 @@ import random
 import time
 from datetime import datetime, timezone, timedelta
 
-from google import genai
-from google.genai import types as gtypes
-
-from generator.content import _parse_response, _refine_draft, _IMAGE_MARKER
+from generator.content import _parse_response, _refine_draft, _IMAGE_MARKER, _gen_text
 
 logger = logging.getLogger("recipe")
 
@@ -122,19 +119,9 @@ def generate_recipe(api_key: str, dish: str | None = None, recent: list[str] | N
         f"[사진1]~[사진5] 5개와 IMAGE_KEYWORDS 5개 반드시 포함."
     )
     waits = [15, 40, 90]
-    client = genai.Client(api_key=api_key)
     for attempt in range(1, len(waits) + 2):
         try:
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=user_msg,
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=_RECIPE_SYSTEM,
-                    max_output_tokens=8192,
-                    temperature=0.85,
-                ),
-            )
-            raw = (resp.text or "").strip()
+            raw = _gen_text(api_key, user_msg, _RECIPE_SYSTEM, 8192, 0.85)
             if not raw:
                 logger.error(f"Gemini 빈 응답 (시도 {attempt})")
                 continue
