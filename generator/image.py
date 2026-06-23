@@ -40,6 +40,16 @@ _KO_TO_EN: list[tuple[re.Pattern, str]] = [
 ]
 _DEFAULT_QUERY = "cozy Korean home lifestyle"
 
+# 살림/생활 블로그에 '뜬금없는' 스톡사진 제외용 (alt 텍스트 기준)
+# 달러사진 사고의 주범인 돈/금융/비즈니스 + 무관한 풍경/추상 이미지 차단
+_OFFTOPIC_RE = re.compile(
+    r"\b(money|dollar|cash|currency|coin|finance|financial|banking|invest|investment|"
+    r"stock\s*market|business|office|meeting|conference|corporate|suit|handshake|"
+    r"graph|chart|mountain|beach|forest|ocean|sunset|sky|desert|wildlife|animal|"
+    r"abstract|texture|pattern|gradient|wedding\s*dress|model\s*pose)\b",
+    re.I,
+)
+
 
 def _keyword_to_en(keyword: str) -> str:
     """한국어 키워드를 Pexels 검색용 영어 쿼리로 변환"""
@@ -53,14 +63,14 @@ def _keyword_to_en(keyword: str) -> str:
 
 
 def _fetch_one_image(query: str, api_key: str, exclude_ids: set | None = None) -> dict | None:
-    """단일 쿼리로 이미지 1장 수집 (중복 제외)"""
+    """단일 쿼리로 이미지 1장 수집 (중복 제외 + 관련성 필터로 뜬금없는 사진 제외)"""
     try:
         r = requests.get(
             _PEXELS_SEARCH,
             headers={"Authorization": api_key},
             params={
                 "query": query,
-                "per_page": 5,
+                "per_page": 12,  # 후보 넉넉히 받아 필터링
                 "orientation": "landscape",
                 "size": "medium",
             },
@@ -68,15 +78,25 @@ def _fetch_one_image(query: str, api_key: str, exclude_ids: set | None = None) -
         )
         r.raise_for_status()
         photos = r.json().get("photos", [])
+        fallback = None
         for p in photos:
             if exclude_ids and p["id"] in exclude_ids:
                 continue
-            return {
+            cand = {
                 "url": p["src"]["large"],
                 "alt_text": query,
                 "photographer": p.get("photographer", ""),
                 "pexels_id": p["id"],
             }
+            if fallback is None:
+                fallback = cand  # 전부 걸러지면 쓸 1순위
+            alt = p.get("alt") or ""
+            if _OFFTOPIC_RE.search(alt):
+                logger.info(f"관련성 필터: 뜬금없는 사진 제외 (alt={alt[:45]!r}, query={query!r})")
+                continue
+            return cand
+        # 후보가 전부 off-topic이면 차라리 첫 후보 (없는 것보단 나음)
+        return fallback
     except Exception as e:
         logger.warning(f"Pexels 단일 수집 실패 (query={query!r}): {e}")
     return None

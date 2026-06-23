@@ -435,6 +435,126 @@ async def _type_in_editor(page: Page, text: str):
             await _delay(200, 600)
 
 
+async def _apply_size_to_selection(page: Page, size_label: str = "19", dump: bool = False):
+    """현재 선택 영역에 글자 크기 적용 (네이버 SE 내부 모델 반영 위해 툴바 드롭다운 사용)."""
+    target = await _get_editor_frame(page)
+    try:
+        await target.locator("[data-name='font-size']").first.click(timeout=2000)
+        await _delay(300, 550)
+        if dump:
+            try:
+                opts = await target.evaluate(
+                    r"""() => [...document.querySelectorAll('button,li,[role=option]')]
+                        .filter(e=>e.offsetParent)
+                        .map(e=>({txt:(e.textContent||'').trim().slice(0,8),
+                                  cls:(e.className&&e.className.toString?e.className.toString():'').slice(0,45),
+                                  dn:e.getAttribute('data-value')||e.getAttribute('data-name')}))
+                        .filter(o=>/^\d{1,3}$/.test(o.txt) || /size|fs|font/i.test(o.cls))
+                        .slice(0,30)"""
+                )
+                logger.info(f"[크기옵션] {opts}")
+            except Exception:
+                pass
+        # 옵션 클릭: 정확히 size_label 인 옵션 (data-value 우선, 없으면 텍스트 일치)
+        opt = target.locator(
+            f"[data-value='{size_label}'], [data-name='{size_label}'], .se-toolbar-option-size-code-button[data-value='{size_label}']"
+        ).first
+        if not await opt.count():
+            opt = target.get_by_text(re.compile(rf"^{size_label}$")).first
+        await opt.click(timeout=1500)
+        await _delay(200, 400)
+    except Exception as e:
+        logger.info(f"크기 적용 실패: {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+
+async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
+    """본문 전체 선택 후 글꼴 변경. 네이버 SE는 내부 문서모델을 직렬화하므로 DOM 직접수정
+    대신 툴바 드롭다운을 써야 저장에 반영된다.
+    핵심: 글꼴 옵션의 코드는 data-name이 아니라 data-value 에 있다(data-name은 전부 'font-family').
+    또 보이는 툴바 버튼만 열리므로 :visible 로 한정한다. Ctrl+A 2회=문서 전체 선택."""
+    target = await _get_editor_frame(page)
+    try:
+        await page.keyboard.press("Control+End")
+        await _delay(150, 250)
+        await page.keyboard.press("Control+a")
+        await _delay(200, 300)
+        await page.keyboard.press("Control+a")  # SE: 1회=현재블록, 2회=전체
+        await _delay(300, 500)
+        await target.locator("[data-name='font-family']:visible").first.click(timeout=3000)
+        await _delay(450, 700)
+        opt = target.locator(f".se-toolbar-option-text-button[data-value='{font_dn}']").first
+        await opt.wait_for(state="visible", timeout=2500)
+        await opt.click(timeout=2000)
+        await _delay(300, 500)
+        await page.keyboard.press("Control+End")
+        logger.info(f"글꼴 전체 적용: {font_dn}")
+        return True
+    except Exception as e:
+        logger.warning(f"글꼴 적용 실패(무시): {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+
+async def _style_paragraphs(
+    page: Page, texts: list[str], size_label: str | None = "19", bold: bool = True, label: str = "스타일"
+):
+    """텍스트가 일치하는 본문 단락을 찾아 글자 크기(size_label) + 굵게(bold) 적용.
+    size_label=None 이면 크기 변경 없이 굵게만 (예: FAQ 질문줄)."""
+    items = [s.strip() for s in (texts or []) if s and s.strip()]
+    if not items:
+        return
+    target = await _get_editor_frame(page)
+    paras = target.locator(".se-section-text .se-text-paragraph")
+    styled = 0
+    dumped = False
+    for tx in items:
+        try:
+            n = await paras.count()
+        except Exception:
+            n = 0
+        idx = -1
+        for i in range(n):
+            try:
+                t = (await paras.nth(i).inner_text()).strip()
+            except Exception:
+                continue
+            if t == tx:
+                idx = i
+                break
+        if idx < 0:
+            logger.info(f"{label} 단락 못 찾음(스킵): {tx[:20]}")
+            continue
+        try:
+            await paras.nth(idx).click()
+            await _delay(120, 220)
+            await page.keyboard.press("Home")
+            await page.keyboard.down("Shift")
+            await page.keyboard.press("End")
+            await page.keyboard.up("Shift")
+            await _delay(150, 260)
+            if size_label:
+                await _apply_size_to_selection(page, size_label, dump=not dumped)
+                dumped = True
+            if bold:
+                await page.keyboard.press("Control+b")
+            await _delay(150, 250)
+            styled += 1
+        except Exception as e:
+            logger.info(f"{label} 적용 실패(스킵): {e}")
+    try:
+        await page.keyboard.press("Control+End")
+    except Exception:
+        pass
+    logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold})")
+
+
 def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
     """
     [사진N] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'에 위치하는지 계산.
@@ -447,13 +567,43 @@ def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
     위에서부터 순서대로 처리해도 인덱스가 안정적이다 (정밀하진 않아도 ±1 수준).
     """
     marker = re.compile(r"\[사진(\d+)\]")
+    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]")
     anchors: list[tuple[int, int]] = []
     for m in marker.finditer(body):
-        before_clean = marker.sub("", body[: m.start()])
+        before_clean = all_markers.sub("", body[: m.start()])
         lines = [ln for ln in before_clean.split("\n") if ln.strip()]
         para_index = max(0, len(lines) - 1)
         anchors.append((para_index, int(m.group(1)) - 1))
     return anchors
+
+
+def _compute_table_anchor(body: str) -> int | None:
+    """[표삽입] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'인지. 없으면 None."""
+    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]")
+    m = re.search(r"\[표삽입\]", body)
+    if not m:
+        return None
+    before_clean = all_markers.sub("", body[: m.start()])
+    lines = [ln for ln in before_clean.split("\n") if ln.strip()]
+    return max(0, len(lines) - 1)
+
+
+def _parse_table_rows(table_str: str) -> list[list[str]]:
+    """파이프 구분 표 문자열 → 셀 2차원 리스트 (구분선 행 제거)."""
+    rows: list[list[str]] = []
+    for r in table_str.strip().split("\n"):
+        r = r.strip()
+        if not r or re.match(r"^[\s|—\-]+$", r):  # 구분선/빈 행 제외
+            continue
+        cells = [c.strip() for c in r.split("|")]
+        # 양 끝 빈 셀 제거
+        while cells and cells[0] == "":
+            cells.pop(0)
+        while cells and cells[-1] == "":
+            cells.pop()
+        if cells:
+            rows.append(cells)
+    return rows
 
 
 async def _move_cursor_to_paragraph_end(page: Page, para_idx: int):
@@ -761,6 +911,171 @@ async def _add_tags(page: Page, tags: list[str]):
     logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
+async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> bool:
+    """table_str(파이프 구분 행) → 네이버 SE 진짜 표 삽입. best-effort + 디버그 DOM 로그."""
+    rows = _parse_table_rows(table_str)
+    if not rows:
+        return False
+    n_rows = len(rows)
+    n_cols = max(len(r) for r in rows)
+    logger.info(f"표 삽입 시도: {n_rows}행 x {n_cols}열")
+    target = await _get_editor_frame(page)
+    await _move_cursor_to_paragraph_end(page, anchor_para_idx)
+    await _delay(300, 500)
+
+    # ── 표 버튼 클릭 ──
+    clicked = False
+    for sel in [".se-toolbar-item-table", "button[data-name='table']", "[data-name='table']",
+                "button[data-log='ttb.table']", "[aria-label='표']", "[title='표']",
+                ".se-toolbar button:has-text('표')"]:
+        try:
+            for fr in [target, page]:
+                loc = fr.locator(sel).first
+                if await loc.count() and await loc.is_visible(timeout=1000):
+                    await loc.click(timeout=2000)
+                    clicked = True
+                    logger.info(f"표 버튼 클릭: {sel}")
+                    break
+            if clicked:
+                break
+        except Exception:
+            continue
+    if not clicked:
+        logger.warning("표 버튼 못 찾음 — 후보 DOM 덤프")
+        for fr in [target, page]:
+            try:
+                btns = await fr.evaluate("""() =>
+                    [...document.querySelectorAll('button,[role=button]')]
+                      .filter(b => /표|table/i.test((b.textContent||'')+(b.className||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('data-name')||'')))
+                      .map(b => ({txt:(b.textContent||'').trim().slice(0,12), cls:(b.className||'').slice(0,45), al:b.getAttribute('aria-label'), dn:b.getAttribute('data-name')}))
+                      .slice(0,10)
+                """)
+                if btns:
+                    logger.info(f"[표버튼후보 {fr.url[:35]}] {btns}")
+            except Exception:
+                pass
+        return False
+
+    await asyncio.sleep(1.8)
+    await _screenshot(page, "after_table_btn", full_page=True)
+
+    # 네이버 SE ONE은 표 버튼 클릭 즉시 기본 3x3 표를 삽입한다(크기 선택 그리드 없음).
+    # 따라서 부족한 행은 아래에서 좌측 행 컨트롤바의 add-button으로 채운다.
+    await asyncio.sleep(1.5)
+    try:
+        tcount = await target.evaluate("() => document.querySelectorAll('.se-section-table, .se-table, table').length")
+    except Exception:
+        tcount = 0
+    logger.info(f"표 삽입 후 테이블 수: {tcount}")
+    await _screenshot(page, "after_table_insert", full_page=True)
+    if tcount < 1:
+        logger.warning("표 삽입 실패 — 표 컴포넌트 없음")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+    # ── 표 편집 툴바 덤프 (디버그 — 행 추가 버튼 찾기) ──
+    cell_sel = ".se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th"
+    for fr in [target, page]:
+        try:
+            tbtns = await fr.evaluate("""() =>
+                [...document.querySelectorAll('button,[role=button]')]
+                  .filter(b => /행|열|추가|아래|row|col|insert/i.test((b.getAttribute('aria-label')||'')+(b.getAttribute('data-name')||'')+(b.className||'')))
+                  .map(b => ({al:b.getAttribute('aria-label'), dn:b.getAttribute('data-name'), cls:(b.className||'').slice(0,45)})).slice(0,14)
+            """)
+            if tbtns:
+                logger.info(f"[표툴바 {fr.url[:30]}] {tbtns}")
+        except Exception:
+            pass
+
+    # ── 현재 행 수 확인 후 부족하면 행 추가 ──
+    # 네이버 SE ONE 표 행 추가 = 표가 선택(se-table-control se-is-on)된 상태에서 좌측
+    # '행 컨트롤바'의 se-cell-add-button('N번 아래에 행 추가'). 행 하나당 버튼 하나라
+    # 맨 마지막 버튼을 누르면 표 맨 아래에 행이 추가된다. (상단 .se-cell-controlbar-column
+    # 의 add-button은 '열 추가'이므로 반드시 -row 컨트롤바로 한정해야 함.)
+    try:
+        cur_cells = await target.locator(cell_sel).count()
+    except Exception:
+        cur_cells = 0
+    cur_rows = (cur_cells // n_cols) if n_cols else 0
+    logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
+
+    row_add_sel = ".se-cell-controlbar-row .se-cell-add-button"
+    table_sel = ".se-section-table, table"
+
+    async def _row_count() -> int:
+        try:
+            return ((await target.locator(cell_sel).count()) // n_cols) if n_cols else 0
+        except Exception:
+            return 0
+
+    # 클릭마다 컨트롤바가 재렌더되어(특히 CI 헤드리스에서 느림) 다음 클릭이 같은 버튼을
+    # 치는 레이스가 있다. 고정 횟수 대신 '행 수가 실제로 늘 때까지 폴링'하며 목표까지 반복.
+    attempts = 0
+    max_attempts = max(0, n_rows - cur_rows) + 5
+    while attempts < max_attempts:
+        cur = await _row_count()
+        if cur >= n_rows:
+            break
+        attempts += 1
+        btns = target.locator(row_add_sel)
+        try:
+            bc = await btns.count()
+        except Exception:
+            bc = 0
+        if bc == 0:
+            logger.warning("행 추가 버튼(se-cell-controlbar-row) 못 찾음 — 중단")
+            break
+        try:
+            await btns.last.click(timeout=2000)          # 맨 아래 행 아래에 추가
+        except Exception:
+            try:  # 컨트롤바가 표 hover 시 노출되는 경우 대비
+                await target.locator(table_sel).first.hover()
+                await _delay(120, 200)
+                await target.locator(row_add_sel).last.click(timeout=2000, force=True)
+            except Exception as e:
+                logger.warning(f"행 추가 클릭 실패: {e} — 중단")
+                break
+        # 행이 실제로 늘 때까지 대기 (race 방지)
+        for _ in range(8):
+            await _delay(140, 240)
+            if await _row_count() > cur:
+                break
+    logger.info(f"행 추가 후 ≈{await _row_count()}행 (목표 {n_rows}, 시도 {attempts})")
+
+    # ── nth-click 으로 셀별 채우기 ──
+    flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
+    try:
+        cell_loc = target.locator(cell_sel)
+        ccount = await cell_loc.count()
+        logger.info(f"표 셀 {ccount}개 (필요 {len(flat)})")
+        filled = 0
+        for i, text in enumerate(flat):
+            if i >= ccount:
+                break
+            try:
+                await cell_loc.nth(i).click()
+                await _delay(90, 160)
+                await page.keyboard.press("Control+a")
+                if text:
+                    await page.keyboard.type(text, delay=12)
+                else:
+                    await page.keyboard.press("Delete")
+                filled += 1
+            except Exception:
+                continue
+        await _screenshot(page, "after_table_fill", full_page=True)
+        await page.keyboard.press("Escape")
+        await page.keyboard.press("Control+End")
+        logger.info(f"표 셀 채우기 완료 (nth 방식, {filled}/{len(flat)})")
+        return filled > 0
+    except Exception as e:
+        logger.warning(f"표 셀 채우기 실패: {e}")
+        return False
+
+
 async def _save_draft(page: Page) -> str:
     """
     임시저장(저장) 버튼 클릭 — 공개 발행 없이 검증용.
@@ -961,6 +1276,9 @@ async def _post(
     images: list[dict] | None = None,
     draft: bool = False,
     allow_pw_login: bool = False,
+    table_str: str = "",
+    subheadings: list[str] | None = None,
+    faq_questions: list[str] | None = None,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1048,10 +1366,12 @@ async def _post(
         # 그 뒤에 best-effort로 얹는다 (이미지 실패해도 본문은 절대 잃지 않음).
         _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
         marker_positions = _PHOTO_MARKER.findall(body)
+        table_anchor = _compute_table_anchor(body) if table_str else None
         body_text = _PHOTO_MARKER.sub("", body)
+        body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거 (표는 컴포넌트로 삽입)
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
 
-        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개)")
+        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커 {table_anchor})")
         await _type_in_editor(write_page, body_text)
         await _delay(1000, 1500)
 
@@ -1070,6 +1390,29 @@ async def _post(
                 await browser.close()
                 return None
             logger.warning("드래프트 모드 — 검증 실패해도 스크린샷 확인 위해 계속 진행")
+
+        # ── 본문 글꼴 + 소제목 제목 스타일 (표/이미지 삽입 전, 텍스트만 있을 때 적용) ──
+        # 글꼴을 먼저(균일한 본문 전체선택) → 그다음 소제목 크기/굵게 (크기·굵기는 글꼴과 독립)
+        try:
+            await _apply_font_all(write_page, font_dn="nanummaruburi")
+        except Exception as e:
+            logger.warning(f"글꼴 적용 예외(계속): {e}")
+        try:
+            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목")
+        except Exception as e:
+            logger.warning(f"소제목 스타일 예외(계속): {e}")
+        try:
+            await _style_paragraphs(write_page, faq_questions or [], size_label=None, bold=True, label="FAQ질문")
+        except Exception as e:
+            logger.warning(f"FAQ 질문 스타일 예외(계속): {e}")
+
+        # ── 진짜 네이버 표 삽입 (best-effort, 이미지보다 먼저 — 표는 text-paragraph 인덱스 안 바꿈) ──
+        if table_str and table_anchor is not None:
+            try:
+                ok_tbl = await _insert_table(write_page, table_str, table_anchor)
+                logger.info(f"표 삽입 {'성공' if ok_tbl else '실패(본문 유지)'}")
+            except Exception as e:
+                logger.warning(f"표 삽입 예외(계속): {e}")
 
         # ── 이미지 삽입 (best-effort): 단락 앵커 위치에 삽입, 실패해도 본문 유지 ──
         images_inserted = 0
@@ -1140,7 +1483,10 @@ def post_to_naver_blog(
     images: list[dict] | None = None,
     draft: bool = False,
     allow_pw_login: bool = False,
+    table_str: str = "",
+    subheadings: list[str] | None = None,
+    faq_questions: list[str] | None = None,
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login)
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings, faq_questions)
     )
