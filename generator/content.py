@@ -345,7 +345,10 @@ def _parse_response(raw: str) -> dict | None:
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)
             body = re.sub(r"[✅💡🛒📌👉🧹🥄💰📦]\s*", "", body)
-            # [소제목] 마커 정리 — 깔끔한 단독 줄로 (Phase2 포스터가 제목 스타일 적용)
+            # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤 마커만 제거
+            result["subheadings"] = [
+                s.strip() for s in re.findall(r"^\[소제목\]\s*(.+)$", body, flags=re.MULTILINE) if s.strip()
+            ]
             body = re.sub(r"^\[소제목\]\s*", "", body, flags=re.MULTILINE)
             body = re.sub(r"\n{3,}", "\n\n", body)
             # "안녕하세요" 로 시작하는 첫 줄/단락 제거 (AI 패턴)
@@ -357,6 +360,7 @@ def _parse_response(raw: str) -> dict | None:
             return None
 
         result.setdefault("tags", [])
+        result.setdefault("subheadings", [])
         return result
     except Exception as e:
         logger.error(f"파싱 오류: {e}")

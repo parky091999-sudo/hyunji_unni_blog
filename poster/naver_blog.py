@@ -435,6 +435,121 @@ async def _type_in_editor(page: Page, text: str):
             await _delay(200, 600)
 
 
+async def _apply_size_to_selection(page: Page, size_label: str = "19", dump: bool = False):
+    """현재 선택 영역에 글자 크기 적용 (네이버 SE 내부 모델 반영 위해 툴바 드롭다운 사용)."""
+    target = await _get_editor_frame(page)
+    try:
+        await target.locator("[data-name='font-size']").first.click(timeout=2000)
+        await _delay(300, 550)
+        if dump:
+            try:
+                opts = await target.evaluate(
+                    r"""() => [...document.querySelectorAll('button,li,[role=option]')]
+                        .filter(e=>e.offsetParent)
+                        .map(e=>({txt:(e.textContent||'').trim().slice(0,8),
+                                  cls:(e.className&&e.className.toString?e.className.toString():'').slice(0,45),
+                                  dn:e.getAttribute('data-value')||e.getAttribute('data-name')}))
+                        .filter(o=>/^\d{1,3}$/.test(o.txt) || /size|fs|font/i.test(o.cls))
+                        .slice(0,30)"""
+                )
+                logger.info(f"[크기옵션] {opts}")
+            except Exception:
+                pass
+        # 옵션 클릭: 정확히 size_label 인 옵션 (data-value 우선, 없으면 텍스트 일치)
+        opt = target.locator(
+            f"[data-value='{size_label}'], [data-name='{size_label}'], .se-toolbar-option-size-code-button[data-value='{size_label}']"
+        ).first
+        if not await opt.count():
+            opt = target.get_by_text(re.compile(rf"^{size_label}$")).first
+        await opt.click(timeout=1500)
+        await _delay(200, 400)
+    except Exception as e:
+        logger.info(f"크기 적용 실패: {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+
+async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
+    """본문 전체 선택 후 글꼴 변경. 네이버 SE는 내부 문서모델을 직렬화하므로 DOM 직접수정
+    대신 툴바 드롭다운을 써야 저장에 반영된다.
+    핵심: 글꼴 옵션의 코드는 data-name이 아니라 data-value 에 있다(data-name은 전부 'font-family').
+    또 보이는 툴바 버튼만 열리므로 :visible 로 한정한다. Ctrl+A 2회=문서 전체 선택."""
+    target = await _get_editor_frame(page)
+    try:
+        await page.keyboard.press("Control+End")
+        await _delay(150, 250)
+        await page.keyboard.press("Control+a")
+        await _delay(200, 300)
+        await page.keyboard.press("Control+a")  # SE: 1회=현재블록, 2회=전체
+        await _delay(300, 500)
+        await target.locator("[data-name='font-family']:visible").first.click(timeout=3000)
+        await _delay(450, 700)
+        opt = target.locator(f".se-toolbar-option-text-button[data-value='{font_dn}']").first
+        await opt.wait_for(state="visible", timeout=2500)
+        await opt.click(timeout=2000)
+        await _delay(300, 500)
+        await page.keyboard.press("Control+End")
+        logger.info(f"글꼴 전체 적용: {font_dn}")
+        return True
+    except Exception as e:
+        logger.warning(f"글꼴 적용 실패(무시): {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
+
+async def _style_subheadings(page: Page, subheadings: list[str], size_label: str = "19"):
+    """소제목 단락을 찾아 글자 크기 키움 + 굵게 — 제목 스타일."""
+    subs = [s.strip() for s in (subheadings or []) if s and s.strip()]
+    if not subs:
+        return
+    target = await _get_editor_frame(page)
+    paras = target.locator(".se-section-text .se-text-paragraph")
+    styled = 0
+    dumped = False
+    for sh in subs:
+        try:
+            n = await paras.count()
+        except Exception:
+            n = 0
+        idx = -1
+        for i in range(n):
+            try:
+                t = (await paras.nth(i).inner_text()).strip()
+            except Exception:
+                continue
+            if t == sh:
+                idx = i
+                break
+        if idx < 0:
+            logger.info(f"소제목 단락 못 찾음(스킵): {sh[:20]}")
+            continue
+        try:
+            await paras.nth(idx).click()
+            await _delay(120, 220)
+            await page.keyboard.press("Home")
+            await page.keyboard.down("Shift")
+            await page.keyboard.press("End")
+            await page.keyboard.up("Shift")
+            await _delay(150, 260)
+            await _apply_size_to_selection(page, size_label, dump=not dumped)
+            dumped = True
+            await page.keyboard.press("Control+b")  # 굵게
+            await _delay(150, 250)
+            styled += 1
+        except Exception as e:
+            logger.info(f"소제목 스타일 실패(스킵): {e}")
+    try:
+        await page.keyboard.press("Control+End")
+    except Exception:
+        pass
+    logger.info(f"소제목 스타일 적용 {styled}/{len(subs)}개 (크기 {size_label}+굵게)")
+
+
 def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
     """
     [사진N] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'에 위치하는지 계산.
@@ -1157,6 +1272,7 @@ async def _post(
     draft: bool = False,
     allow_pw_login: bool = False,
     table_str: str = "",
+    subheadings: list[str] | None = None,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1269,6 +1385,17 @@ async def _post(
                 return None
             logger.warning("드래프트 모드 — 검증 실패해도 스크린샷 확인 위해 계속 진행")
 
+        # ── 본문 글꼴 + 소제목 제목 스타일 (표/이미지 삽입 전, 텍스트만 있을 때 적용) ──
+        # 글꼴을 먼저(균일한 본문 전체선택) → 그다음 소제목 크기/굵게 (크기·굵기는 글꼴과 독립)
+        try:
+            await _apply_font_all(write_page, font_dn="nanummaruburi")
+        except Exception as e:
+            logger.warning(f"글꼴 적용 예외(계속): {e}")
+        try:
+            await _style_subheadings(write_page, subheadings or [], size_label="19")
+        except Exception as e:
+            logger.warning(f"소제목 스타일 예외(계속): {e}")
+
         # ── 진짜 네이버 표 삽입 (best-effort, 이미지보다 먼저 — 표는 text-paragraph 인덱스 안 바꿈) ──
         if table_str and table_anchor is not None:
             try:
@@ -1347,7 +1474,8 @@ def post_to_naver_blog(
     draft: bool = False,
     allow_pw_login: bool = False,
     table_str: str = "",
+    subheadings: list[str] | None = None,
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str)
+        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings)
     )

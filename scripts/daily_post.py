@@ -204,6 +204,7 @@ def run():
         draft=draft,
         allow_pw_login=os.environ.get("ALLOW_PW_LOGIN", "false").lower() == "true",
         table_str=post.get("table_str", ""),
+        subheadings=post.get("subheadings", []),
     )
 
     # ── 드래프트 검증 모드: 이력 기록 없이 결과만 로깅하고 종료 ──
