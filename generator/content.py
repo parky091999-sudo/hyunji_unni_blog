@@ -248,6 +248,44 @@ A: ...
 """
 
 
+# 무료 모델 폴백 체인: gemini-2.5-flash 가 503(모델별 과부하)이면 다음 모델로 전환.
+# 같은 GOOGLE_API_KEY·google-genai 그대로 쓰므로 추가 키/패키지·비용 없음.
+_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
+
+
+def _gen_text(
+    api_key: str, contents: str, system_instruction: str,
+    max_output_tokens: int, temperature: float,
+) -> str:
+    """Gemini 생성 + 모델 폴백. 한 모델이 503/오류/빈응답이면 다음 모델로. 모두 실패 시 예외."""
+    client = genai.Client(api_key=api_key)
+    last_err: Exception | None = None
+    for i, model in enumerate(_GEMINI_MODELS):
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=gtypes.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                ),
+            )
+            text = (resp.text or "").strip()
+            if text:
+                if i > 0:
+                    logger.info(f"[폴백모델] {model} 로 생성 성공")
+                return text
+            last_err = RuntimeError(f"{model} 빈 응답")
+            logger.warning(f"{model} 빈 응답 → 다음 모델")
+        except Exception as e:
+            last_err = e
+            logger.warning(f"{model} 생성 실패 → 다음 모델: {str(e)[:100]}")
+    if last_err:
+        raise last_err
+    return ""
+
+
 def _format_text_table(table_str: str) -> str:
     """파이프 구분 표 문자열 → 블로그에 보이기 좋은 텍스트 표"""
     rows = [r.strip() for r in table_str.strip().split("\n") if r.strip()]
@@ -398,15 +436,7 @@ def _generate_outline(keyword: str, category: str, trending: list[str] | None, a
     cat = f"\n카테고리(참고만): {category}" if category else ""
     user = f"키워드: {keyword}{cat}{trend}\n\n위 키워드로 일관된 블로그 글 설계도를 짜줘."
     try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=user,
-            config=gtypes.GenerateContentConfig(
-                system_instruction=_OUTLINE_SYSTEM, max_output_tokens=1024, temperature=0.95,
-            ),
-        )
-        raw = (resp.text or "").strip()
+        raw = _gen_text(api_key, user, _OUTLINE_SYSTEM, 1024, 0.95)
         out: dict = {}
         fields = [("제목:", "title"), ("요점:", "thesis"), ("섹션:", "sections"), ("표주제:", "table_topic")]
         for line in raw.splitlines():
@@ -454,17 +484,7 @@ _REFINE_SYSTEM = """\
 def _refine_draft(raw_draft: str, api_key: str) -> str:
     """초안을 사람처럼 자연스럽게 퇴고. 형식/마커 보존 검증 통과 시만 채택, 아니면 원본 반환."""
     try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"아래 초안을 퇴고해줘:\n\n{raw_draft}",
-            config=gtypes.GenerateContentConfig(
-                system_instruction=_REFINE_SYSTEM,
-                max_output_tokens=8192,
-                temperature=0.8,
-            ),
-        )
-        refined = (resp.text or "").strip()
+        refined = _gen_text(api_key, f"아래 초안을 퇴고해줘:\n\n{raw_draft}", _REFINE_SYSTEM, 8192, 0.8)
         # 형식 보존 검증: 핵심 마커가 모두 살아있어야 채택
         if (refined and "TITLE:" in refined
                 and refined.count("[사진") >= 6
@@ -534,19 +554,9 @@ def generate_post(
     )
 
     waits = [15, 40, 90, 180]
-    client = genai.Client(api_key=api_key)
     for attempt in range(1, len(waits) + 2):
         try:
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=user_msg,
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=_SYSTEM,
-                    max_output_tokens=8192,
-                    temperature=0.9,
-                ),
-            )
-            raw = (resp.text or "").strip()
+            raw = _gen_text(api_key, user_msg, _SYSTEM, 8192, 0.9)
             if not raw:
                 logger.error(f"Gemini 빈 응답 (시도 {attempt})")
                 continue
