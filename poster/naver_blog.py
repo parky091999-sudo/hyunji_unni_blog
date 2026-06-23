@@ -839,37 +839,14 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
     await asyncio.sleep(1.8)
     await _screenshot(page, "after_table_btn", full_page=True)
 
-    # ── 크기 선택 팝업 구조 덤프 (디버그) + 그리드 크기 선택 시도 ──
-    for fr in [target, page]:
-        try:
-            dump = await fr.evaluate("""() => {
-                const sels = ['[class*="table-create"]','[class*="tableCreate"]','[class*="se-table"]','[class*="grid"]','.se-popup-layer'];
-                for (const s of sels){ const el=document.querySelector(s); if(el) return {sel:s, cls:el.className.slice(0,60), html:el.innerHTML.slice(0,300)}; }
-                return null;
-            }""")
-            if dump:
-                logger.info(f"[표팝업 {fr.url[:35]}] {dump}")
-        except Exception:
-            pass
-
-    grid_done = False
-    for fr in [target, page]:
-        try:
-            tcell = fr.locator(f'[data-col="{n_cols}"][data-row="{n_rows}"]').first
-            if await tcell.count():
-                await tcell.click()
-                grid_done = True
-                logger.info(f"표 크기 {n_cols}x{n_rows} 그리드 클릭")
-                break
-        except Exception:
-            continue
-
+    # 네이버 SE ONE은 표 버튼 클릭 즉시 기본 3x3 표를 삽입한다(크기 선택 그리드 없음).
+    # 따라서 부족한 행은 아래에서 좌측 행 컨트롤바의 add-button으로 채운다.
     await asyncio.sleep(1.5)
     try:
         tcount = await target.evaluate("() => document.querySelectorAll('.se-section-table, .se-table, table').length")
     except Exception:
         tcount = 0
-    logger.info(f"표 삽입 후 테이블 수: {tcount} (그리드선택={grid_done})")
+    logger.info(f"표 삽입 후 테이블 수: {tcount}")
     await _screenshot(page, "after_table_insert", full_page=True)
     if tcount < 1:
         logger.warning("표 삽입 실패 — 표 컴포넌트 없음")
@@ -893,9 +870,11 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
         except Exception:
             pass
 
-    # ── 현재 행 수 확인 후 부족하면 행 추가 (셀 컨텍스트 메뉴 방식) ──
-    # 네이버 SE ONE: 표 버튼은 즉시 3x3 삽입(크기 팝업 없음). 행 추가는 툴바 버튼이 아니라
-    # 셀 포커스 시 나타나는 .se-cell-context-menu-button → 팝업의 '아래에 행 추가' 항목으로 동작.
+    # ── 현재 행 수 확인 후 부족하면 행 추가 ──
+    # 네이버 SE ONE 표 행 추가 = 표가 선택(se-table-control se-is-on)된 상태에서 좌측
+    # '행 컨트롤바'의 se-cell-add-button('N번 아래에 행 추가'). 행 하나당 버튼 하나라
+    # 맨 마지막 버튼을 누르면 표 맨 아래에 행이 추가된다. (상단 .se-cell-controlbar-column
+    # 의 add-button은 '열 추가'이므로 반드시 -row 컨트롤바로 한정해야 함.)
     try:
         cur_cells = await target.locator(cell_sel).count()
     except Exception:
@@ -903,94 +882,35 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
     cur_rows = (cur_cells // n_cols) if n_cols else 0
     logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
 
-    # 셀 컨텍스트 메뉴 트리거 버튼 구조 덤프 (디버그 — 클릭 실패해도 위치는 남김)
+    row_add_sel = ".se-cell-controlbar-row .se-cell-add-button"
+    table_sel = ".se-section-table, table"
+    for _ in range(max(0, n_rows - cur_rows)):
+        btns = target.locator(row_add_sel)
+        try:
+            bc = await btns.count()
+        except Exception:
+            bc = 0
+        if bc == 0:
+            logger.warning("행 추가 버튼(se-cell-controlbar-row) 못 찾음 — 중단")
+            break
+        try:
+            await btns.last.click(timeout=2000)          # 맨 아래 행 아래에 추가
+            await _delay(280, 460)
+        except Exception:
+            # 컨트롤바가 표 hover 시 노출되는 경우 대비: 표 hover 후 강제 클릭
+            try:
+                await target.locator(table_sel).first.hover()
+                await _delay(150, 250)
+                await target.locator(row_add_sel).last.click(timeout=2000, force=True)
+                await _delay(280, 460)
+            except Exception as e:
+                logger.warning(f"행 추가 클릭 실패: {e} — 중단")
+                break
     try:
-        ctx_dump = await target.evaluate("""() =>
-            [...document.querySelectorAll('.se-cell-context-menu-button')].map(b => {
-                const r = b.getBoundingClientRect();
-                return {cls:(b.className||'').slice(0,55), al:b.getAttribute('aria-label'),
-                        ttl:b.getAttribute('title'), x:Math.round(r.x), y:Math.round(r.y)};
-            }).slice(0,6)
-        """)
-        logger.info(f"[셀컨텍스트버튼] {ctx_dump}")
+        after_rows = ((await target.locator(cell_sel).count()) // n_cols) if n_cols else 0
+        logger.info(f"행 추가 후 ≈{after_rows}행 (목표 {n_rows})")
     except Exception:
         pass
-
-    async def _click_add_row_item() -> bool:
-        # 열려있는 컨텍스트 팝업에서 '아래에 행 추가'(우선) 또는 '행 추가' 항목 클릭
-        for pat in (r"아래.*행\s*추가", r"행\s*추가"):
-            for fr in [target, page]:
-                try:
-                    item = fr.get_by_text(re.compile(pat)).first
-                    if await item.count() and await item.is_visible(timeout=500):
-                        await item.click(timeout=1500)
-                        return True
-                except Exception:
-                    continue
-        return False
-
-    row_btn_sel = "[class*='context-menu-button-row']"   # 셀 툴바의 '행' 버튼
-    need = max(0, n_rows - cur_rows)
-    for ri in range(need):
-        # 마지막 셀을 진짜 '선택'해야 셀 툴바(merge/row/column…)가 화면 안으로 들어옴.
-        try:
-            last_cell = target.locator(cell_sel).last
-            await last_cell.click()
-            await _delay(180, 300)
-            await last_cell.click()          # 더블클릭으로 셀 선택 강제
-            await _delay(350, 550)
-        except Exception:
-            pass
-
-        if ri == 0:   # 행 버튼이 화면 안으로 들어왔는지 + 풀클래스 진단
-            try:
-                diag = await target.evaluate("""() => {
-                    const b = document.querySelector("[class*='context-menu-button-row']");
-                    if(!b) return 'no-row-btn';
-                    const r=b.getBoundingClientRect();
-                    return {cls:b.className, vis:!!b.offsetParent, x:Math.round(r.x), y:Math.round(r.y), w:Math.round(r.width)};
-                }""")
-                logger.info(f"[행버튼진단] {diag}")
-            except Exception:
-                pass
-
-        added = False
-        # '행' 버튼 클릭 (일반 → force 폴백)
-        row_btn = target.locator(row_btn_sel).first
-        try:
-            if await row_btn.count():
-                try:
-                    await row_btn.click(timeout=1200)
-                except Exception:
-                    await row_btn.click(timeout=1200, force=True)
-                await _delay(400, 600)
-        except Exception:
-            pass
-
-        if ri == 0:   # 행 버튼 클릭 후 뜬 팝업 구조 덤프 (innerHTML)
-            for fr in [target, page]:
-                try:
-                    pop = await fr.evaluate("""() => {
-                        const ls=[...document.querySelectorAll("[class*='context-menu'],[class*='popup'],[class*='layer'],[role='menu']")]
-                          .filter(e=>e.offsetParent && /추가|삭제/.test(e.textContent||''));
-                        return ls.slice(0,4).map(e=>({cls:(e.className||'').slice(0,55), html:(e.innerHTML||'').replace(/\\s+/g,' ').slice(0,300)}));
-                    }""")
-                    if pop:
-                        logger.info(f"[행팝업 {fr.url[:24]}] {pop}")
-                except Exception:
-                    pass
-
-        if await _click_add_row_item():
-            added = True
-            logger.info("행 추가 클릭 성공")
-        if not added:
-            logger.warning("행 추가 실패 — 중단")
-            try:
-                await page.keyboard.press("Escape")
-            except Exception:
-                pass
-            break
-        await _delay(350, 550)
 
     # ── nth-click 으로 셀별 채우기 ──
     flat = [c for row in rows for c in (row + [""] * (n_cols - len(row)))]
