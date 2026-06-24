@@ -532,7 +532,9 @@ async def _style_paragraphs(
             logger.info(f"{label} 단락 못 찾음(스킵): {tx[:20]}")
             continue
         try:
-            await paras.nth(idx).click()
+            # 짧은 타임아웃: 단락이 불안정해도 30초(기본값) 동안 멈추지 않고 빠르게 스킵
+            # — 한 단락에서 막혀 뒤따르는 표/이미지 단계까지 무너지는 연쇄 실패 방지.
+            await paras.nth(idx).click(timeout=4000)
             await _delay(120, 220)
             await page.keyboard.press("Home")
             await page.keyboard.down("Shift")
@@ -938,14 +940,14 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
 
     # ── 표 버튼 클릭 ──
     clicked = False
-    for sel in [".se-toolbar-item-table", "button[data-name='table']", "[data-name='table']",
-                "button[data-log='ttb.table']", "[aria-label='표']", "[title='표']",
-                ".se-toolbar button:has-text('표')"]:
+    for sel in [".se-table-toolbar-button", "[data-name='table']", "button[data-name='table']",
+                ".se-toolbar-item-table", "button[data-log='ttb.table']", "[aria-label='표']",
+                "[title='표']", ".se-toolbar button:has-text('표')"]:
         try:
             for fr in [target, page]:
                 loc = fr.locator(sel).first
-                if await loc.count() and await loc.is_visible(timeout=1000):
-                    await loc.click(timeout=2000)
+                if await loc.count() and await loc.is_visible(timeout=2500):
+                    await loc.click(timeout=3000)
                     clicked = True
                     logger.info(f"표 버튼 클릭: {sel}")
                     break
