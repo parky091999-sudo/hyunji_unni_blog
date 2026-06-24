@@ -16,6 +16,14 @@ import re
 import sys
 from datetime import datetime, timezone, timedelta
 
+# Windows cp949 인코딩 오류 방지
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
 
@@ -69,6 +77,62 @@ def _is_real_post_url(url: str | None) -> bool:
     return bool(re.search(r"/\d{9,}", url))
 
 
+def _append_shopping_guide(body: str, hints: list) -> str:
+    """본문 내에 쿠팡 힌트 기반의 안전한 우회 쇼핑 가이드 단락 추가"""
+    if not hints:
+        return body
+
+    guide_text = "\n\n🛒 언급된 현지언니 살림 추천 아이템 가격 정보:\n"
+    for hint in hints:
+        guide_text += f"📍 {hint} -> 검색창에 이름을 검색하시면 최저가 비교 정보를 빠르게 보실 수 있어요!\n"
+
+    # [사진N] 중 가장 마지막 마커의 바로 직전에 삽입
+    last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
+    if last_photo_match:
+        last_match = last_photo_match[-1]
+        start_idx = last_match.start()
+        body = body[:start_idx] + guide_text + "\n" + body[start_idx:]
+    else:
+        body = body + guide_text
+
+    return body
+
+
+def _append_internal_links(body: str, history: list, current_category: str) -> str:
+    """과거 발행 성공한 글 중 현재 카테고리와 같은 글 1~2개를 본문 끝에 자동 연계"""
+    related = []
+    for h in history:
+        h_cat = h.get("category_name") or h.get("category")
+        if (h.get("status") == "posted"
+                and h_cat == current_category
+                and h.get("post_url")
+                and h.get("title")):
+            related.append(h)
+            if len(related) >= 2:
+                break
+
+    if not related:
+        return body
+
+    links_text = "\n\n💡 함께 보면 좋은 현지언니 살림 꿀팁!\n"
+    for r in related:
+        title = r["title"]
+        if "|" in title:
+            title = title.split("|")[0].strip()
+        links_text += f"\n👉 {title}\n{r['post_url']}\n"
+
+    # [사진N] 중 가장 마지막 마커를 찾아서 그 바로 앞에 삽입
+    last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
+    if last_photo_match:
+        last_match = last_photo_match[-1]
+        start_idx = last_match.start()
+        body = body[:start_idx] + links_text + "\n" + body[start_idx:]
+    else:
+        body = body + links_text
+
+    return body
+
+
 def run():
     logger.info("=" * 60)
     logger.info(f"일일 포스팅 시작 v2: {datetime.now(KST).strftime('%Y-%m-%d %H:%M KST')}")
@@ -117,6 +181,7 @@ def run():
 
     post = None
     quality_result = None
+    feedback_issues = None
 
     for attempt in range(1, MAX_QUALITY_RETRIES + 2):  # 최대 3번 시도
         logger.info(f"글 생성 시도 {attempt}/{MAX_QUALITY_RETRIES + 1}")
@@ -125,6 +190,7 @@ def run():
             api_key=GOOGLE_API_KEY,
             trending=trends[:4] if trends else None,
             category=category_name,
+            feedback=feedback_issues,
         )
         if not candidate:
             logger.error(f"글 생성 실패 (시도 {attempt})")
@@ -154,6 +220,7 @@ def run():
                 f"품질 미달 ({qr['score']}점, 기준 {QUALITY_PASS_SCORE}점) — 재생성\n"
                 f"이슈: {' / '.join(qr['issues'][:3])}"
             )
+            feedback_issues = qr["issues"]
 
     if not post:
         logger.error("글 생성 최종 실패 — 종료")
@@ -190,6 +257,12 @@ def run():
     else:
         logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
 
+    # 쿠팡 우회 쇼핑 가이드 연계 (유저 피드백으로 생략)
+    # post["body"] = _append_shopping_guide(post["body"], post.get("coupang_hints"))
+
+    # 과거 관련 포스팅 링크 연계 (Action 3)
+    post["body"] = _append_internal_links(post["body"], history, category_name)
+
     # ── 5. 포스팅 ────────────────────────────────────────────────
     from poster.naver_blog import post_to_naver_blog
     result = post_to_naver_blog(
@@ -207,6 +280,7 @@ def run():
         subheadings=post.get("subheadings", []),
         faq_questions=post.get("faq_questions", []),
         category="알뜰 살림 꿀팁",  # 살림/절약 일일글 카테고리
+        faq_pairs=post.get("faq_pairs", []),
     )
 
     # ── 드래프트 검증 모드: 이력 기록 없이 결과만 로깅하고 종료 ──

@@ -10,6 +10,14 @@ import re
 import sys
 from datetime import datetime, timezone, timedelta
 
+# Windows cp949 인코딩 오류 방지
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
 
@@ -22,6 +30,8 @@ from config import (
 KST = timezone(timedelta(hours=9))
 HISTORY_PATH = os.path.join(DATA_DIR, "recipe_history.json")
 CATEGORY = "오늘의 집밥 레시피"
+MAX_QUALITY_RETRIES = 2   # 품질 미달 시 최대 재생성 횟수
+QUALITY_PASS_SCORE  = 60  # 발행 최소 점수
 
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
@@ -77,6 +87,62 @@ def _is_real_post_url(url: str | None) -> bool:
     return bool(re.search(r"/\d{9,}", url))
 
 
+def _append_internal_links(body: str, history: list, current_category: str) -> str:
+    """과거 발행 성공한 글 중 현재 카테고리와 같은 글 1~2개를 본문 끝에 자동 연계"""
+    related = []
+    for h in history:
+        h_cat = h.get("category_name") or h.get("category")
+        if (h.get("status") == "posted"
+                and h_cat == current_category
+                and h.get("post_url")
+                and h.get("title")):
+            related.append(h)
+            if len(related) >= 2:
+                break
+
+    if not related:
+        return body
+
+    links_text = "\n\n💡 함께 보면 좋은 현지언니 살림 꿀팁!\n"
+    for r in related:
+        title = r["title"]
+        if "|" in title:
+            title = title.split("|")[0].strip()
+        links_text += f"\n👉 {title}\n{r['post_url']}\n"
+
+    # [사진N] 중 가장 마지막 마커를 찾아서 그 바로 앞에 삽입
+    last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
+    if last_photo_match:
+        last_match = last_photo_match[-1]
+        start_idx = last_match.start()
+        body = body[:start_idx] + links_text + "\n" + body[start_idx:]
+    else:
+        body = body + links_text
+
+    return body
+
+
+def _append_shopping_guide(body: str, hints: list) -> str:
+    """본문 내에 쿠팡 힌트 기반의 안전한 우회 쇼핑 가이드 단락 추가"""
+    if not hints:
+        return body
+
+    guide_text = "\n\n🛒 언급된 현지언니 살림 추천 아이템 가격 정보:\n"
+    for hint in hints:
+        guide_text += f"📍 {hint} -> 검색창에 이름을 검색하시면 최저가 비교 정보를 빠르게 보실 수 있어요!\n"
+
+    # [사진N] 중 가장 마지막 마커의 바로 직전에 삽입
+    last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
+    if last_photo_match:
+        last_match = last_photo_match[-1]
+        start_idx = last_match.start()
+        body = body[:start_idx] + guide_text + "\n" + body[start_idx:]
+    else:
+        body = body + guide_text
+
+    return body
+
+
 def run():
     logger.info("=" * 60)
     logger.info(f"레시피 포스팅 시작: {datetime.now(KST).strftime('%Y-%m-%d %H:%M KST')}")
@@ -98,13 +164,55 @@ def run():
         logger.info("오늘 이미 레시피 포스팅 완료 — 건너뜀 (FORCE_POST=true 로 강제)")
         return
 
-    # ── 1. 레시피 생성 (최근 14일 메뉴 회피) ──
+    # ── 1. 레시피 생성 (최근 14일 메뉴 회피 및 품질 검증 루프) ──
     from generator.recipe import generate_recipe
+    from generator.quality import score_content
     recent = _recent_dishes(history, days=14)
     logger.info(f"최근 14일 메뉴 {len(recent)}개 회피: {recent}")
-    post = generate_recipe(GOOGLE_API_KEY, recent=recent)
+    
+    post = None
+    quality_result = None
+    feedback_issues = None
+
+    for attempt in range(1, MAX_QUALITY_RETRIES + 2):
+        logger.info(f"레시피 생성 시도 {attempt}/{MAX_QUALITY_RETRIES + 1}")
+        candidate = generate_recipe(
+            GOOGLE_API_KEY, 
+            recent=recent,
+            feedback=feedback_issues,
+        )
+        if not candidate:
+            logger.error(f"레시피 생성 실패 (시도 {attempt})")
+            if attempt > MAX_QUALITY_RETRIES:
+                logger.error("레시피 생성 최종 실패 — 종료")
+                sys.exit(1)
+            continue
+            
+        # 품질 채점
+        qr = score_content(
+            title=candidate.get("title", ""),
+            body=candidate.get("body", ""),
+            tags=candidate.get("tags", []),
+            table_str=candidate.get("table_str", ""),
+            faq_str=candidate.get("faq_str", ""),
+        )
+        logger.info(f"품질 점수: {qr['score']}/100 ({'통과' if qr['pass'] else '재생성'})")
+        
+        if qr["pass"] or attempt > MAX_QUALITY_RETRIES:
+            post = candidate
+            quality_result = qr
+            if not qr["pass"]:
+                logger.warning(f"품질 미달({qr['score']}점)이지만 재시도 소진 — 발행 진행")
+            break
+        else:
+            logger.warning(
+                f"품질 미달 ({qr['score']}점, 기준 {QUALITY_PASS_SCORE}점) — 재생성\n"
+                f"이슈: {' / '.join(qr['issues'][:3])}"
+            )
+            feedback_issues = qr["issues"]
+
     if not post:
-        logger.error("레시피 생성 실패 — 종료")
+        logger.error("레시피 생성 최종 실패 — 종료")
         sys.exit(1)
 
     dish = post.get("dish", "")
@@ -129,6 +237,12 @@ def run():
             logger.warning(f"이미지 수집 실패 (무시): {e}")
     else:
         logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
+
+    # 쿠팡 우회 쇼핑 가이드 연계
+    post["body"] = _append_shopping_guide(post["body"], post.get("coupang_hints"))
+
+    # 과거 관련 레시피 포스팅 링크 연계 (Action 3)
+    post["body"] = _append_internal_links(post["body"], history, CATEGORY)
 
     # ── 3. 포스팅 (카테고리=오늘의 집밥 레시피) ──
     from poster.naver_blog import post_to_naver_blog
@@ -169,6 +283,8 @@ def run():
         "category":        CATEGORY,
         "status":          "posted" if is_posted else "failed",
         "post_url":        post_url if is_posted else None,
+        "quality_score":   quality_result["score"] if quality_result else None,
+        "quality_pass":    quality_result["pass"] if quality_result else None,
         "images_inserted": result.get("images_inserted", 0) if result else 0,
         "has_table":       bool(post.get("table_str")),
         "has_faq":         bool(post.get("faq_str")),

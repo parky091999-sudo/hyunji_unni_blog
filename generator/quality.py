@@ -50,6 +50,13 @@ _AI_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"선사(합니다|해|하는)"), "AI 단어: '선사하다'"),
     (re.compile(r"마련해\s*보세요"), "AI 단어: '마련해보세요'"),
     (re.compile(r"추천드립니다"), "AI 단어: '추천드립니다'"),
+    (re.compile(r"다양한\s*(방법|이유|제품|팁|역할|기능|활용)"), "AI 표현: '다양한 ~'"),
+    (re.compile(r"도움이\s*(되길|되었으면|되기를|되었기를)\s*(바랍니다|좋겠습니다)"), "AI 상투구: '도움이 되길 바랍니다'"),
+    (re.compile(r"기억하세요"), "AI 지시어: '기억하세요'"),
+    (re.compile(r"매우\s*(유용|효과적|중요|편리|탁월)"), "AI 수식어: '매우 ~'"),
+    (re.compile(r"살펴보(도록\s*하겠습니다|겠습니다)"), "AI 진행어: '살펴보겠습니다'"),
+    (re.compile(r"^(첫째|둘째|셋째|넷째|다섯째),?\s", re.MULTILINE), "AI 열거식: '첫째, 둘째'"),
+    (re.compile(r"지금부터"), "AI 진행어: '지금부터'"),
 ]
 
 # 소제목 패턴 (질문형 소제목 우대)
@@ -64,12 +71,12 @@ _PERSONAL_KEYWORDS = re.compile(
     r"직접\s*써|실제로\s*써|구매해봤|해봤는데|했는데|사봤|써봤"
 )
 
-# 구체적 데이터 — 숫자/가격/브랜드
+# 구체적 데이터 — 숫자/가격/브랜드 (AEO 최적화 핵심 팩트)
 _CONCRETE_DATA = re.compile(
     r"\d+[,\d]*원|\d+만\s*원|\d+천\s*원|"  # 가격
-    r"\d{4}년|\d+월|\d+일|\d+주|"          # 날짜/기간
-    r"다이소|이케아|쿠팡|무인양품|JAJU|자주|"  # 브랜드
-    r"\d+분\s*만에|\d+배|\d+%|\d+개"       # 수량/비율
+    r"\d{4}년|\d+월|\d+일|\d+주|\d+일간|\d+개월|"  # 날짜/기간
+    r"다이소|이케아|쿠팡|무인양품|JAJU|자주|올리브영|스타벅스|"  # 브랜드명
+    r"\d+분\s*만에|\d+배|\d+%\s*|\d+개|\d+곳|\d+종|\d+회|\d+평|\d+호"  # 수량/비율/단위
 )
 
 # 표 마커
@@ -157,17 +164,23 @@ def score_content(
     else:
         issues.append("1인칭 경험 표현 없음 — 개인 경험담 추가 필요")
 
-    # 7. 숫자/구체적 데이터 (10점)
+    # 7. 구체적 데이터 및 AEO 정보 밀도 (10점)
+    sentences = [s.strip() for s in body.split(".") if s.strip()]
+    fact_sentences = [s for s in sentences if _CONCRETE_DATA.search(s)]
     data_count = len(_CONCRETE_DATA.findall(body))
-    if data_count >= 5:
+    fact_ratio = len(fact_sentences) / len(sentences) if sentences else 0
+
+    if data_count >= 6 and fact_ratio >= 0.15:
         score += 10
-    elif data_count >= 3:
+    elif data_count >= 4 or fact_ratio >= 0.10:
         score += 7
-    elif data_count >= 1:
-        score += 3
-        issues.append(f"구체적 데이터 부족 ({data_count}개) — 가격, 날짜, 브랜드명 추가")
+        if data_count < 6:
+            issues.append(f"AEO 팩트 데이터 보강 가능 ({data_count}개, 비율 {fact_ratio:.1%})")
+    elif data_count >= 2:
+        score += 4
+        issues.append(f"AEO 팩트 데이터 부족 ({data_count}개, 비율 {fact_ratio:.1%}) — 수치(가격, 시간, 단위) 추가 권장")
     else:
-        issues.append("구체적 데이터 없음 — 숫자/가격/브랜드명 필수")
+        issues.append("AEO 구체적 팩트 데이터 거의 없음 — 숫자/가격/시간/브랜드명 추가 필수")
 
     # 8. 태그 수 (최대 10점)
     tag_count = len(tags)

@@ -12,6 +12,14 @@ import logging
 import os
 import sys
 
+# Windows cp949 인코딩 오류 방지
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
 
@@ -78,92 +86,85 @@ async def _load_cookies(ctx):
 async def setup_blog_info(page):
     """블로그 기본 정보 설정 (블로그명, 닉네임, 소개글)"""
     blog_id = NAVER_BLOG_ID or NAVER_ID
-    url = f"https://blog.naver.com/ProfileSetting.naver"
+    url = f"https://admin.blog.naver.com/{blog_id}/config/bloginfo"
     logger.info(f"블로그 기본 정보 설정 페이지: {url}")
     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    await asyncio.sleep(2)
+    await asyncio.sleep(4)
 
-    # 여러 설정 페이지 시도
-    setting_urls = [
-        f"https://blog.naver.com/ProfileSetting.naver",
-        f"https://blog.naver.com/BasicSetting.naver",
-        f"https://admin.blog.naver.com/setting/basic",
+    # 디버그 스크린샷 저장
+    shot_path = os.path.join(ROOT, "data", "screenshots", "setup_info_debug.png")
+    os.makedirs(os.path.dirname(shot_path), exist_ok=True)
+    await page.screenshot(path=shot_path)
+    logger.info(f"디버그 스크린샷 저장: {shot_path}")
+
+    # Naver Blog 어드민 프레임 처리 (papermain 사용)
+    target = page.frame_locator("#papermain")
+
+    # 블로그명 입력
+    blog_name_sels = [
+        "input[name='blogName']",
+        "#blogName",
+        "input[placeholder*='블로그명']",
+        "input[placeholder*='블로그 이름']",
     ]
-
-    for setting_url in setting_urls:
+    for sel in blog_name_sels:
         try:
-            await page.goto(setting_url, wait_until="domcontentloaded", timeout=20000)
-            await asyncio.sleep(2)
+            el = target.locator(sel).first
+            if await el.count():
+                await el.fill(BLOG_NAME)
+                logger.info(f"블로그명 입력: {BLOG_NAME}")
+                break
+        except Exception:
+            continue
 
-            # 블로그명 입력
-            blog_name_sels = [
-                "input[name='blogName']",
-                "#blogName",
-                "input[placeholder*='블로그명']",
-                "input[placeholder*='블로그 이름']",
-            ]
-            for sel in blog_name_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        await el.fill(BLOG_NAME)
-                        logger.info(f"블로그명 입력: {BLOG_NAME}")
-                        break
-                except Exception:
-                    continue
+    # 닉네임 입력
+    nick_sels = [
+        "input[name='nickname']",
+        "#nickname",
+        "input[placeholder*='닉네임']",
+        "input[placeholder*='별명']",
+    ]
+    for sel in nick_sels:
+        try:
+            el = target.locator(sel).first
+            if await el.count():
+                await el.fill(BLOG_NICKNAME)
+                logger.info(f"닉네임 입력: {BLOG_NICKNAME}")
+                break
+        except Exception:
+            continue
 
-            # 닉네임 입력
-            nick_sels = [
-                "input[name='nickname']",
-                "#nickname",
-                "input[placeholder*='닉네임']",
-                "input[placeholder*='별명']",
-            ]
-            for sel in nick_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        await el.fill(BLOG_NICKNAME)
-                        logger.info(f"닉네임 입력: {BLOG_NICKNAME}")
-                        break
-                except Exception:
-                    continue
+    # 소개글 입력
+    intro_sels = [
+        "textarea[name='introduction']",
+        "#blogIntro",
+        "textarea[placeholder*='소개']",
+    ]
+    for sel in intro_sels:
+        try:
+            el = target.locator(sel).first
+            if await el.count():
+                await el.fill(BLOG_DESCRIPTION)
+                logger.info(f"소개글 입력 완료")
+                break
+        except Exception:
+            continue
 
-            # 소개글 입력
-            intro_sels = [
-                "textarea[name='introduction']",
-                "#blogIntro",
-                "textarea[placeholder*='소개']",
-            ]
-            for sel in intro_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        await el.fill(BLOG_DESCRIPTION)
-                        logger.info(f"소개글 입력 완료")
-                        break
-                except Exception:
-                    continue
-
-            # 저장 버튼 클릭
-            save_sels = [
-                "button:has-text('확인')",
-                "button:has-text('저장')",
-                "input[type='submit']",
-            ]
-            for sel in save_sels:
-                try:
-                    btn = page.locator(sel).first
-                    if await btn.count() and await btn.is_visible(timeout=2000):
-                        await btn.click()
-                        await asyncio.sleep(2)
-                        logger.info("기본 설정 저장 완료")
-                        return True
-                except Exception:
-                    continue
-
-        except Exception as e:
-            logger.warning(f"설정 페이지 접근 실패 ({setting_url}): {e}")
+    # 저장 버튼 클릭
+    save_sels = [
+        "button:has-text('확인')",
+        "button:has-text('저장')",
+        "input[type='submit']",
+    ]
+    for sel in save_sels:
+        try:
+            btn = target.locator(sel).first
+            if await btn.count() and await btn.is_visible(timeout=2000):
+                await btn.click()
+                await asyncio.sleep(2)
+                logger.info("기본 설정 저장 완료")
+                return True
+        except Exception:
             continue
 
     logger.warning("블로그 기본 정보 자동 설정 실패 — 수동 설정 필요")
@@ -173,10 +174,10 @@ async def setup_blog_info(page):
 async def setup_categories(page):
     """카테고리 구성 설정"""
     blog_id = NAVER_BLOG_ID or NAVER_ID
-    url = f"https://blog.naver.com/CategoryManagement.naver?blogId={blog_id}"
+    url = f"https://admin.blog.naver.com/{blog_id}/config/blog"
     logger.info(f"카테고리 관리 페이지: {url}")
     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    await asyncio.sleep(3)
+    await asyncio.sleep(4)
 
     current_url = page.url
     if "login" in current_url or "nidlogin" in current_url:
@@ -184,6 +185,15 @@ async def setup_categories(page):
         return False
 
     logger.info(f"카테고리 페이지 URL: {current_url}")
+
+    # 디버그 스크린샷 저장
+    shot_path = os.path.join(ROOT, "data", "screenshots", "setup_categories_debug.png")
+    os.makedirs(os.path.dirname(shot_path), exist_ok=True)
+    await page.screenshot(path=shot_path)
+    logger.info(f"디버그 스크린샷 저장: {shot_path}")
+
+    # Naver Blog 어드민 프레임 처리 (papermain 사용)
+    target = page.frame_locator("#papermain")
 
     # 카테고리 추가 버튼 탐색
     add_sels = [
@@ -195,7 +205,7 @@ async def setup_categories(page):
     add_btn = None
     for sel in add_sels:
         try:
-            btn = page.locator(sel).first
+            btn = target.locator(sel).first
             if await btn.count():
                 add_btn = btn
                 logger.info(f"카테고리 추가 버튼 발견: {sel}")
@@ -207,7 +217,7 @@ async def setup_categories(page):
         logger.warning("카테고리 추가 버튼 없음 — 페이지 구조 확인 필요")
         # 현재 페이지의 버튼 목록 디버그
         try:
-            btns = await page.evaluate("""
+            btns = await target.evaluate("""
                 () => [...document.querySelectorAll('button,a')].slice(0, 20)
                       .map(e => ({tag:e.tagName, txt:e.textContent.trim().slice(0,20)}))
             """)
@@ -223,7 +233,7 @@ async def setup_categories(page):
             await asyncio.sleep(1)
 
             # 카테고리명 입력
-            name_input = page.locator("input.input_text, input[type='text']").last
+            name_input = target.locator("input.input_text, input[type='text']").last
             if await name_input.count():
                 await name_input.fill(cat["name"])
                 await page.keyboard.press("Enter")
@@ -239,11 +249,11 @@ async def setup_categories(page):
                 ]
                 for sel in sub_btn_sels:
                     try:
-                        sbtn = page.locator(sel).first
+                        sbtn = target.locator(sel).first
                         if await sbtn.count() and await sbtn.is_visible(timeout=1000):
                             await sbtn.click()
                             await asyncio.sleep(0.5)
-                            sub_input = page.locator("input.input_text, input[type='text']").last
+                            sub_input = target.locator("input.input_text, input[type='text']").last
                             if await sub_input.count():
                                 await sub_input.fill(sub)
                                 await page.keyboard.press("Enter")
@@ -264,7 +274,7 @@ async def setup_categories(page):
     ]
     for sel in save_sels:
         try:
-            btn = page.locator(sel).first
+            btn = target.locator(sel).first
             if await btn.count() and await btn.is_visible(timeout=2000):
                 await btn.click()
                 await asyncio.sleep(2)
@@ -279,83 +289,86 @@ async def setup_categories(page):
 async def setup_editor_defaults(page):
     """에디터 기본 설정 (서체 16pt, 줄간격 180%)"""
     blog_id = NAVER_BLOG_ID or NAVER_ID
+    url = f"https://admin.blog.naver.com/{blog_id}/config/defaulteditor"
+    logger.info(f"에디터 기본 설정 페이지: {url}")
+    
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(4)
+        
+        # 디버그 스크린샷 저장
+        shot_path = os.path.join(ROOT, "data", "screenshots", "setup_editor_debug.png")
+        os.makedirs(os.path.dirname(shot_path), exist_ok=True)
+        await page.screenshot(path=shot_path)
+        logger.info(f"디버그 스크린샷 저장: {shot_path}")
 
-    editor_setting_urls = [
-        f"https://blog.naver.com/SmartEditorSetting.naver?blogId={blog_id}",
-        f"https://blog.naver.com/EditorSetting.naver",
-        f"https://blog.naver.com/PostWriteDefault.naver?blogId={blog_id}",
-    ]
+        # Naver Blog 어드민 프레임 처리 (papermain 사용)
+        target = page.frame_locator("#papermain")
 
-    for url in editor_setting_urls:
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            await asyncio.sleep(2)
+        # 서체 설정
+        font_sels = [
+            "select[name='fontFamily']",
+            "#fontFamily",
+            "select.font_select",
+        ]
+        for sel in font_sels:
+            try:
+                el = target.locator(sel).first
+                if await el.count():
+                    await el.select_option(label="나눔스퀘어")
+                    logger.info("서체: 나눔스퀘어 선택")
+                    break
+            except Exception:
+                continue
 
-            # 서체 설정
-            font_sels = [
-                "select[name='fontFamily']",
-                "#fontFamily",
-                "select.font_select",
-            ]
-            for sel in font_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        await el.select_option(label="나눔스퀘어")
-                        logger.info("서체: 나눔스퀘어 선택")
-                        break
-                except Exception:
-                    continue
+        # 글자 크기
+        size_sels = [
+            "select[name='fontSize']",
+            "#fontSize",
+            "input[name='fontSize']",
+        ]
+        for sel in size_sels:
+            try:
+                el = target.locator(sel).first
+                if await el.count():
+                    try:
+                        await el.select_option(label="16")
+                    except Exception:
+                        await el.fill("16")
+                    logger.info("글자 크기: 16pt")
+                    break
+            except Exception:
+                continue
 
-            # 글자 크기
-            size_sels = [
-                "select[name='fontSize']",
-                "#fontSize",
-                "input[name='fontSize']",
-            ]
-            for sel in size_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        try:
-                            await el.select_option(label="16")
-                        except Exception:
-                            await el.fill("16")
-                        logger.info("글자 크기: 16pt")
-                        break
-                except Exception:
-                    continue
+        # 줄 간격
+        spacing_sels = [
+            "select[name='lineHeight']",
+            "#lineHeight",
+        ]
+        for sel in spacing_sels:
+            try:
+                el = target.locator(sel).first
+                if await el.count():
+                    await el.select_option(label="180%")
+                    logger.info("줄 간격: 180%")
+                    break
+            except Exception:
+                continue
 
-            # 줄 간격
-            spacing_sels = [
-                "select[name='lineHeight']",
-                "#lineHeight",
-            ]
-            for sel in spacing_sels:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count():
-                        await el.select_option(label="180%")
-                        logger.info("줄 간격: 180%")
-                        break
-                except Exception:
-                    continue
+        # 저장
+        for save_sel in ["button:has-text('저장')", "button:has-text('확인')"]:
+            try:
+                btn = target.locator(save_sel).first
+                if await btn.count() and await btn.is_visible(timeout=2000):
+                    await btn.click()
+                    await asyncio.sleep(2)
+                    logger.info("에디터 설정 저장 완료")
+                    return True
+            except Exception:
+                continue
 
-            # 저장
-            for save_sel in ["button:has-text('저장')", "button:has-text('확인')"]:
-                try:
-                    btn = page.locator(save_sel).first
-                    if await btn.count() and await btn.is_visible(timeout=2000):
-                        await btn.click()
-                        await asyncio.sleep(2)
-                        logger.info("에디터 설정 저장 완료")
-                        return True
-                except Exception:
-                    continue
-
-        except Exception as e:
-            logger.warning(f"에디터 설정 페이지 실패 ({url}): {e}")
-            continue
+    except Exception as e:
+        logger.warning(f"에디터 설정 페이지 실패 ({url}): {e}")
 
     logger.warning("에디터 기본 설정 자동화 실패 — 수동 설정 필요")
     return False
@@ -395,8 +408,8 @@ async def main():
         await setup_editor_defaults(page)
 
         logger.info("=" * 40)
-        logger.info("설정 완료! 브라우저를 닫으려면 Enter를 누르세요...")
-        input()
+        logger.info("설정 완료! 5초 후 브라우저가 자동으로 닫힙니다...")
+        await asyncio.sleep(5)
         await browser.close()
 
 

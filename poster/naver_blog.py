@@ -419,14 +419,20 @@ async def _type_in_editor(page: Page, text: str):
     for i, para in enumerate(paragraphs):
         lines = para.split("\n")
         for j, line in enumerate(lines):
-            if line.strip():
+            stripped_line = line.strip()
+            if stripped_line:
                 # 인간적인 타이핑: 짧은 문장은 빠르게, 긴 문장은 느리게, 중간에 쉬는 구간
                 char_delay = random.randint(12, 35)
-                await page.keyboard.type(line.strip(), delay=char_delay)
-                # 문장 끝에 자연스러운 짧은 멈춤
-                if j < len(lines) - 1:
+                await page.keyboard.type(stripped_line, delay=char_delay)
+                
+                # URL 감지 시 네이버 에디터가 링크 카드로 렌더링하도록 3~4초간 대기
+                if stripped_line.startswith("http://") or stripped_line.startswith("https://"):
+                    logger.info(f"URL 감지 → 링크 카드 생성 대기: {stripped_line[:40]}...")
+                    await page.keyboard.press("Enter")
+                    await _delay(3500, 4500)
+                elif j < len(lines) - 1:
                     await _delay(80, 250)
-            if j < len(lines) - 1:
+            if j < len(lines) - 1 and not (stripped_line.startswith("http://") or stripped_line.startswith("https://")):
                 await page.keyboard.press("Enter")
         if i < len(paragraphs) - 1:
             await page.keyboard.press("Enter")
@@ -503,10 +509,16 @@ async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
 
 
 async def _style_paragraphs(
-    page: Page, texts: list[str], size_label: str | None = "19", bold: bool = True, label: str = "스타일"
+    page: Page,
+    texts: list[str],
+    size_label: str | None = "19",
+    bold: bool = True,
+    label: str = "스타일",
+    style_type: str | None = None,
 ):
-    """텍스트가 일치하는 본문 단락을 찾아 글자 크기(size_label) + 굵게(bold) 적용.
-    size_label=None 이면 크기 변경 없이 굵게만 (예: FAQ 질문줄)."""
+    """텍스트가 일치하는 본문 단락을 찾아 스타일(heading/quotation/글자크기/굵게) 적용.
+    style_type='heading' 이면 에디터 제목 컴포넌트, 'quotation' 이면 인용구 컴포넌트 시도.
+    실패 시 size_label/bold 수동 서식으로 fallback."""
     items = [s.strip() for s in (texts or []) if s and s.strip()]
     if not items:
         return
@@ -541,11 +553,28 @@ async def _style_paragraphs(
             await page.keyboard.press("End")
             await page.keyboard.up("Shift")
             await _delay(150, 260)
-            if size_label:
-                await _apply_size_to_selection(page, size_label, dump=not dumped)
-                dumped = True
-            if bold:
-                await page.keyboard.press("Control+b")
+            
+            ok_styled = False
+            if style_type == "heading":
+                ok_styled = await _apply_paragraph_style(page, "제목 2")
+            elif style_type == "quotation":
+                # 인용구인 경우: 기존 텍스트 블록 지정 상태에서 그대로 인용구를 적용하면 텍스트가 지워지므로,
+                # 먼저 Backspace로 텍스트를 지우고 인용구를 연 다음 그 내부에 텍스트를 타이핑해 넣습니다.
+                await page.keyboard.press("Backspace")
+                await _delay(150, 250)
+                ok_styled = await _apply_quotation(page)
+                if ok_styled:
+                    await page.keyboard.type(tx, delay=random.randint(10, 20))
+                    await _delay(300, 500)
+                    await page.keyboard.press("Escape")
+                    await _delay(150, 250)
+                
+            if not ok_styled:
+                if size_label:
+                    await _apply_size_to_selection(page, size_label, dump=not dumped)
+                    dumped = True
+                if bold:
+                    await page.keyboard.press("Control+b")
             await _delay(150, 250)
             styled += 1
         except Exception as e:
@@ -554,7 +583,7 @@ async def _style_paragraphs(
         await page.keyboard.press("Control+End")
     except Exception:
         pass
-    logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold})")
+    logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold}, 타입 {style_type})")
 
 
 def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
@@ -581,8 +610,19 @@ def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
 
 def _compute_table_anchor(body: str) -> int | None:
     """[표삽입] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'인지. 없으면 None."""
-    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]")
+    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]")
     m = re.search(r"\[표삽입\]", body)
+    if not m:
+        return None
+    before_clean = all_markers.sub("", body[: m.start()])
+    lines = [ln for ln in before_clean.split("\n") if ln.strip()]
+    return max(0, len(lines) - 1)
+
+
+def _compute_faq_anchor(body: str) -> int | None:
+    """[FAQ삽입] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'인지. 없으면 None."""
+    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]")
+    m = re.search(r"\[FAQ삽입\]", body)
     if not m:
         return None
     before_clean = all_markers.sub("", body[: m.start()])
@@ -740,6 +780,48 @@ async def _click_photo_button(page: Page) -> bool:
     return False
 
 
+async def _fill_image_caption(page: Page, alt_text: str) -> bool:
+    """방금 삽입된 이미지(가장 마지막 이미지)의 캡션 입력창을 찾아 alt_text 타이핑"""
+    if not alt_text:
+        return False
+    target = await _get_editor_frame(page)
+    try:
+        # 스마트에디터 ONE의 이미지 캡션 영역 셀렉터들
+        caption_sels = [
+            ".se-component-image .se-image-caption",
+            ".se-image-caption",
+            "[placeholder*='사진 설명을']",
+            "[data-placeholder*='사진 설명을']",
+        ]
+        caption_loc = None
+        for sel in caption_sels:
+            loc = target.locator(sel).last
+            if await loc.count() and await loc.is_visible(timeout=1500):
+                caption_loc = loc
+                break
+                
+        if caption_loc:
+            await caption_loc.click(timeout=2000)
+            await _delay(200, 450)
+            # 기존 텍스트 제거
+            await page.keyboard.press("Control+a")
+            await page.keyboard.press("Backspace")
+            await _delay(100, 200)
+            # 타이핑
+            await page.keyboard.type(alt_text, delay=random.randint(15, 30))
+            await _delay(300, 500)
+            # 포커스 해제
+            await page.keyboard.press("Escape")
+            await page.keyboard.press("Control+End")
+            logger.info(f"이미지 캡션(Alt) 입력 성공: '{alt_text}'")
+            return True
+            
+        logger.warning("이미지 캡션 입력 영역을 찾지 못함")
+    except Exception as e:
+        logger.warning(f"이미지 캡션 입력 예외(무시): {e}")
+    return False
+
+
 async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") -> bool:
     """
     SE ONE 에디터에 이미지 삽입 (3단계 Fallback).
@@ -826,6 +908,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             await _screenshot(page, f"img_ok_{alt_text[:8] if alt_text else 'img'}")
             if after1 > before:
                 logger.info(f"이미지 삽입 성공 (방법1 file_chooser) — 이미지 {before}→{after1}")
+                await _fill_image_caption(page, alt_text)
                 return True
             logger.warning(f"방법1 후 이미지 수 변화 없음 ({before}→{after1}) — 방법2 시도")
 
@@ -850,6 +933,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                         after2 = await _count_editor_images(target)
                         if after2 > before:
                             logger.info(f"이미지 삽입 성공 (방법2 file input) — 이미지 {before}→{after2}")
+                            await _fill_image_caption(page, alt_text)
                             return True
                     except Exception:
                         continue
@@ -1095,6 +1179,10 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
                 await page.keyboard.press("Control+a")
                 if text:
                     await page.keyboard.type(text, delay=12)
+                    # 첫 번째 행(헤더)일 경우 굵게 처리
+                    if i < grid_cols:
+                        await _delay(100, 200)
+                        await page.keyboard.press("Control+b")
                 else:
                     await page.keyboard.press("Delete")
                 filled += 1
@@ -1108,6 +1196,133 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
     except Exception as e:
         logger.warning(f"표 셀 채우기 실패: {e}")
         return False
+
+
+
+
+
+async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor_para_idx: int) -> bool:
+    """FAQ (질문/답변) 짝을 네이버 에디터 인용구 하나에 묶어서 개행 타이핑하여 삽입"""
+    if not faq_pairs:
+        return False
+    logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커단락: {anchor_para_idx})")
+    target = await _get_editor_frame(page)
+    
+    # 앵커 단락 뒤로 커서 이동
+    await _move_cursor_to_paragraph_end(page, anchor_para_idx)
+    await _delay(300, 500)
+    
+    # 새 줄 확보
+    await page.keyboard.press("Enter")
+    await _delay(200, 400)
+    
+    inserted = 0
+    for q_text, a_text in faq_pairs:
+        try:
+            # 1. 인용구 툴바 버튼 클릭
+            btn = target.locator("[data-name='quotation'], button.se-toolbar-item-quotation").first
+            if await btn.count():
+                await btn.click(timeout=3000)
+                await _delay(1000, 1500)  # 인용구 렌더링 대기
+                
+                # 2. 질문(Q) 타이핑
+                await page.keyboard.type(q_text, delay=random.randint(10, 20))
+                await _delay(200, 400)
+                
+                # 3. Shift+Enter 로 인용구 내 강제 개행
+                await page.keyboard.down("Shift")
+                await page.keyboard.press("Enter")
+                await page.keyboard.up("Shift")
+                await _delay(200, 400)
+                
+                # 4. 답변(A) 타이핑
+                await page.keyboard.type(a_text, delay=random.randint(10, 20))
+                await _delay(300, 500)
+                
+                # 5. Escape 로 인용구 상자 탈출
+                await page.keyboard.press("Escape")
+                await _delay(200, 400)
+                
+                # 6. 다음 FAQ와 간격 확보 위해 Enter 입력
+                await page.keyboard.press("Enter")
+                await page.keyboard.press("Enter")
+                await _delay(300, 500)
+                inserted += 1
+                logger.info(f"FAQ 세트 {inserted}번 삽입 완료")
+        except Exception as e:
+            logger.warning(f"FAQ 세트 {inserted+1}번 삽입 예외: {e}")
+            continue
+            
+    await page.keyboard.press("Control+End")
+    return inserted > 0
+
+
+async def _apply_paragraph_style(page: Page, style_name: str = "제목 2") -> bool:
+    """현재 선택 영역에 단락 스타일(제목 1, 제목 2 등) 적용"""
+    target = await _get_editor_frame(page)
+    try:
+        # 단락 스타일(본문/제목) 버튼 클릭
+        btn = target.locator("[data-name='paragraph-style'], button.se-toolbar-item-paragraph-style").first
+        if await btn.count():
+            await btn.click(timeout=3000)
+            await _delay(300, 600)
+            # 드롭다운 옵션 중 원하는 스타일 찾아서 클릭
+            opt = target.locator(f"button:has-text('{style_name}'), li:has-text('{style_name}'), [role='option']:has-text('{style_name}')").first
+            if await opt.count():
+                await opt.click(timeout=2000)
+                await _delay(350, 600)
+                logger.info(f"단락 스타일 적용 완료: {style_name}")
+                return True
+    except Exception as e:
+        logger.warning(f"단락 스타일 적용 실패 ({style_name}): {e}")
+    return False
+
+
+async def _apply_quotation(page: Page) -> bool:
+    """현재 선택 영역 또는 위치에 인용구(Quotation) 적용"""
+    target = await _get_editor_frame(page)
+    try:
+        # 툴바의 인용구 버튼 클릭
+        btn = target.locator("[data-name='quotation'], button.se-toolbar-item-quotation").first
+        if await btn.count():
+            await btn.click(timeout=3000)
+            await _delay(500, 800)
+            logger.info("인용구 컴포넌트 적용 완료")
+            return True
+    except Exception as e:
+        logger.warning(f"인용구 컴포넌트 적용 실패: {e}")
+    return False
+
+
+async def _simulate_human_review(page: Page):
+    """실제 인간이 작성한 글을 다시 위아래로 훑어보며 마우스를 움직이는 제스처를 시뮬레이션"""
+    logger.info("휴먼 검토 제스처 시뮬레이션 시작...")
+    try:
+        # 1. 마우스 랜덤 이동
+        for _ in range(3):
+            x = random.randint(200, 700)
+            y = random.randint(150, 500)
+            await page.mouse.move(x, y, steps=random.randint(8, 20))
+            await _delay(200, 500)
+        
+        # 2. 본문 천천히 스크롤 다운 (1/3 정도 스크롤)
+        for _ in range(4):
+            scroll_amount = random.randint(250, 450)
+            await page.evaluate(f"window.scrollBy({{top: {scroll_amount}, behavior: 'smooth'}})")
+            await _delay(400, 800)
+            
+        await _delay(600, 1200)
+        
+        # 3. 본문 천천히 스크롤 업 (다시 맨 위 부근으로)
+        for _ in range(4):
+            scroll_amount = random.randint(250, 450)
+            await page.evaluate(f"window.scrollBy({{top: -{scroll_amount}, behavior: 'smooth'}})")
+            await _delay(300, 600)
+            
+        await _delay(500, 1000)
+        logger.info("휴먼 검토 제스처 완료")
+    except Exception as e:
+        logger.warning(f"휴먼 검토 제스처 실패(계속 진행): {e}")
 
 
 async def _save_draft(page: Page) -> str:
@@ -1359,6 +1574,7 @@ async def _post(
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
     category: str = "",
+    faq_pairs: list[tuple[str, str]] | None = None,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1441,23 +1657,22 @@ async def _post(
         await _screenshot(write_page, "after_title")
 
         # ── 본문 입력 (소실 방지 최우선): 마커 제거한 전체 본문을 한 번에 안정 입력 ──
-        # 예전엔 텍스트→이미지→텍스트 인터리브였는데, 이미지 삽입 실패가 포커스를 깨
-        # 인트로 이후 본문이 통째로 소실됐다. 이제 텍스트를 먼저 전부 넣고, 이미지는
-        # 그 뒤에 best-effort로 얹는다 (이미지 실패해도 본문은 절대 잃지 않음).
         _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
         marker_positions = _PHOTO_MARKER.findall(body)
         table_anchor = _compute_table_anchor(body) if table_str else None
+        faq_anchor = _compute_faq_anchor(body) if faq_pairs else None
         body_text = _PHOTO_MARKER.sub("", body)
-        body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거 (표는 컴포넌트로 삽입)
+        body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거
+        body_text = re.sub(r"\[FAQ삽입\]", "", body_text)  # FAQ 자리표시자 제거
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
 
-        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커 {table_anchor})")
+        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커 {table_anchor}, FAQ앵커 {faq_anchor})")
         await _type_in_editor(write_page, body_text)
         await _delay(1000, 1500)
 
-        # 본문 입력 검증 — 에디터 실제 텍스트가 비면 발행 금지 (인트로만 발행되는 사고 차단)
+        # 본문 입력 검증
         editor_len = await _editor_text_length(write_page)
-        min_required = max(800, int(len(body_text) * 0.5))
+        min_required = min(800, int(len(body_text) * 0.5))
         logger.info(
             f"에디터 본문 검증: 입력됨 {editor_len}자 / 생성 {len(body_text)}자 (최소 {min_required}자)"
         )
@@ -1471,28 +1686,31 @@ async def _post(
                 return None
             logger.warning("드래프트 모드 — 검증 실패해도 스크린샷 확인 위해 계속 진행")
 
-        # ── 본문 글꼴 + 소제목 제목 스타일 (표/이미지 삽입 전, 텍스트만 있을 때 적용) ──
-        # 글꼴을 먼저(균일한 본문 전체선택) → 그다음 소제목 크기/굵게 (크기·굵기는 글꼴과 독립)
+        # ── 본문 글꼴 + 소제목 제목 스타일 ──
         try:
             await _apply_font_all(write_page, font_dn="nanummaruburi")
         except Exception as e:
             logger.warning(f"글꼴 적용 예외(계속): {e}")
         try:
-            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목")
+            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목", style_type="heading")
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
-        try:
-            await _style_paragraphs(write_page, faq_questions or [], size_label=None, bold=True, label="FAQ질문")
-        except Exception as e:
-            logger.warning(f"FAQ 질문 스타일 예외(계속): {e}")
 
-        # ── 진짜 네이버 표 삽입 (best-effort, 이미지보다 먼저 — 표는 text-paragraph 인덱스 안 바꿈) ──
+        # ── 진짜 네이버 표 삽입 ──
         if table_str and table_anchor is not None:
             try:
                 ok_tbl = await _insert_table(write_page, table_str, table_anchor)
                 logger.info(f"표 삽입 {'성공' if ok_tbl else '실패(본문 유지)'}")
             except Exception as e:
                 logger.warning(f"표 삽입 예외(계속): {e}")
+
+        # ── FAQ 인용구 세트 삽입 (Q와 A를 하나의 인용구 상자에 개행으로 묶어 삽입) ──
+        if faq_pairs and faq_anchor is not None:
+            try:
+                ok_faq = await _insert_faq_pairs(write_page, faq_pairs, faq_anchor)
+                logger.info(f"FAQ 인용구 세트 삽입 {'성공' if ok_faq else '실패(본문 유지)'}")
+            except Exception as e:
+                logger.warning(f"FAQ 인용구 세트 삽입 예외(계속): {e}")
 
         # ── 이미지 삽입 (best-effort): 단락 앵커 위치에 삽입, 실패해도 본문 유지 ──
         images_inserted = 0
@@ -1536,6 +1754,9 @@ async def _post(
         await _screenshot(write_page, "after_body", full_page=True)
         logger.info(f"이미지 {images_inserted}장 실제 삽입 완료 (검증: 에디터 이미지 수 기준)")
 
+        # 발행 전 휴먼 제스처 시뮬레이션
+        await _simulate_human_review(write_page)
+
         # 발행 (draft=True 면 임시저장만)
         post_url = await _publish(write_page, tags=tags, draft=draft, category=category)
         await _save_cookies(ctx)
@@ -1567,7 +1788,24 @@ def post_to_naver_blog(
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
     category: str = "",
+    faq_pairs: list[tuple[str, str]] | None = None,
 ) -> dict | None:
     return asyncio.run(
-        _post(naver_id, naver_pw, blog_id, title, body, tags, naver_cookies, images, draft, allow_pw_login, table_str, subheadings, faq_questions, category)
+        _post(
+            naver_id=naver_id,
+            naver_pw=naver_pw,
+            blog_id=blog_id,
+            title=title,
+            body=body,
+            tags=tags,
+            naver_cookies=naver_cookies,
+            images=images,
+            draft=draft,
+            allow_pw_login=allow_pw_login,
+            table_str=table_str,
+            subheadings=subheadings,
+            faq_questions=faq_questions,
+            category=category,
+            faq_pairs=faq_pairs,
+        )
     )

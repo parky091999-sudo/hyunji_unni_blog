@@ -69,3 +69,32 @@ data/
 - 쿠키 만료: 약 30~90일 → get_cookies.py 재실행 후 Secret 업데이트
 - 이미지: 1단계는 텍스트 위주 포스팅, 추후 이미지 삽입 자동화 추가 예정
 - 쿠팡 링크: coupang_hints 로깅만 (추후 자동 링크 삽입 추가 예정)
+
+---
+
+## 2026-06-24 작업 이력 (Antigravity에서 작성)
+
+- **글쓰기 체계 및 가이드라인 정립**:
+  - [docs/WRITING_SYSTEM.md](file:///C:/박관용/CLAUDE/ai-agent/hyunji_unni_blog/docs/WRITING_SYSTEM.md) 생성 (페르소나 톤앤매너, 모바일 단락 최적화, 5대 도입부 유형, 표/FAQ 구조 명세).
+- **품질 채점 기준 고도화 ([quality.py](file:///C:/박관용/CLAUDE/ai-agent/hyunji_unni_blog/generator/quality.py))**:
+  - `_AI_PATTERNS`에 흔히 발생하는 AI/Gemini 말투 패턴 대거 추가 ("다양한 ~", "도움이 되길", "기억하세요", 기계적 번호 열거 등).
+- **프롬프트 및 퇴고 엔진 연동 ([content.py](file:///C:/박관용/CLAUDE/ai-agent/hyunji_unni_blog/generator/content.py), [recipe.py](file:///C:/박관용/CLAUDE/ai-agent/hyunji_unni_blog/generator/recipe.py))**:
+  - `_SYSTEM`, `_REFINE_SYSTEM`, `_RECIPE_SYSTEM` 프롬프트에 금지된 AI 상투어 및 대안 표현 반영하여 초안 생성 및 2차 퇴고 과정 개선.
+- **임시저장 검증 모드 테스트**:
+  - `DRAFT=true` 모드로 로컬 테스트 실행 및 검증 중.
+- **AEO/GEO 및 자동화 고도화 적용 (A, B, C 반영)**:
+  - **A. 휴먼 제스처 시뮬레이션 (`_simulate_human_review`)**: 발행/임시저장 전 마우스 랜덤 이동 및 스크롤 다운/업 제스처를 수행하여 봇 탐지 우회 안정성 강화.
+  - **B. 네이버 에디터 인용구 & 제목 컴포넌트 연동**: 소제목에는 에디터 내 Heading 스타일(제목 2)을, FAQ 질문에는 인용구(Quotation) 컴포넌트를 Playwright 조작으로 우선 적용(실패 시 font size/bold 서식으로 fallback).
+  - **C. AEO 정보 밀도 검증기 고도화 (`quality.py`)**: 단순히 구체적 팩트 키워드 수만 세던 방식에서, 전체 문장 중 수치/단위/브랜드 등 팩트 데이터를 포함한 문장의 비율(AEO Density)을 분석하도록 채점 로직 고도화.
+- **최신 2026 네이버 검색 개편 대응 완결형 포스팅 추가 고도화 (Action 1, 2, 3 반영)**:
+  - **Action 1 (이미지 ALT 텍스트 자동 기입)**: Pexels API 등 이미지 삽입 성공 시 이미지 설명 캡션 입력창에 AI가 작성한 alt_text 설명글을 자동 입력하도록 `_fill_image_caption` 개발.
+  - **Action 2 (지식스니펫용 두괄식 프롬프트 규칙 주입)**: `content.py` 및 `recipe.py` 템플릿에 "모든 소제목 바로 다음 단락의 1~2문장은 질문이나 소제목 주제에 대한 결론/정의 형식으로 명확하게 즉시 답변할 것" 지침 주입.
+  - **Action 3 (과거 포스팅 링크 연계기 개발)**: `daily_post.py`와 `recipe_post.py`에 `_append_internal_links`를 탑재하여 동일 카테고리/주제의 과거 성공 글의 링크와 제목을 마지막 사진 마커(`[사진N]`) 직전에 자동으로 연결하여 체류시간 최적화.
+- **추가 최적화 기능 적용 (피드백 루프 & 쿠팡 쇼핑가이드 삽입)**:
+  - **품질 피드백 루프 (Feedback loop)**: `daily_post.py`와 `recipe_post.py` 생성 루프에 품질 점수 검증 및 재생성 시 이전의 탈락 원인(이슈들)을 LLM에 `feedback` 매개변수로 주입하여 퇴고 정확도를 극대화하는 보완 피딩 루프 구축.
+  - **쿠팡 우회 쇼핑가이드 자동 생성**: 본문에 `coupang_hints`가 존재할 시, 광고/어뷰징 누락 필터를 우회하기 위해 텍스트 기반의 안전한 최저가 검색 안내 문구(`_append_shopping_guide`)를 본문 하단(마지막 사진 직전)에 자동 조립 삽입.
+- **이미지 퀄리티 및 가독성 품질 고도화**:
+  - **뜬금없는 인물 사진(외국인 모델 등) 완전 배제**: `generator/image.py` 의 `_OFFTOPIC_RE` 정규식을 확장하여 `person`, `people`, `man`, `woman`, `model`, `face`, `hand` 등 인물 요소가 매칭되는 이미지를 철저히 필터링하고 제외.
+  - **레시피 이미지 한식화 쿼리 보정**: 요리/조리 관련 키워드 검색 시 자동으로 `korean` 수식어가 덧붙도록 `generator/image.py` 의 `_keyword_to_en`을 개선하여 뜬금없는 양식/스톡 사진 매칭 차단.
+  - **문장 쪼개짐 방지 규칙 탑재**: 본문 내 `[사진N]` 마커가 문장 중간에 삽입되어 가독성이 깨지던 현상을 해소하기 위해 `content.py` 와 `recipe.py` 시스템 프롬프트에 "반드시 마침표 뒤 독립된 개행(새로운 줄)에 단독으로만 사진 마커를 배치할 것" 절대 규칙 주입.
+
