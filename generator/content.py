@@ -398,8 +398,12 @@ def _parse_response(raw: str) -> dict | None:
                 if "자주 묻는 질문" not in result["subheadings"]:
                     result["subheadings"].append("자주 묻는 질문")
             body = re.sub(r"\n{3,}", "\n\n", body)
-            # "안녕하세요" 로 시작하는 첫 줄/단락 제거 (AI 패턴)
-            body = re.sub(r"^안녕하세요[^\n]*\n?", "", body, flags=re.IGNORECASE).lstrip()
+            # 인삿말 "안녕하세요 ~" 제거 (AI 패턴). 레시피 본문은 [사진1]로 시작하므로
+            # 앞선 [사진N] 마커는 보존하고 인삿말 '문장'만 잘라낸다(도입부 나머지는 유지).
+            body = re.sub(
+                r"^((?:\s*\[사진\d+\]\s*)*)\s*안녕하세요[^.!?~\n]*[.!?~]?\s*",
+                r"\1", body, flags=re.IGNORECASE,
+            ).lstrip()
             result["body"] = body.strip()
 
         if "title" not in result or "body" not in result:
