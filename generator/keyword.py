@@ -123,6 +123,22 @@ CATEGORIES: dict[str, dict] = {
         ],
         "posting_days": [0, 4],  # 월, 금
     },
+    "신혼일상": {
+        "name": "신혼일상",
+        "keywords": [
+            "신혼일기 주말 데이트 요리",
+            "퇴근 후 남편이랑 저녁 차려먹기",
+            "주말에 신혼집 대청소한 날",
+            "다이소 쇼핑 2만원의 행복",
+            "남편이랑 가계부 점검일기",
+            "여름맞이 이불 세탁하고 코인빨래방 다녀옴",
+            "신혼부부 식비 절약 냉장고 털기 일상",
+            "초보 주부의 하루 살림 일기",
+            "수원 신혼 아파트 첫 집들이 날",
+            "주말 이케아 다녀온 후기",
+        ],
+        "posting_days": [0, 1, 2, 3, 4, 5, 6],
+    },
 }
 
 # 시즌 키워드 (월별 보정)
@@ -250,3 +266,44 @@ def get_trending_bonus(limit: int = 5) -> list[str]:
     except Exception as e:
         logger.warning(f"트렌딩 수집 실패: {e}")
         return []
+
+
+def pick_keyword_for_blog_category(blog_category: str) -> dict:
+    """
+    특정 블로그 카테고리에 적합한 키워드를 선정하여 반환.
+    최근 30일 중복 방지 반영.
+    """
+    # 블로그 카테고리별 매핑
+    mapping = {
+        "알뜰 살림 꿀팁": ["청소정리", "절약재테크", "신혼살림기초"],
+        "살림템 비교·추천": ["인테리어", "쇼핑정보"],
+        "일상": ["신혼일상"],
+    }
+    
+    keyword_cats = mapping.get(blog_category, ["청소정리"])
+    chosen_cat_id = random.choice(keyword_cats)
+    cat_info = CATEGORIES[chosen_cat_id]
+    
+    month = datetime.now(KST).month
+    recent = _get_recent_keywords(days=30)
+    
+    cat_pool = cat_info["keywords"]
+    if chosen_cat_id == "청소정리":
+        cat_pool = cat_pool + _SEASON.get(month, [])
+        
+    fresh = [k for k in cat_pool if k not in recent]
+    if not fresh:
+        logger.warning(f"카테고리 {cat_info['name']} 키워드 소진 — 전체 풀에서 재사용")
+        fresh = cat_pool
+        
+    keyword = random.choice(fresh)
+    logger.info(
+        f"블로그 카테고리 '{blog_category}' -> 키워드 선택: {keyword!r} | "
+        f"키워드 카테고리: {cat_info['name']}"
+    )
+    return {
+        "keyword": keyword,
+        "category": chosen_cat_id,
+        "category_name": cat_info["name"],
+    }
+
