@@ -1,5 +1,77 @@
 [
   {
+    "date": "2026-06-25",
+    "timestamp": "2026-06-25T10:21:11.345665+09:00",
+    "keyword": "초보 주부의 하루 살림 일기",
+    "category": "신혼일상",
+    "category_name": "신혼일상",
+    "blog_category": "일상",
+    "title": "초보 주부 하루 살림 | 시행착오 끝 찾은 나만의 루틴",
+    "tags": [
+      "초보주부",
+      "신혼살림",
+      "살림루틴",
+      "주부일기",
+      "살림노하우"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326665198",
+    "quality_score": 87,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": false,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-25",
+    "timestamp": "2026-06-25T10:14:12.340882+09:00",
+    "keyword": "원룸 꾸미기 꿀팁",
+    "category": "인테리어",
+    "category_name": "인테리어&소품",
+    "blog_category": "살림템 비교·추천",
+    "title": "원룸 꾸미기 | 좁은 공간도 넓어 보이는 기적",
+    "tags": [
+      "원룸꾸미기",
+      "좁은집인테리어",
+      "자취방꾸미기",
+      "신혼집인테리어",
+      "현지언니꿀팁"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326657671",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 4,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-25",
+    "timestamp": "2026-06-25T10:06:21.179817+09:00",
+    "keyword": "신혼 살림 다이소로 완성",
+    "category": "신혼살림기초",
+    "category_name": "신혼살림 기초",
+    "blog_category": "알뜰 살림 꿀팁",
+    "title": "신혼 살림 다이소 | 돈 아끼는 꿀팁",
+    "tags": [
+      "신혼살림",
+      "다이소",
+      "신혼집꾸미기",
+      "살림팁",
+      "가성비템"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326649255",
+    "quality_score": 90,
+    "quality_pass": true,
+    "images_count": 4,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": false
+  },
+  {
     "date": "2026-06-24",
     "timestamp": "2026-06-24T14:48:05.693769+09:00",
     "keyword": "신혼집 인테리어 저렴하게",
