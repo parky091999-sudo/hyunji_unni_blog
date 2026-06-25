@@ -223,6 +223,7 @@ def run():
     # ── 2. 이미지 수집 (5장) ──
     images: list[dict] = []
     image_keywords = post.get("image_keywords", [])
+    image_labels = post.get("image_labels", [])
     if PEXELS_API_KEY:
         try:
             from generator.image import get_post_images
@@ -233,7 +234,11 @@ def run():
                 category="cooking",
                 image_keywords=image_keywords if image_keywords else None,
             )
-            logger.info(f"이미지 수집: {len(images)}장")
+            # 각 이미지 객체에 한글 라벨 텍스트 매핑
+            for idx, img in enumerate(images):
+                if idx < len(image_labels):
+                    img["label"] = image_labels[idx]
+            logger.info(f"이미지 수집 및 라벨 매핑 완료: {len(images)}장")
         except Exception as e:
             logger.warning(f"이미지 수집 실패 (무시): {e}")
     else:

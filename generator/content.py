@@ -136,6 +136,7 @@ TAGS: {태그1},{태그2},{태그3},{태그4},{태그5}
 COUPANG_HINT_1: {쿠팡 검색 키워드 1}
 COUPANG_HINT_2: {쿠팡 검색 키워드 2}
 IMAGE_KEYWORDS: {사진1 영어검색어},{사진2 영어검색어},...  (본문에 쓴 [사진N] 마커 개수와 정확히 동일해야 함)
+IMAGE_LABELS: {사진1 텍스트 카드 내용 한글 15자 이내},{사진2 텍스트 카드 내용 한글 15자 이내},...  (본문에 쓴 [사진N] 마커 개수와 정확히 동일해야 함, 예: 다이소 추천 수납함,신박한 옷 정리 꿀팁,솔직 총평 및 단점)
 ---
 {본문}
 
@@ -244,7 +245,7 @@ _IMAGE_MARKER = re.compile(r"\[사진\d+\]")
 def _parse_response(raw: str) -> dict | None:
     try:
         lines = raw.strip().splitlines()
-        result: dict = {"coupang_hints": [], "image_keywords": [], "faq_pairs": []}
+        result: dict = {"coupang_hints": [], "image_keywords": [], "image_labels": [], "faq_pairs": []}
         body_start = None
 
         for i, line in enumerate(lines):
@@ -260,6 +261,9 @@ def _parse_response(raw: str) -> dict | None:
             elif line.startswith("IMAGE_KEYWORDS:"):
                 kws = line[15:].strip()
                 result["image_keywords"] = [k.strip() for k in kws.split(",") if k.strip()]
+            elif line.startswith("IMAGE_LABELS:"):
+                lbls = line[13:].strip()
+                result["image_labels"] = [l.strip() for l in lbls.split(",") if l.strip()]
             elif line.strip() == "---":
                 body_start = i + 1
                 break
@@ -325,6 +329,7 @@ def _parse_response(raw: str) -> dict | None:
             return None
 
         result.setdefault("tags", [])
+        result.setdefault("image_labels", [])
         result.setdefault("subheadings", [])
         result.setdefault("faq_questions", [])
         return result
@@ -378,7 +383,7 @@ _REFINE_SYSTEM = """\
 본문 문장만 더 사람이 쓴 것처럼 자연스럽게 고쳐줘.
 
 [절대 그대로 유지 — 건드리지 마]
-- 맨 위 TITLE: / TAGS: / COUPANG_HINT_*: / IMAGE_KEYWORDS: 줄과 값
+- 맨 위 TITLE: / TAGS: / COUPANG_HINT_*: / IMAGE_KEYWORDS: / IMAGE_LABELS: 줄과 값
 - --- 구분선
 - [사진N] 마커 전부(입력에 있는 개수·위치 그대로 — 숫자 추가/삭제 금지), [표시작]...[표끝], [FAQ시작]...[FAQ끝], [소제목] 마커
 - 출력은 입력과 똑같은 형식 (위 마커가 전부 살아있어야 함)
@@ -485,6 +490,7 @@ def generate_post(
         f" — '혹시 ~신가요 / 솔직히 저도 / 오늘은 제가 ~알려드릴게요 / 이 글 하나만'식 공식 도입부는 절대 금지."
         f"\n본문에 들어갈 마커들([사진1]~[사진N], [표시작]...[표끝], [FAQ시작]...[FAQ끝])은 카테고리 레이아웃 구조에 맞춰 자연스럽게 필요한 부분에만 유연하게 넣어줘."
         f"\n사진 마커([사진N])는 2~4장 범위로만 제한해서 넣고, IMAGE_KEYWORDS 줄에는 본문에서 실제 사용한 사진 마커의 개수와 정확히 매치되는 개수만큼 영어 검색어를 쉼표로 작성해줘."
+        f"\n또한, IMAGE_LABELS 줄에는 본문에서 실제 사용한 사진 마커의 개수와 정확히 매치되는 개수만큼, 각 사진 위에 정보성 카드뉴스 형태로 합성될 핵심 요점 요약 한글 문구(15자 이내)를 쉼표로 작성해줘. (예: 다이소 청소포 추천,거실 먼지 제거 요령,솔직 총평 및 단점)"
         f"\n본문은 최소 2500자 이상으로 작성하고, 제목은 15~35자 사이로 해줘."
         f"\n각 단락은 4줄 이하로 짧게 끊어서 모바일에서 읽기 편하게 해줘."
     )

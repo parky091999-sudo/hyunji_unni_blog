@@ -284,8 +284,11 @@ def run():
         # ── 4. 이미지 수집 (image_keywords 활용 시 위치별 수집) ──────
         images: list[dict] = []
         image_keywords = post.get("image_keywords", [])
+        image_labels = post.get("image_labels", [])
         if image_keywords:
             logger.info(f"이미지 키워드 {len(image_keywords)}개: {image_keywords}")
+        if image_labels:
+            logger.info(f"이미지 라벨 {len(image_labels)}개: {image_labels}")
         if PEXELS_API_KEY:
             try:
                 from generator.image import get_post_images
@@ -297,7 +300,11 @@ def run():
                     category=category,
                     image_keywords=image_keywords if image_keywords else None,
                 )
-                logger.info(f"이미지 수집: {len(images)}장")
+                # 각 이미지 객체에 한글 라벨 텍스트 매핑
+                for idx, img in enumerate(images):
+                    if idx < len(image_labels):
+                        img["label"] = image_labels[idx]
+                logger.info(f"이미지 수집 및 라벨 매핑 완료: {len(images)}장")
             except Exception as e:
                 logger.warning(f"이미지 수집 실패 (무시): {e}")
         else:

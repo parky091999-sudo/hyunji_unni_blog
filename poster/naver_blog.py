@@ -18,6 +18,7 @@ import random
 import re
 import tempfile
 import urllib.request
+from PIL import Image, ImageDraw, ImageFont
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -686,8 +687,84 @@ async def _move_cursor_to_paragraph_end(page: Page, para_idx: int):
             pass
 
 
-def _download_image_to_temp(url: str) -> str | None:
-    """이미지 URL → 임시 파일로 다운로드. 경로 반환, 실패 시 None."""
+def _overlay_text_on_image(image_path: str, text: str) -> str:
+    """
+    Pillow를 사용하여 로컬 이미지 하단에 반투명 어두운 검정 박스를 얹고
+    그 위에 흰색으로 15자 이내의 한글 소제목/요약 텍스트를 고해상도(맑은 고딕)로 렌더링하여 합성합니다.
+    """
+    try:
+        # 이미지 열기
+        with Image.open(image_path) as img:
+            # 원본 크기
+            width, height = img.size
+            
+            # 드로잉 캔버스 생성용 RGBA 임시 이미지
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            
+            # 1. 반투명 하단 검정 박스 그리기
+            # 박스 높이는 이미지 전체 높이의 약 18% 수준으로 조절
+            box_height = int(height * 0.18)
+            box_top = height - box_height
+            # 반투명 검은색 (0, 0, 0, 165)
+            draw.rectangle(
+                [(0, box_top), (width, height)],
+                fill=(0, 0, 0, 165)
+            )
+            
+            # 2. 폰트 로드 (윈도우 기본 맑은 고딕 사용, 없을 경우 기본 폰트로 폴백)
+            font_size = max(16, int(box_height * 0.38))
+            font = None
+            font_paths = [
+                "C:\\Windows\\Fonts\\malgunbd.ttf",  # 맑은 고딕 볼드
+                "C:\\Windows\\Fonts\\malgun.ttf",    # 맑은 고딕 일반
+                "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
+                "C:\\Windows\\Fonts\\arial.ttf"
+            ]
+            for path in font_paths:
+                if os.path.exists(path):
+                    try:
+                        font = ImageFont.truetype(path, font_size)
+                        break
+                    except Exception:
+                        continue
+            if font is None:
+                font = ImageFont.load_default()
+            
+            # 3. 텍스트 가로세로 중앙 정렬 계산 및 그리기
+            try:
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+            except AttributeError:
+                # 구버전 Pillow 폴백
+                text_width, text_height = draw.textsize(text, font=font)
+                
+            text_x = (width - text_width) // 2
+            text_y = box_top + (box_height - text_height) // 2 - 3  # 약간의 세로 마진 보정
+            
+            # 텍스트 그리기 (흰색)
+            draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
+            
+            # 원본 이미지와 오버레이 이미지 합성 (RGBA로 변환하여 처리)
+            combined = Image.alpha_composite(img.convert("RGBA"), overlay)
+            
+            # 원본 확장자에 맞추어 저장 (보통 JPG는 RGB이어야 하므로 변환)
+            out_path = image_path
+            if image_path.lower().endswith((".jpg", ".jpeg")):
+                combined.convert("RGB").save(out_path, "JPEG", quality=95)
+            else:
+                combined.save(out_path, "PNG")
+                
+            logger.info(f"이미지 텍스트 오버레이 합성 완료 ('{text}') -> {out_path}")
+            return out_path
+    except Exception as e:
+        logger.warning(f"이미지 텍스트 오버레이 합성 중 예외 발생 (무시하고 원본 사용): {e}")
+        return image_path
+
+
+def _download_image_to_temp(url: str, label: str = None) -> str | None:
+    """이미지 URL → 임시 파일로 다운로드. label이 있으면 텍스트 오버레이 카드 합성 진행. 경로 반환, 실패 시 None."""
     try:
         suffix = ".jpg" if "jpg" in url.lower() else ".png"
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -696,9 +773,15 @@ def _download_image_to_temp(url: str) -> str | None:
             tmp.write(resp.read())
         tmp.close()
         logger.info(f"이미지 다운로드 완료: {tmp.name}")
+        
+        # 텍스트 합성 가공
+        if label:
+            logger.info(f"이미지에 텍스트 합성 처리 시작: '{label}'")
+            _overlay_text_on_image(tmp.name, label)
+            
         return tmp.name
     except Exception as e:
-        logger.warning(f"이미지 다운로드 실패: {e}")
+        logger.warning(f"이미지 다운로드 및 가공 실패: {e}")
         return None
 
 
@@ -1723,7 +1806,7 @@ async def _post(
                     break
                 if not (0 <= img_idx < len(images)):
                     continue
-                local_path = _download_image_to_temp(images[img_idx]["url"])
+                local_path = _download_image_to_temp(images[img_idx]["url"], label=images[img_idx].get("label"))
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
@@ -1742,7 +1825,7 @@ async def _post(
         elif images:
             logger.info(f"마커 없음 — 본문 끝에 이미지 best-effort 삽입 ({min(3, len(images))}장)")
             for img in images[:3]:
-                local_path = _download_image_to_temp(img["url"])
+                local_path = _download_image_to_temp(img["url"], label=img.get("label"))
                 if not local_path:
                     continue
                 await _move_cursor_to_paragraph_end(write_page, -1)

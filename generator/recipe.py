@@ -77,6 +77,7 @@ _RECIPE_SYSTEM = """
 TITLE: {요리명 포함 + | + 후킹표현, 15~30자} (예: "에어프라이어 두부조림 | 자취생 10분 반찬")
 TAGS: 쉼표로 8~12개 (요리명/집밥/자취요리/간단레시피/반찬 등)
 IMAGE_KEYWORDS: 쉼표로 5개 영문 검색어 (완성요리/재료/조리과정 — 예: korean home food,tofu dish,cooking pan,fresh vegetables,korean side dish)
+IMAGE_LABELS: 쉼표로 5개 한글 텍스트 (각 사진 위에 합성될 핵심 요점/조리단계 요약 — 예: 에어프라이어 두부조림 완성,필수 재료 준비 완료,양념장 만들기,노릇하게 굽는 법,자주 묻는 질문 코너)
 ---
 (여기부터 본문 - ★절대 규칙: 모든 [사진N] 마커는 문장 한가운데가 아닌, 반드시 마침표 . 뒤 새로운 독립된 줄에 단독으로 위치할 것★)
 [사진1]
@@ -146,7 +147,7 @@ def generate_recipe(
         f"{feedback_note}\n\n"
         f"위 요리의 현지언니 집밥 레시피 글을 구조 그대로 작성해줘. "
         f"재료는 [표시작]...[표끝] 표로, 만드는 법은 번호 단계로, 꿀팁과 FAQ 포함. "
-        f"[사진1]~[사진5] 5개와 IMAGE_KEYWORDS 5개 반드시 포함."
+        f"[사진1]~[사진5] 5개, IMAGE_KEYWORDS 5개, IMAGE_LABELS 5개 반드시 포함."
     )
     waits = [15, 40, 90]
     for attempt in range(1, len(waits) + 2):
