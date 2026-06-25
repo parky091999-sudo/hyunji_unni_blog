@@ -65,23 +65,37 @@ if __name__ == "__main__":
     print(f"쿠키 있음: {'예' if NAVER_COOKIES else '아니오'}")
     print("-" * 50)
 
-    result = post_to_naver_blog(
-        naver_id=NAVER_ID,
-        naver_pw=NAVER_PW,
-        blog_id=NAVER_BLOG_ID or NAVER_ID,
-        title=TEST_TITLE,
-        body=TEST_BODY,
-        tags=TEST_TAGS,
-        naver_cookies=NAVER_COOKIES,
-        draft=True,  # 임시저장으로 안전하게 실행
-        table_str=TEST_TABLE,
-        subheadings=["테스트 소제목", "자주 묻는 질문"],
-        faq_questions=TEST_FAQ_QUESTIONS,
-        faq_pairs=TEST_FAQ_PAIRS,
-        images=TEST_IMAGES,
-    )
+    for i in range(1, 4):
+        print(f"\n[{i}/3] 실전 테스트 포스팅 시도 중...")
+        title = f"{TEST_TITLE} - {i}번째 테스트"
+        
+        # 각 테스트마다 약간 다른 레이아웃 적용
+        subheadings = ["테스트 소제목", "자주 묻는 질문"]
+        
+        result = post_to_naver_blog(
+            naver_id=NAVER_ID,
+            naver_pw=NAVER_PW,
+            blog_id=NAVER_BLOG_ID or NAVER_ID,
+            title=title,
+            body=TEST_BODY,
+            tags=TEST_TAGS,
+            naver_cookies=NAVER_COOKIES,
+            draft=False,  # 실전 발행!
+            table_str=TEST_TABLE,
+            subheadings=subheadings,
+            faq_questions=TEST_FAQ_QUESTIONS,
+            faq_pairs=TEST_FAQ_PAIRS,
+            images=[
+                {
+                    "url": "https://images.pexels.com/photos/10827363/pexels-photo-10827363.jpeg",
+                    "alt_text": f"테스트 이미지 {i}",
+                    "label": f"소제목 테스트 요약 {i}"
+                }
+            ],
+        )
 
-    if result:
-        print(f"\n✅ 포스팅 성공! URL: {result.get('post_url')}")
-    else:
-        print("\n❌ 포스팅 실패 — 스크린샷 확인: data/screenshots/")
+        if result:
+            print(f"✅ 포스팅 {i} 성공! URL: {result.get('post_url')}")
+        else:
+            print(f"❌ 포스팅 {i} 실패 — 스크린샷 확인: data/screenshots/")
+

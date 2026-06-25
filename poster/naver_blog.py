@@ -517,9 +517,7 @@ async def _style_paragraphs(
     label: str = "스타일",
     style_type: str | None = None,
 ):
-    """텍스트가 일치하는 본문 단락을 찾아 스타일(heading/quotation/글자크기/굵게) 적용.
-    style_type='heading' 이면 에디터 제목 컴포넌트, 'quotation' 이면 인용구 컴포넌트 시도.
-    실패 시 size_label/bold 수동 서식으로 fallback."""
+    """텍스트가 일치하는 본문 단락을 찾아 스타일(heading/quotation/quotation_vertical/글자크기/굵게) 적용."""
     items = [s.strip() for s in (texts or []) if s and s.strip()]
     if not items:
         return
@@ -545,8 +543,6 @@ async def _style_paragraphs(
             logger.info(f"{label} 단락 못 찾음(스킵): {tx[:20]}")
             continue
         try:
-            # 짧은 타임아웃: 단락이 불안정해도 30초(기본값) 동안 멈추지 않고 빠르게 스킵
-            # — 한 단락에서 막혀 뒤따르는 표/이미지 단계까지 무너지는 연쇄 실패 방지.
             await paras.nth(idx).click(timeout=4000)
             await _delay(120, 220)
             await page.keyboard.press("Home")
@@ -558,12 +554,11 @@ async def _style_paragraphs(
             ok_styled = False
             if style_type == "heading":
                 ok_styled = await _apply_paragraph_style(page, "제목 2")
-            elif style_type == "quotation":
-                # 인용구인 경우: 기존 텍스트 블록 지정 상태에서 그대로 인용구를 적용하면 텍스트가 지워지므로,
-                # 먼저 Backspace로 텍스트를 지우고 인용구를 연 다음 그 내부에 텍스트를 타이핑해 넣습니다.
+            elif style_type in ["quotation", "quotation_vertical"]:
                 await page.keyboard.press("Backspace")
                 await _delay(150, 250)
-                ok_styled = await _apply_quotation(page)
+                q_type = "버티컬 라인" if style_type == "quotation_vertical" else ""
+                ok_styled = await _apply_quotation(page, quote_type=q_type)
                 if ok_styled:
                     await page.keyboard.type(tx, delay=random.randint(10, 20))
                     await _delay(300, 500)
@@ -729,139 +724,115 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
         return False
 
 
-def _overlay_text_on_image(image_path: str, text: str) -> str:
+def _create_card_news(text: str) -> str | None:
     """
-    Pillow를 사용하여 이미지 중앙에 고급스러운 카드뉴스 템플릿을 생성합니다.
-    - 배경 어둡게 처리 (가독성 확보)
-    - 중앙에 둥근 모서리의 미색(아이보리) 카드 박스 배치
-    - 상단에 브랜드 브랜딩 문구 (✦ 현지언니의 살림 가이드 ✦) 배치
-    - 중앙에 큰 고대비 차콜 색상의 소제목 텍스트 배치
+    배경 없이 깔끔한 단색(아이보리) 배경의 카드뉴스를 새로 생성합니다.
+    (이미지를 다운로드하여 배경으로 쓰지 않음)
     """
     try:
-        with Image.open(image_path) as img:
-            img_rgba = img.convert("RGBA")
-            width, height = img_rgba.size
+        width, height = 800, 800
+        img = Image.new("RGBA", (width, height), (250, 248, 245, 255))
+        draw = ImageDraw.Draw(img)
+        
+        # 외곽선 (카드 박스 느낌)
+        margin = 40
+        draw.rounded_rectangle(
+            [(margin, margin), (width - margin, height - margin)],
+            radius=20,
+            outline=(225, 220, 212, 255),
+            width=4
+        )
+        
+        # 폰트
+        font_paths = [
+            "C:\\Windows\\Fonts\\malgunbd.ttf",
+            "C:\\Windows\\Fonts\\malgun.ttf",
+            "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf"
+        ]
+        
+        def load_font(size):
+            for path in font_paths:
+                if os.path.exists(path):
+                    try:
+                        return ImageFont.truetype(path, size)
+                    except Exception:
+                        continue
+            return ImageFont.load_default()
+        
+        # 브랜드 상단 문구
+        brand_text = "✦ 현지언니의 살림 가이드 ✦"
+        brand_font = load_font(24)
+        
+        try:
+            brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
+            brand_w = brand_bbox[2] - brand_bbox[0]
+        except AttributeError:
+            brand_w, _ = draw.textsize(brand_text, font=brand_font)
             
-            overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(overlay)
-            
-            # 1. 배경 어둡게 필터링 (가독성 확보, 검정색 투명도 30%)
-            draw.rectangle([(0, 0), (width, height)], fill=(0, 0, 0, 80))
-            
-            # 2. 카드 크기 계산 (전체 이미지의 가로 82%, 세로 76%)
-            card_w = int(width * 0.82)
-            card_h = int(height * 0.76)
-            x0 = (width - card_w) // 2
-            y0 = (height - card_h) // 2
-            x1 = x0 + card_w
-            y1 = y0 + card_h
-            
-            # 3. 중앙 카드 그리기: 미색(아이보리) 반투명 (250, 248, 245, 238)
-            radius = int(min(card_w, card_h) * 0.06)
-            draw.rounded_rectangle(
-                [(x0, y0), (x1, y1)],
-                radius=radius,
-                fill=(250, 248, 245, 238),
-                outline=(225, 220, 212, 255),
-                width=3
-            )
-            
-            # 4. 폰트 경로 매핑 (맑은 고딕 볼드 우선)
-            font_paths = [
-                "C:\\Windows\\Fonts\\malgunbd.ttf",
-                "C:\\Windows\\Fonts\\malgun.ttf",
-                "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
-                "C:\\Windows\\Fonts\\arial.ttf"
-            ]
-            
-            def load_font(size):
-                for path in font_paths:
-                    if os.path.exists(path):
-                        try:
-                            return ImageFont.truetype(path, size)
-                        except Exception:
-                            continue
-                return ImageFont.load_default()
-            
-            # 5. 브랜드 상단 문구 추가
-            brand_text = "✦ 현지언니의 살림 가이드 ✦"
-            brand_font_size = max(14, int(card_h * 0.075))
-            brand_font = load_font(brand_font_size)
-            
-            try:
-                brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
-                brand_w = brand_bbox[2] - brand_bbox[0]
-                brand_h_text = brand_bbox[3] - brand_bbox[1]
-            except AttributeError:
-                brand_w, brand_h_text = draw.textsize(brand_text, font=brand_font)
-                
-            brand_x = x0 + (card_w - brand_w) // 2
-            brand_y = y0 + int(card_h * 0.12)
-            
-            draw.text((brand_x, brand_y), brand_text, font=brand_font, fill=(135, 115, 95, 255))
-            
-            # 6. 구분선 그리기 (브랜드명 아래 얇은 선)
-            line_y = brand_y + brand_h_text + int(card_h * 0.08)
-            line_w = int(card_w * 0.45)
-            line_x0 = x0 + (card_w - line_w) // 2
-            line_x1 = line_x0 + line_w
-            draw.line([(line_x0, line_y), (line_x1, line_y)], fill=(220, 210, 198, 255), width=2)
-            
-            # 7. 메인 텍스트 (카드뉴스 헤드라인) 그리기
-            max_text_w = int(card_w * 0.85)
-            main_font_size = max(18, int(card_h * 0.11))
+        brand_x = (width - brand_w) // 2
+        brand_y = 120
+        draw.text((brand_x, brand_y), brand_text, font=brand_font, fill=(135, 115, 95, 255))
+        
+        # 구분선
+        line_y = brand_y + 40
+        line_w = 300
+        line_x0 = (width - line_w) // 2
+        line_x1 = line_x0 + line_w
+        draw.line([(line_x0, line_y), (line_x1, line_y)], fill=(220, 210, 198, 255), width=2)
+        
+        # 메인 텍스트
+        main_font_size = 48
+        main_font = load_font(main_font_size)
+        max_text_w = width - 160
+        
+        lines = _wrap_korean_text(text, draw, main_font, max_text_w)
+        if len(lines) > 3:
+            main_font_size = 36
             main_font = load_font(main_font_size)
-            
             lines = _wrap_korean_text(text, draw, main_font, max_text_w)
             
-            if len(lines) > 2:
-                main_font_size = max(16, int(card_h * 0.09))
-                main_font = load_font(main_font_size)
-                lines = _wrap_korean_text(text, draw, main_font, max_text_w)
-                
-            line_heights = []
-            for line in lines:
-                try:
-                    bbox = draw.textbbox((0, 0), line, font=main_font)
-                    lh = bbox[3] - bbox[1]
-                except AttributeError:
-                    _, lh = draw.textsize(line, font=main_font)
-                line_heights.append(lh)
+        line_heights = []
+        for line in lines:
+            try:
+                bbox = draw.textbbox((0, 0), line, font=main_font)
+                lh = bbox[3] - bbox[1]
+            except AttributeError:
+                _, lh = draw.textsize(line, font=main_font)
+            line_heights.append(lh)
             
-            line_spacing = int(main_font_size * 0.35)
-            total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1)
+        line_spacing = int(main_font_size * 0.5)
+        total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1)
+        
+        main_y = (height - total_text_h) // 2 + 30
+        
+        current_y = main_y
+        for i, line in enumerate(lines):
+            try:
+                bbox = draw.textbbox((0, 0), line, font=main_font)
+                lw = bbox[2] - bbox[0]
+            except AttributeError:
+                lw, _ = draw.textsize(line, font=main_font)
+            lx = (width - lw) // 2
+            draw.text((lx, current_y), line, font=main_font, fill=(34, 34, 34, 255))
+            current_y += line_heights[i] + line_spacing
             
-            content_area_h = y1 - (line_y + 4)
-            main_y = line_y + 4 + (content_area_h - total_text_h) // 2 - int(card_h * 0.03)
-            
-            current_y = main_y
-            for i, line in enumerate(lines):
-                try:
-                    bbox = draw.textbbox((0, 0), line, font=main_font)
-                    lw = bbox[2] - bbox[0]
-                except AttributeError:
-                    lw, _ = draw.textsize(line, font=main_font)
-                lx = x0 + (card_w - lw) // 2
-                draw.text((lx, current_y), line, font=main_font, fill=(34, 34, 34, 255))
-                current_y += line_heights[i] + line_spacing
-                
-            combined = Image.alpha_composite(img_rgba, overlay)
-            
-            out_path = image_path
-            if image_path.lower().endswith((".jpg", ".jpeg")):
-                combined.convert("RGB").save(out_path, "JPEG", quality=95)
-            else:
-                combined.save(out_path, "PNG")
-                
-            logger.info(f"카드뉴스 이미지 합성 완료: '{text}' -> {out_path}")
-            return out_path
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.close()
+        img.save(tmp.name, "PNG")
+        logger.info(f"카드뉴스 자체 생성 완료: '{text}' -> {tmp.name}")
+        return tmp.name
     except Exception as e:
-        logger.warning(f"카드뉴스 이미지 합성 중 예외 발생 (배경 이미지 원본 사용): {e}")
-        return image_path
+        logger.warning(f"카드뉴스 자체 생성 중 예외 발생: {e}")
+        return None
 
 
 def _download_image_to_temp(url: str, label: str = None) -> str | None:
-    """이미지 URL → 임시 파일로 다운로드. label이 있으면 텍스트 오버레이 카드 합성 진행. 경로 반환, 실패 시 None."""
+    """이미지 URL → 임시 파일로 다운로드. label이 있으면 텍스트 카드뉴스 이미지를 자체 생성."""
+    if label:
+        logger.info(f"카드뉴스 자체 생성 시작 (다운로드 안 함): '{label}'")
+        return _create_card_news(label)
+
     try:
         import ssl
         context = ssl._create_unverified_context()
@@ -872,15 +843,9 @@ def _download_image_to_temp(url: str, label: str = None) -> str | None:
             tmp.write(resp.read())
         tmp.close()
         logger.info(f"이미지 다운로드 완료: {tmp.name}")
-        
-        # 텍스트 합성 가공
-        if label:
-            logger.info(f"이미지에 텍스트 합성 처리 시작: '{label}'")
-            _overlay_text_on_image(tmp.name, label)
-            
         return tmp.name
     except Exception as e:
-        logger.warning(f"이미지 다운로드 및 가공 실패: {e}")
+        logger.warning(f"이미지 다운로드 실패: {e}")
         return None
 
 
@@ -1460,7 +1425,7 @@ async def _apply_paragraph_style(page: Page, style_name: str = "제목 2") -> bo
     return False
 
 
-async def _apply_quotation(page: Page) -> bool:
+async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
     """현재 선택 영역 또는 위치에 인용구(Quotation) 적용"""
     target = await _get_editor_frame(page)
     try:
@@ -1469,6 +1434,17 @@ async def _apply_quotation(page: Page) -> bool:
         if await btn.count():
             await btn.click(timeout=3000)
             await _delay(500, 800)
+            
+            if quote_type:
+                # 드롭다운 옵션 중 원하는 인용구 타입 클릭
+                opt = target.locator(f"button:has-text('{quote_type}'), li:has-text('{quote_type}'), [role='option']:has-text('{quote_type}')").first
+                if await opt.count():
+                    await opt.click(timeout=2000)
+                    await _delay(350, 600)
+                    logger.info(f"인용구 타입 선택: {quote_type}")
+                else:
+                    logger.info(f"인용구 타입 '{quote_type}' 못 찾음. 기본 적용.")
+                    
             logger.info("인용구 컴포넌트 적용 완료")
             return True
     except Exception as e:
@@ -1874,7 +1850,7 @@ async def _post(
         except Exception as e:
             logger.warning(f"글꼴 적용 예외(계속): {e}")
         try:
-            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목", style_type="heading")
+            await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목", style_type="quotation_vertical")
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
 
