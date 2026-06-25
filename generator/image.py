@@ -13,33 +13,33 @@ _PEXELS_SEARCH = "https://api.pexels.com/v1/search"
 
 # 카테고리/키워드 → 영문 검색어 매핑
 _KO_TO_EN: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"욕실|화장실|샤워"), "bathroom cleaning sparkling"),
-    (re.compile(r"주방|부엌|싱크대"), "kitchen cleaning cooking"),
-    (re.compile(r"세탁기|빨래"), "laundry washing machine"),
-    (re.compile(r"청소|정리|루틴"), "home cleaning organization"),
-    (re.compile(r"곰팡이|습기"), "mold prevention bathroom"),
-    (re.compile(r"요리|레시피|밥|식단|냉파"), "cooking food kitchen meal"),
-    (re.compile(r"도시락|아침\s*메뉴"), "lunch box meal prep bento"),
-    (re.compile(r"식비\s*절약"), "budget meal planning grocery"),
-    (re.compile(r"인테리어|꾸미|홈\s*데코"), "interior home decor cozy"),
-    (re.compile(r"수납|정리함|선반"), "storage organization shelves"),
-    (re.compile(r"옷장|드레스룸"), "closet wardrobe organization"),
-    (re.compile(r"냉장고"), "refrigerator organized kitchen"),
-    (re.compile(r"베란다|발코니"), "balcony terrace cozy"),
-    (re.compile(r"무드등|조명"), "mood lighting cozy bedroom"),
-    (re.compile(r"절약|생활비|가계부"), "saving money budget planning"),
-    (re.compile(r"전기세|난방비|냉방비"), "energy saving electricity"),
-    (re.compile(r"에어컨"), "air conditioner home cooling"),
-    (re.compile(r"다이소"), "affordable home goods storage"),
-    (re.compile(r"이케아"), "ikea furniture home organization"),
-    (re.compile(r"로봇청소기"), "robot vacuum cleaner"),
-    (re.compile(r"공기청정기"), "home air purifier close up"),
-    (re.compile(r"필터|교체"), "air purifier filter clean home"),
-    (re.compile(r"신혼|살림"), "newlywed couple home living"),
-    (re.compile(r"자취|1인\s*가구"), "cozy small apartment single"),
-    (re.compile(r"혼수|결혼\s*준비"), "wedding home preparation"),
+    (re.compile(r"욕실|화장실|샤워"), "clean bathroom interior aesthetic no people"),
+    (re.compile(r"주방|부엌|싱크대"), "cozy kitchen counter still life aesthetic no people"),
+    (re.compile(r"세탁기|빨래"), "laundry room aesthetic details no people"),
+    (re.compile(r"청소|정리|루틴"), "home interior organization aesthetic minimalist no people"),
+    (re.compile(r"곰팡이|습기"), "bathroom tiles clean detail still life"),
+    (re.compile(r"요리|레시피|밥|식단|냉파"), "korean food table setting cozy aesthetic no people"),
+    (re.compile(r"도시락|아침\s*메뉴"), "bento box lunch box still life cozy"),
+    (re.compile(r"식비\s*절약"), "cozy study desk notebook coffee still life"),
+    (re.compile(r"인테리어|꾸미|홈\s*데코"), "cozy home interior aesthetic minimalist no people"),
+    (re.compile(r"수납|정리함|선반"), "organized storage shelves aesthetic details no people"),
+    (re.compile(r"옷장|드레스룸"), "organized closet wardrobe aesthetic minimalist no people"),
+    (re.compile(r"냉장고"), "organized refrigerator shelves inside close up no people"),
+    (re.compile(r"베란다|발코니"), "balcony terrace cozy plants aesthetic no people"),
+    (re.compile(r"무드등|조명"), "cozy bedroom mood lighting aesthetic no people"),
+    (re.compile(r"절약|생활비|가계부"), "cozy study desk piggy bank still life"),
+    (re.compile(r"전기세|난방비|냉방비"), "cozy home warm lighting detail"),
+    (re.compile(r"에어컨"), "air conditioner clean minimalist white no people"),
+    (re.compile(r"다이소"), "cozy home organizer aesthetic design no people"),
+    (re.compile(r"이케아"), "ikea home organization shelves aesthetic no people"),
+    (re.compile(r"로봇청소기"), "robot vacuum cleaner minimalist home no people"),
+    (re.compile(r"공기청정기"), "home air purifier close up minimalist no people"),
+    (re.compile(r"필터|교체"), "clean home appliance minimalist details"),
+    (re.compile(r"신혼|살림"), "cozy new home living room aesthetic no people"),
+    (re.compile(r"자취|1인\s*가구"), "cozy small apartment interior aesthetic no people"),
+    (re.compile(r"혼수|결혼\s*준비"), "cozy bridal room decoration aesthetic details"),
 ]
-_DEFAULT_QUERY = "cozy Korean home lifestyle"
+_DEFAULT_QUERY = "cozy Korean home interior aesthetic no people"
 
 # 살림/생활 블로그에 '뜬금없는' 스톡사진 제외용 (alt 텍스트 기준)
 # 달러사진, 인물, 자동차, 방독면, 스마트폰, 보석 등 뜬금없는 사물 차단
@@ -69,6 +69,12 @@ def _keyword_to_en(keyword: str) -> str:
                 break
         if not found:
             query = _DEFAULT_QUERY
+
+    # 모든 쿼리에 대해 people-free 필터링 및 감성 톤 강화
+    if "no people" not in query.lower() and "people" not in query.lower():
+        query = f"{query} no people"
+    if "aesthetic" not in query.lower():
+        query = f"{query} aesthetic"
 
     # 레시피/요리 관련 영어 키워드에 대해 korean 묵시적 접두사 부여 (양식/스톡 사진 방지)
     food_kws = ["food", "dish", "cooking", "meal", "recipe", "stew", "soup", "vegetable", "kitchen"]

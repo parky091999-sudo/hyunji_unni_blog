@@ -587,48 +587,57 @@ async def _style_paragraphs(
     logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold}, 타입 {style_type})")
 
 
-def _compute_image_anchors(body: str) -> list[tuple[int, int]]:
+def _get_preceding_text(body: str, marker_str: str) -> str:
     """
-    [사진N] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'에 위치하는지 계산.
-    반환: [(para_index, image_index_0based), ...] — 위→아래 순서.
+    body에서 marker_str 바로 이전에 나타나는 비어있지 않은 단락/라인 텍스트를 찾아 반환합니다.
+    """
+    pos = body.find(marker_str)
+    if pos == -1:
+        return ""
+    
+    preceding_part = body[:pos]
+    preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", preceding_part)
+    
+    lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
+    if lines:
+        return lines[-1]
+    return ""
 
-    _type_in_editor 는 본문을 \\n 줄마다 Enter로 끊어 SE 에디터의
-    .se-text-paragraph 를 줄 단위로 만든다. 따라서 마커 앞의 '비어있지 않은 줄 수'가
-    곧 그 위치의 .se-text-paragraph 인덱스(+1)에 대응한다.
-    이미지는 .se-section-image 로 삽입되어 .se-text-paragraph 인덱스를 바꾸지 않으므로
-    위에서부터 순서대로 처리해도 인덱스가 안정적이다 (정밀하진 않아도 ±1 수준).
+
+def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
+    """
+    [사진N] 마커의 바로 전 단락 텍스트와 이미지 인덱스(0-based)를 매핑해 반환합니다.
+    반환: [(anchor_text, image_index_0based), ...]
     """
     marker = re.compile(r"\[사진(\d+)\]")
-    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]")
-    anchors: list[tuple[int, int]] = []
+    anchors: list[tuple[str, int]] = []
     for m in marker.finditer(body):
-        before_clean = all_markers.sub("", body[: m.start()])
-        lines = [ln for ln in before_clean.split("\n") if ln.strip()]
-        para_index = max(0, len(lines) - 1)
-        anchors.append((para_index, int(m.group(1)) - 1))
+        img_idx = int(m.group(1)) - 1
+        anchor_text = _get_preceding_text(body, m.group(0))
+        anchors.append((anchor_text, img_idx))
     return anchors
 
 
-def _compute_table_anchor(body: str) -> int | None:
-    """[표삽입] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'인지. 없으면 None."""
-    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]")
-    m = re.search(r"\[표삽입\]", body)
-    if not m:
-        return None
-    before_clean = all_markers.sub("", body[: m.start()])
-    lines = [ln for ln in before_clean.split("\n") if ln.strip()]
-    return max(0, len(lines) - 1)
-
-
-def _compute_faq_anchor(body: str) -> int | None:
-    """[FAQ삽입] 마커가 본문에서 '몇 번째 줄-단락(0-based) 뒤'인지. 없으면 None."""
-    all_markers = re.compile(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]")
-    m = re.search(r"\[FAQ삽입\]", body)
-    if not m:
-        return None
-    before_clean = all_markers.sub("", body[: m.start()])
-    lines = [ln for ln in before_clean.split("\n") if ln.strip()]
-    return max(0, len(lines) - 1)
+def _wrap_korean_text(text: str, draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+    """한글 텍스트를 글자 단위로 측정하여 지정된 너비 이내로 줄바꿈 처리합니다."""
+    lines = []
+    current_line = ""
+    for char in text:
+        test_line = current_line + char
+        try:
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            w = bbox[2] - bbox[0]
+        except AttributeError:
+            w, _ = draw.textsize(test_line, font=font)
+        if w <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = char
+    if current_line:
+        lines.append(current_line)
+    return lines
 
 
 def _parse_table_rows(table_str: str) -> list[list[str]]:
@@ -649,127 +658,217 @@ def _parse_table_rows(table_str: str) -> list[list[str]]:
     return rows
 
 
-async def _move_cursor_to_paragraph_end(page: Page, para_idx: int):
-    """본문 para_idx번째 단락(0-based) 끝으로 커서 이동. para_idx<0 이면 문서 끝."""
-    target = await _get_editor_frame(page)
-    try:
-        if para_idx < 0:
+async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
+    """
+    에디터 본문에서 anchor_text와 일치하거나 포함하는 단락을 찾아 그 끝으로 커서를 이동합니다.
+    anchor_text가 비어있으면 문서 맨 끝으로 이동합니다.
+    """
+    if not anchor_text:
+        try:
             await page.keyboard.press("Control+End")
             await _delay(150, 300)
-            return
+            return True
+        except Exception:
+            return False
+
+    target = await _get_editor_frame(page)
+    try:
         paras = target.locator(".se-section-text .se-text-paragraph")
         cnt = await paras.count()
         if cnt == 0:
             await page.keyboard.press("Control+End")
             await _delay(150, 300)
-            return
-        idx = min(para_idx, cnt - 1)
-        para = paras.nth(idx)
-        # 긴 문단은 화면에서 여러 줄로 줄바꿈된다. 요소 '중앙'을 클릭하면 가운데 시각 줄에
-        # 커서가 떨어지고 End가 그 줄 끝(=문단 중간)으로 가서 사진이 문장 중간에 박힌다.
-        # → 문단의 오른쪽-아래 끝을 클릭해 마지막 시각 줄로 간 뒤 End 로 진짜 문단 끝으로.
-        clicked = False
-        try:
-            box = await para.bounding_box()
-            if box and box["width"] > 6 and box["height"] > 6:
-                await para.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
-                clicked = True
-        except Exception:
-            pass
-        if not clicked:
-            await para.click()
-        await page.keyboard.press("End")
+            return False
+
+        best_idx = -1
+        clean_anchor = anchor_text.strip()
+        
+        for i in range(cnt):
+            try:
+                p_text = (await paras.nth(i).inner_text()).strip()
+                if not p_text:
+                    continue
+                if p_text == clean_anchor:
+                    best_idx = i
+                    break
+                if clean_anchor in p_text or p_text in clean_anchor:
+                    best_idx = i
+            except Exception:
+                continue
+
+        if best_idx >= 0:
+            para = paras.nth(best_idx)
+            logger.info(f"텍스트 매칭 단락 발견 (인덱스 {best_idx}): {clean_anchor[:30]}...")
+            
+            clicked = False
+            try:
+                box = await para.bounding_box()
+                if box and box["width"] > 6 and box["height"] > 6:
+                    await para.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                    clicked = True
+            except Exception as e:
+                logger.warning(f"단락 박스 클릭 실패: {e}")
+                
+            if not clicked:
+                await para.click()
+                
+            await page.keyboard.press("End")
+            await _delay(200, 400)
+            return True
+            
+        logger.warning(f"앵커 텍스트 매칭 단락을 찾지 못함: {clean_anchor[:40]}")
+        await page.keyboard.press("Control+End")
         await _delay(150, 300)
-    except Exception:
+        return False
+    except Exception as e:
+        logger.warning(f"텍스트 기반 커서 이동 중 예외 발생: {e}")
         try:
             await page.keyboard.press("Control+End")
         except Exception:
             pass
+        return False
 
 
 def _overlay_text_on_image(image_path: str, text: str) -> str:
     """
-    Pillow를 사용하여 로컬 이미지 하단에 반투명 어두운 검정 박스를 얹고
-    그 위에 흰색으로 15자 이내의 한글 소제목/요약 텍스트를 고해상도(맑은 고딕)로 렌더링하여 합성합니다.
+    Pillow를 사용하여 이미지 중앙에 고급스러운 카드뉴스 템플릿을 생성합니다.
+    - 배경 어둡게 처리 (가독성 확보)
+    - 중앙에 둥근 모서리의 미색(아이보리) 카드 박스 배치
+    - 상단에 브랜드 브랜딩 문구 (✦ 현지언니의 살림 가이드 ✦) 배치
+    - 중앙에 큰 고대비 차콜 색상의 소제목 텍스트 배치
     """
     try:
-        # 이미지 열기
         with Image.open(image_path) as img:
-            # 원본 크기
-            width, height = img.size
+            img_rgba = img.convert("RGBA")
+            width, height = img_rgba.size
             
-            # 드로잉 캔버스 생성용 RGBA 임시 이미지
-            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(overlay)
             
-            # 1. 반투명 하단 검정 박스 그리기
-            # 박스 높이는 이미지 전체 높이의 약 18% 수준으로 조절
-            box_height = int(height * 0.18)
-            box_top = height - box_height
-            # 반투명 검은색 (0, 0, 0, 165)
-            draw.rectangle(
-                [(0, box_top), (width, height)],
-                fill=(0, 0, 0, 165)
+            # 1. 배경 어둡게 필터링 (가독성 확보, 검정색 투명도 30%)
+            draw.rectangle([(0, 0), (width, height)], fill=(0, 0, 0, 80))
+            
+            # 2. 카드 크기 계산 (전체 이미지의 가로 82%, 세로 76%)
+            card_w = int(width * 0.82)
+            card_h = int(height * 0.76)
+            x0 = (width - card_w) // 2
+            y0 = (height - card_h) // 2
+            x1 = x0 + card_w
+            y1 = y0 + card_h
+            
+            # 3. 중앙 카드 그리기: 미색(아이보리) 반투명 (250, 248, 245, 238)
+            radius = int(min(card_w, card_h) * 0.06)
+            draw.rounded_rectangle(
+                [(x0, y0), (x1, y1)],
+                radius=radius,
+                fill=(250, 248, 245, 238),
+                outline=(225, 220, 212, 255),
+                width=3
             )
             
-            # 2. 폰트 로드 (윈도우 기본 맑은 고딕 사용, 없을 경우 기본 폰트로 폴백)
-            font_size = max(16, int(box_height * 0.38))
-            font = None
+            # 4. 폰트 경로 매핑 (맑은 고딕 볼드 우선)
             font_paths = [
-                "C:\\Windows\\Fonts\\malgunbd.ttf",  # 맑은 고딕 볼드
-                "C:\\Windows\\Fonts\\malgun.ttf",    # 맑은 고딕 일반
+                "C:\\Windows\\Fonts\\malgunbd.ttf",
+                "C:\\Windows\\Fonts\\malgun.ttf",
                 "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
                 "C:\\Windows\\Fonts\\arial.ttf"
             ]
-            for path in font_paths:
-                if os.path.exists(path):
-                    try:
-                        font = ImageFont.truetype(path, font_size)
-                        break
-                    except Exception:
-                        continue
-            if font is None:
-                font = ImageFont.load_default()
             
-            # 3. 텍스트 가로세로 중앙 정렬 계산 및 그리기
+            def load_font(size):
+                for path in font_paths:
+                    if os.path.exists(path):
+                        try:
+                            return ImageFont.truetype(path, size)
+                        except Exception:
+                            continue
+                return ImageFont.load_default()
+            
+            # 5. 브랜드 상단 문구 추가
+            brand_text = "✦ 현지언니의 살림 가이드 ✦"
+            brand_font_size = max(14, int(card_h * 0.075))
+            brand_font = load_font(brand_font_size)
+            
             try:
-                bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = bbox[2] - bbox[0]
-                text_height = bbox[3] - bbox[1]
+                brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
+                brand_w = brand_bbox[2] - brand_bbox[0]
+                brand_h_text = brand_bbox[3] - brand_bbox[1]
             except AttributeError:
-                # 구버전 Pillow 폴백
-                text_width, text_height = draw.textsize(text, font=font)
+                brand_w, brand_h_text = draw.textsize(brand_text, font=brand_font)
                 
-            text_x = (width - text_width) // 2
-            text_y = box_top + (box_height - text_height) // 2 - 3  # 약간의 세로 마진 보정
+            brand_x = x0 + (card_w - brand_w) // 2
+            brand_y = y0 + int(card_h * 0.12)
             
-            # 텍스트 그리기 (흰색)
-            draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
+            draw.text((brand_x, brand_y), brand_text, font=brand_font, fill=(135, 115, 95, 255))
             
-            # 원본 이미지와 오버레이 이미지 합성 (RGBA로 변환하여 처리)
-            combined = Image.alpha_composite(img.convert("RGBA"), overlay)
+            # 6. 구분선 그리기 (브랜드명 아래 얇은 선)
+            line_y = brand_y + brand_h_text + int(card_h * 0.08)
+            line_w = int(card_w * 0.45)
+            line_x0 = x0 + (card_w - line_w) // 2
+            line_x1 = line_x0 + line_w
+            draw.line([(line_x0, line_y), (line_x1, line_y)], fill=(220, 210, 198, 255), width=2)
             
-            # 원본 확장자에 맞추어 저장 (보통 JPG는 RGB이어야 하므로 변환)
+            # 7. 메인 텍스트 (카드뉴스 헤드라인) 그리기
+            max_text_w = int(card_w * 0.85)
+            main_font_size = max(18, int(card_h * 0.11))
+            main_font = load_font(main_font_size)
+            
+            lines = _wrap_korean_text(text, draw, main_font, max_text_w)
+            
+            if len(lines) > 2:
+                main_font_size = max(16, int(card_h * 0.09))
+                main_font = load_font(main_font_size)
+                lines = _wrap_korean_text(text, draw, main_font, max_text_w)
+                
+            line_heights = []
+            for line in lines:
+                try:
+                    bbox = draw.textbbox((0, 0), line, font=main_font)
+                    lh = bbox[3] - bbox[1]
+                except AttributeError:
+                    _, lh = draw.textsize(line, font=main_font)
+                line_heights.append(lh)
+            
+            line_spacing = int(main_font_size * 0.35)
+            total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1)
+            
+            content_area_h = y1 - (line_y + 4)
+            main_y = line_y + 4 + (content_area_h - total_text_h) // 2 - int(card_h * 0.03)
+            
+            current_y = main_y
+            for i, line in enumerate(lines):
+                try:
+                    bbox = draw.textbbox((0, 0), line, font=main_font)
+                    lw = bbox[2] - bbox[0]
+                except AttributeError:
+                    lw, _ = draw.textsize(line, font=main_font)
+                lx = x0 + (card_w - lw) // 2
+                draw.text((lx, current_y), line, font=main_font, fill=(34, 34, 34, 255))
+                current_y += line_heights[i] + line_spacing
+                
+            combined = Image.alpha_composite(img_rgba, overlay)
+            
             out_path = image_path
             if image_path.lower().endswith((".jpg", ".jpeg")):
                 combined.convert("RGB").save(out_path, "JPEG", quality=95)
             else:
                 combined.save(out_path, "PNG")
                 
-            logger.info(f"이미지 텍스트 오버레이 합성 완료 ('{text}') -> {out_path}")
+            logger.info(f"카드뉴스 이미지 합성 완료: '{text}' -> {out_path}")
             return out_path
     except Exception as e:
-        logger.warning(f"이미지 텍스트 오버레이 합성 중 예외 발생 (무시하고 원본 사용): {e}")
+        logger.warning(f"카드뉴스 이미지 합성 중 예외 발생 (배경 이미지 원본 사용): {e}")
         return image_path
 
 
 def _download_image_to_temp(url: str, label: str = None) -> str | None:
     """이미지 URL → 임시 파일로 다운로드. label이 있으면 텍스트 오버레이 카드 합성 진행. 경로 반환, 실패 시 None."""
     try:
+        import ssl
+        context = ssl._create_unverified_context()
         suffix = ".jpg" if "jpg" in url.lower() else ".png"
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, context=context, timeout=15) as resp:
             tmp.write(resp.read())
         tmp.close()
         logger.info(f"이미지 다운로드 완료: {tmp.name}")
@@ -1093,16 +1192,16 @@ async def _add_tags(page: Page, tags: list[str]):
     logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
-async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> bool:
+async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     """table_str(파이프 구분 행) → 네이버 SE 진짜 표 삽입. best-effort + 디버그 DOM 로그."""
     rows = _parse_table_rows(table_str)
     if not rows:
         return False
     n_rows = len(rows)
     n_cols = max(len(r) for r in rows)
-    logger.info(f"표 삽입 시도: {n_rows}행 x {n_cols}열")
+    logger.info(f"표 삽입 시도: {n_rows}행 x {n_cols}열 (앵커: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
-    await _move_cursor_to_paragraph_end(page, anchor_para_idx)
+    await _move_cursor_after_text(page, anchor_text)
     await _delay(300, 500)
 
     # ── 표 버튼 클릭 ──
@@ -1284,15 +1383,15 @@ async def _insert_table(page: Page, table_str: str, anchor_para_idx: int) -> boo
 
 
 
-async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor_para_idx: int) -> bool:
+async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor_text: str) -> bool:
     """FAQ (질문/답변) 짝을 네이버 에디터 인용구 하나에 묶어서 개행 타이핑하여 삽입"""
     if not faq_pairs:
         return False
-    logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커단락: {anchor_para_idx})")
+    logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커텍스트: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
     
     # 앵커 단락 뒤로 커서 이동
-    await _move_cursor_to_paragraph_end(page, anchor_para_idx)
+    await _move_cursor_after_text(page, anchor_text)
     await _delay(300, 500)
     
     # 새 줄 확보
@@ -1742,14 +1841,14 @@ async def _post(
         # ── 본문 입력 (소실 방지 최우선): 마커 제거한 전체 본문을 한 번에 안정 입력 ──
         _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
         marker_positions = _PHOTO_MARKER.findall(body)
-        table_anchor = _compute_table_anchor(body) if table_str else None
-        faq_anchor = _compute_faq_anchor(body) if faq_pairs else None
+        table_anchor_text = _get_preceding_text(body, "[표삽입]") if table_str else None
+        faq_anchor_text = _get_preceding_text(body, "[FAQ삽입]") if faq_pairs else None
         body_text = _PHOTO_MARKER.sub("", body)
         body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거
         body_text = re.sub(r"\[FAQ삽입\]", "", body_text)  # FAQ 자리표시자 제거
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
 
-        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커 {table_anchor}, FAQ앵커 {faq_anchor})")
+        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커텍스트: {table_anchor_text[:20] if table_anchor_text else None}, FAQ앵커텍스트: {faq_anchor_text[:20] if faq_anchor_text else None})")
         await _type_in_editor(write_page, body_text)
         await _delay(1000, 1500)
 
@@ -1780,17 +1879,17 @@ async def _post(
             logger.warning(f"소제목 스타일 예외(계속): {e}")
 
         # ── 진짜 네이버 표 삽입 ──
-        if table_str and table_anchor is not None:
+        if table_str and table_anchor_text is not None:
             try:
-                ok_tbl = await _insert_table(write_page, table_str, table_anchor)
+                ok_tbl = await _insert_table(write_page, table_str, table_anchor_text)
                 logger.info(f"표 삽입 {'성공' if ok_tbl else '실패(본문 유지)'}")
             except Exception as e:
                 logger.warning(f"표 삽입 예외(계속): {e}")
 
         # ── FAQ 인용구 세트 삽입 (Q와 A를 하나의 인용구 상자에 개행으로 묶어 삽입) ──
-        if faq_pairs and faq_anchor is not None:
+        if faq_pairs and faq_anchor_text is not None:
             try:
-                ok_faq = await _insert_faq_pairs(write_page, faq_pairs, faq_anchor)
+                ok_faq = await _insert_faq_pairs(write_page, faq_pairs, faq_anchor_text)
                 logger.info(f"FAQ 인용구 세트 삽입 {'성공' if ok_faq else '실패(본문 유지)'}")
             except Exception as e:
                 logger.warning(f"FAQ 인용구 세트 삽입 예외(계속): {e}")
@@ -1799,9 +1898,9 @@ async def _post(
         images_inserted = 0
         MAX_IMG = 7
         if images and marker_positions:
-            anchors = _compute_image_anchors(body)
+            anchors = _compute_image_text_anchors(body)
             logger.info(f"이미지 앵커 {len(anchors)}개 계산 — 단락 위치별 삽입 시도")
-            for para_idx, img_idx in anchors:
+            for anchor_text, img_idx in anchors:
                 if images_inserted >= MAX_IMG:
                     break
                 if not (0 <= img_idx < len(images)):
@@ -1810,7 +1909,10 @@ async def _post(
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
-                await _move_cursor_to_paragraph_end(write_page, para_idx)
+                await _move_cursor_after_text(write_page, anchor_text)
+                # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 이미지 삽입
+                await write_page.keyboard.press("Enter")
+                await _delay(200, 400)
                 ok = await _insert_image_file(
                     write_page,
                     local_path=local_path,
@@ -1818,7 +1920,7 @@ async def _post(
                 )
                 if ok:
                     images_inserted += 1
-                    logger.info(f"이미지 {img_idx+1}번 삽입 성공 (단락 {para_idx} 뒤)")
+                    logger.info(f"이미지 {img_idx+1}번 삽입 성공 (앵커: {anchor_text[:20]})")
                 else:
                     logger.warning(f"이미지 {img_idx+1}번 삽입 실패 — 본문 유지하고 계속")
                 await _delay(500, 900)
@@ -1828,7 +1930,7 @@ async def _post(
                 local_path = _download_image_to_temp(img["url"], label=img.get("label"))
                 if not local_path:
                     continue
-                await _move_cursor_to_paragraph_end(write_page, -1)
+                await _move_cursor_after_text(write_page, "")
                 if await _insert_image_file(write_page, local_path=local_path, alt_text=img.get("alt_text", "")):
                     images_inserted += 1
                 await _delay(500, 900)
