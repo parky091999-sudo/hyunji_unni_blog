@@ -91,46 +91,51 @@ def score_content(
     tags: list[str],
     table_str: str = "",
     faq_str: str = "",
+    category: str = "",
 ) -> dict:
     """
     블로그 글 품질 점수화.
-
-    반환:
-    {
-        "score": 75,       # 0~100
-        "issues": ["..."], # 발견된 문제점 목록
-        "pass": True       # 60점 이상이면 True
-    }
+    
+    category 파라미터를 기반으로 A/B/C/D 패턴별 가중치/필수 요소를 동적으로 판별합니다.
     """
+    c = category.strip()
+    if c in ["신혼일상", "일상", "신혼 일상"]:
+        pattern = "D"  # 일상/리뷰 (표/FAQ 제외)
+    elif c in ["요리식비", "오늘의 집밥 레시피", "cooking", "요리&식비절약", "요리&식비"]:
+        pattern = "B"  # 요리/레시피 (표 필수, FAQ 제외)
+    elif c in ["절약재테크", "재테크/절약", "절약&재테크"]:
+        pattern = "C"  # 재테크/절약 (표 필수, FAQ 필수)
+    else:
+        pattern = "A"  # 살림/청소/생활 (표 필수, FAQ 제외)
+
     score = 0
     issues: list[str] = []
 
-    # 1. 본문 길이 (최대 20점)
+    # 1. 본문 길이 (패턴 D, A, B는 최대 30점, 패턴 C는 최대 20점)
     body_len = len(body)
+    max_body_score = 30 if pattern in ["D", "A", "B"] else 20
     if body_len >= 2000:
-        score += 20
+        score += max_body_score
     elif body_len >= 1500:
-        score += 10
+        score += (max_body_score - 10)
         issues.append(f"본문 짧음 ({body_len}자, 권장 2000자+)")
     elif body_len >= 1000:
-        score += 5
+        score += (max_body_score - 20)
         issues.append(f"본문 너무 짧음 ({body_len}자, 권장 2000자+)")
     else:
         issues.append(f"본문 매우 짧음 ({body_len}자) — 발행 비권장")
 
-    # 2. AI 패턴 감지 (패턴당 -5점, 최대 -20점까지만 차감)
-    ai_base = 20
+    # 2. AI 패턴 감지 (패턴 D는 최대 30점, 패턴 A, B, C는 최대 20점)
+    ai_base = 30 if pattern == "D" else 20
     ai_deduct = 0
-    for pattern, desc in _AI_PATTERNS:
-        if pattern.search(body) or pattern.search(title):
+    for pattern_regex, desc in _AI_PATTERNS:
+        if pattern_regex.search(body) or pattern_regex.search(title):
             ai_deduct = min(ai_deduct + 5, 20)
             issues.append(f"AI 패턴 감지: {desc}")
     score += max(0, ai_base - ai_deduct)
 
     # 3. 소제목 존재 (최대 10점)
-    # 물음표로 끝나는 줄 또는 짧은 단독 줄을 소제목으로 간주
     subheading_matches = re.findall(r"^\S.{2,25}\??\s*$", body, re.MULTILINE)
-    # 너무 짧거나 긴 줄 제외
     subheadings = [s for s in subheading_matches if 5 <= len(s.strip()) <= 30]
     if len(subheadings) >= 2:
         score += 10
@@ -140,26 +145,29 @@ def score_content(
     else:
         issues.append("소제목 없음 — 질문형 소제목 추가 권장")
 
-    # 4. 표 포함 (10점) — 마커가 이미 포맷으로 교체됐으므로 table_str로 판단
+    # 4. 표 포함 (패턴 A, B, C는 10점, 패턴 D는 체크하지 않음)
     has_table = bool(table_str) or bool(_TABLE_MARKER.search(body))
-    if has_table:
-        score += 10
-    else:
-        issues.append("표 없음 — 비교표 추가 권장")
+    if pattern in ["A", "B", "C"]:
+        if has_table:
+            score += 10
+        else:
+            issues.append("표 없음 — 비교표 추가 권장")
 
-    # 5. FAQ 포함 (10점) — 마커가 이미 포맷으로 교체됐으므로 faq_str로 판단
+    # 5. FAQ 포함 (패턴 C는 10점, 패턴 A, B, D는 체크하지 않음)
     has_faq = bool(faq_str) or bool(_FAQ_MARKER.search(body))
-    if has_faq:
-        score += 10
-    else:
-        issues.append("FAQ 없음 — FAQ 섹션 추가 권장")
+    if pattern == "C":
+        if has_faq:
+            score += 10
+        else:
+            issues.append("FAQ 없음 — FAQ 섹션 추가 권장")
 
-    # 6. 1인칭 경험 표현 (10점)
+    # 6. 1인칭 경험 표현 (패턴 D는 20점, 패턴 A, B, C는 10점)
     personal_count = len(_PERSONAL_KEYWORDS.findall(body))
+    max_personal_score = 20 if pattern == "D" else 10
     if personal_count >= 3:
-        score += 10
+        score += max_personal_score
     elif personal_count >= 1:
-        score += 5
+        score += (max_personal_score - 10)
         issues.append(f"1인칭 경험 표현 부족 ({personal_count}회) — '저', '남편', '신혼' 등 추가")
     else:
         issues.append("1인칭 경험 표현 없음 — 개인 경험담 추가 필요")
@@ -207,7 +215,7 @@ def score_content(
     passed = score >= 60
 
     logger.info(
-        f"품질 점수: {score}/100 ({'통과' if passed else '재생성 권장'}) | "
+        f"품질 점수: {score}/100 ({'통과' if passed else '재생성 권장'}) | 패턴: {pattern} | "
         f"본문 {body_len}자 | AI패턴 {ai_deduct//5}개 | "
         f"소제목 {len(subheadings)}개 | 데이터 {data_count}개"
     )
@@ -228,5 +236,6 @@ def score_content(
             "data_count": data_count,
             "tag_count": tag_count,
             "title_length": title_len,
+            "pattern": pattern,
         },
     }
