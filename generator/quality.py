@@ -57,6 +57,11 @@ _AI_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"살펴보(도록\s*하겠습니다|겠습니다)"), "AI 진행어: '살펴보겠습니다'"),
     (re.compile(r"^(첫째|둘째|셋째|넷째|다섯째),?\s", re.MULTILINE), "AI 열거식: '첫째, 둘째'"),
     (re.compile(r"지금부터"), "AI 진행어: '지금부터'"),
+    (re.compile(r"충격\s*실화"), "낚시성 표현: '충격 실화'"),
+    (re.compile(r"무조건\s*100%"), "낚시성 표현: '무조건 100%'"),
+    (re.compile(r"아무도\s*모르는\s*비밀"), "낚시성 표현: '아무도 모르는 비밀'"),
+    (re.compile(r"클릭\s*안\s*하면\s*손해"), "낚시성 표현: '클릭 안 하면 손해'"),
+    (re.compile(r"절대\s*놓치지\s*마세요"), "낚시성 표현: '절대 놓치지 마세요'"),
 ]
 
 # 소제목 패턴 (질문형 소제목 우대)
@@ -209,6 +214,38 @@ def score_content(
         issues.append(f"제목 길이 미흡 ({title_len}자, 권장 15~35자)")
     else:
         issues.append(f"제목 길이 부적합 ({title_len}자, 권장 15~35자)")
+
+    # 10. 네이버 블로그 SEO 키워드 노출 및 스태핑 검사
+    keyword = ""
+    if "|" in title:
+        keyword = title.split("|")[0].strip()
+    else:
+        keyword = title.strip()
+
+    if keyword:
+        # 특수문자 제거 후 글자만 매칭하여 공백 유연성 제공
+        kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword)
+        if kw_clean:
+            # 검색 엔진처럼 각 글자 사이에 공백이 들어갈 수 있도록 정규식 생성
+            kw_pattern = re.compile(r"\s*".join(re.escape(char) for char in kw_clean), re.IGNORECASE)
+            
+            # 본문에서 모든 마커(대괄호로 둘러싸인 항목)를 임시 제거하고 순수 텍스트 추출
+            body_clean = re.sub(r'\[.*?\]', '', body).strip()
+            
+            # 첫 문단(300자 이내)에 키워드가 있는지 확인
+            first_300 = body_clean[:300]
+            if not kw_pattern.search(first_300):
+                score -= 10
+                issues.append(f"네이버 SEO 오류: 첫 300자 내 핵심 키워드('{keyword}')가 미배치됨")
+            
+            # 키워드 반복 빈도 확인 (과다 반복 - 6회 초과 시 감점, 0회 시 감점)
+            occurrences = len(kw_pattern.findall(body_clean))
+            if occurrences > 6:
+                score -= 10
+                issues.append(f"네이버 SEO 오류: 핵심 키워드('{keyword}') 과다 반복 ({occurrences}회, 권장 3~5회)")
+            elif occurrences == 0:
+                score -= 10
+                issues.append(f"네이버 SEO 오류: 본문에 핵심 키워드('{keyword}')가 전혀 사용되지 않음")
 
     # 점수 범위 보정 (0~100)
     score = max(0, min(100, score))
