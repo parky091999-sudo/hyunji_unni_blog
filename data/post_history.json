@@ -1,6 +1,78 @@
 [
   {
     "date": "2026-06-25",
+    "timestamp": "2026-06-25T13:27:38.011958+09:00",
+    "keyword": "주말 이케아 다녀온 후기",
+    "category": "신혼일상",
+    "category_name": "신혼일상",
+    "blog_category": "일상",
+    "title": "이케아 주말 쇼핑 | 시간 낭비 없이 득템하는 법",
+    "tags": [
+      "이케아주말",
+      "이케아쇼핑팁",
+      "신혼집인테리어",
+      "이케아꿀팁",
+      "현지언니살림"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326858562",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": false,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-25",
+    "timestamp": "2026-06-25T13:20:25.977594+09:00",
+    "keyword": "이케아 수납 추천",
+    "category": "쇼핑정보",
+    "category_name": "쇼핑&제품추천",
+    "blog_category": "살림템 비교·추천",
+    "title": "이케아 수납 | 공간 활용 끝판왕 아이템 BEST 5",
+    "tags": [
+      "이케아수납",
+      "이케아추천템",
+      "좁은집수납",
+      "신혼집인테리어",
+      "현지언니꿀팁"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326850994",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 6,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-25",
+    "timestamp": "2026-06-25T13:13:00.455716+09:00",
+    "keyword": "알뜰폰으로 바꾸기",
+    "category": "절약재테크",
+    "category_name": "절약&재테크",
+    "blog_category": "알뜰 살림 꿀팁",
+    "title": "알뜰폰으로 바꾸기 | 폰 요금 반값 만드는 초간단 로드맵",
+    "tags": [
+      "알뜰폰",
+      "알뜰폰요금제",
+      "통신비절약",
+      "재테크",
+      "신혼부부재테크"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224326843490",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-25",
     "timestamp": "2026-06-25T10:21:11.345665+09:00",
     "keyword": "초보 주부의 하루 살림 일기",
     "category": "신혼일상",
