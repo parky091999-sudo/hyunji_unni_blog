@@ -103,12 +103,12 @@ def _append_internal_links(body: str, history: list, current_category: str) -> s
     if not related:
         return body
 
-    links_text = "\n\n💡 함께 보면 좋은 현지언니 살림 꿀팁!\n"
+    # 생 URL을 각각 독립 단락(\n\n)으로 분리 → 네이버가 URL을 링크 카드로 깔끔히 변환하고
+    # 생 URL 텍스트는 남기지 않는다. 제목(👉 …) 텍스트는 카드에 이미 노출되므로 넣지 않는다.
+    links_text = "\n\n💡 함께 보면 좋은 살림 꿀팁!"
     for r in related:
-        title = r["title"]
-        if "|" in title:
-            title = title.split("|")[0].strip()
-        links_text += f"\n👉 {title}\n{r['post_url']}\n"
+        links_text += f"\n\n{r['post_url']}"
+    links_text += "\n"
 
     # [사진N] 중 가장 마지막 마커를 찾아서 그 바로 앞에 삽입
     last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
@@ -127,7 +127,7 @@ def _append_shopping_guide(body: str, hints: list) -> str:
     if not hints:
         return body
 
-    guide_text = "\n\n🛒 언급된 현지언니 살림 추천 아이템 가격 정보:\n"
+    guide_text = "\n\n🛒 언급된 살림 추천 아이템 가격 정보:\n"
     for hint in hints:
         guide_text += f"📍 {hint} -> 검색창에 이름을 검색하시면 최저가 비교 정보를 빠르게 보실 수 있어요!\n"
 
@@ -199,22 +199,33 @@ def run():
         )
         logger.info(f"품질 점수: {qr['score']}/100 ({'통과' if qr['pass'] else '재생성'})")
         
-        if qr["pass"] or attempt > MAX_QUALITY_RETRIES:
+        # 점수 통과(>=60)여도 수정 가능한 중대 이슈(키워드 과다반복·본문 매우 짧음·AEO 거의 없음)가
+        # 있으면 재시도 한도 내에서 재생성하여 피드백 루프로 개선한다.
+        accept = (qr["pass"] and not qr.get("needs_retry")) or attempt > MAX_QUALITY_RETRIES
+        if accept:
             post = candidate
             quality_result = qr
             if not qr["pass"]:
                 logger.warning(f"품질 미달({qr['score']}점)이지만 재시도 소진 — 발행 진행")
+            elif qr.get("needs_retry"):
+                logger.warning(f"중대 이슈 잔존(점수 {qr['score']}점)이나 재시도 소진 — 발행 진행")
             break
         else:
+            reason = "품질 미달" if not qr["pass"] else f"점수 통과({qr['score']}점)이나 중대 이슈"
+            fb = qr.get("critical") or qr["issues"]
             logger.warning(
-                f"품질 미달 ({qr['score']}점, 기준 {QUALITY_PASS_SCORE}점) — 재생성\n"
-                f"이슈: {' / '.join(qr['issues'][:3])}"
+                f"{reason} (기준 {QUALITY_PASS_SCORE}점) — 재생성\n"
+                f"이슈: {' / '.join(fb[:3])}"
             )
-            feedback_issues = qr["issues"]
+            feedback_issues = fb
 
     if not post:
         logger.error("레시피 생성 최종 실패 — 종료")
         sys.exit(1)
+
+    # 본문에서 닉네임 '현지언니' 직접 언급 제거(1인칭 치환) — 프롬프트 규칙 위반 대비 안전장치
+    from generator.content import scrub_persona_name
+    post["body"] = scrub_persona_name(post.get("body", ""))
 
     dish = post.get("dish", "")
     logger.info(f"메뉴: {dish} | 제목: {post['title']}")

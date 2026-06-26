@@ -115,6 +115,8 @@ def score_content(
 
     score = 0
     issues: list[str] = []
+    # 점수는 통과(>=60)여도, 아래 '중대(수정 가능)' 이슈가 있으면 재생성을 유도하기 위한 목록.
+    critical: list[str] = []
 
     # 1. 본문 길이 (패턴 D, A, B는 최대 30점, 패턴 C는 최대 20점)
     body_len = len(body)
@@ -127,8 +129,10 @@ def score_content(
     elif body_len >= 1000:
         score += (max_body_score - 20)
         issues.append(f"본문 너무 짧음 ({body_len}자, 권장 2000자+)")
+        critical.append(f"본문 너무 짧음 ({body_len}자) — 2000자+로 분량 보강(경험담·꿀팁 추가)")
     else:
         issues.append(f"본문 매우 짧음 ({body_len}자) — 발행 비권장")
+        critical.append(f"본문 매우 짧음 ({body_len}자) — 2000자+로 대폭 보강 필요")
 
     # 2. AI 패턴 감지 (패턴 D는 최대 30점, 패턴 A, B, C는 최대 20점)
     ai_base = 30 if pattern == "D" else 20
@@ -194,6 +198,7 @@ def score_content(
         issues.append(f"AEO 팩트 데이터 부족 ({data_count}개, 비율 {fact_ratio:.1%}) — 수치(가격, 시간, 단위) 추가 권장")
     else:
         issues.append("AEO 구체적 팩트 데이터 거의 없음 — 숫자/가격/시간/브랜드명 추가 필수")
+        critical.append("AEO 팩트 데이터 거의 없음 — 분량/시간/가격 등 구체 수치를 본문에 추가")
 
     # 8. 태그 수 (최대 10점)
     tag_count = len(tags)
@@ -236,32 +241,45 @@ def score_content(
             first_300 = body_clean[:300]
             if not kw_pattern.search(first_300):
                 score -= 10
-                issues.append(f"네이버 SEO 오류: 첫 300자 내 핵심 키워드('{keyword}')가 미배치됨")
-            
+                msg = f"네이버 SEO 오류: 첫 300자 내 핵심 키워드('{keyword}')가 미배치됨"
+                issues.append(msg)
+                critical.append(msg + " — 도입부에 키워드 자연스럽게 1회 배치")
+
             # 키워드 반복 빈도 확인 (과다 반복 - 6회 초과 시 감점, 0회 시 감점)
             occurrences = len(kw_pattern.findall(body_clean))
             if occurrences > 6:
                 score -= 10
-                issues.append(f"네이버 SEO 오류: 핵심 키워드('{keyword}') 과다 반복 ({occurrences}회, 권장 3~5회)")
+                msg = f"네이버 SEO 오류: 핵심 키워드('{keyword}') 과다 반복 ({occurrences}회, 권장 3~5회)"
+                issues.append(msg)
+                critical.append(f"키워드('{keyword}') 과다 반복 {occurrences}회 → 3~5회로 줄이고 대명사·동의어로 대체")
             elif occurrences == 0:
                 score -= 10
-                issues.append(f"네이버 SEO 오류: 본문에 핵심 키워드('{keyword}')가 전혀 사용되지 않음")
+                msg = f"네이버 SEO 오류: 본문에 핵심 키워드('{keyword}')가 전혀 사용되지 않음"
+                issues.append(msg)
+                critical.append(f"핵심 키워드('{keyword}')를 본문에 3~5회 자연스럽게 사용")
 
     # 점수 범위 보정 (0~100)
     score = max(0, min(100, score))
     passed = score >= 60
+    # 점수는 통과여도 수정 가능한 중대 이슈가 있으면 재생성을 권고(needs_retry).
+    needs_retry = bool(critical)
 
     logger.info(
-        f"품질 점수: {score}/100 ({'통과' if passed else '재생성 권장'}) | 패턴: {pattern} | "
+        f"품질 점수: {score}/100 ({'통과' if passed else '재생성 권장'}"
+        f"{', 중대이슈 재생성권고' if (passed and needs_retry) else ''}) | 패턴: {pattern} | "
         f"본문 {body_len}자 | AI패턴 {ai_deduct//5}개 | "
         f"소제목 {len(subheadings)}개 | 데이터 {data_count}개"
     )
     if issues:
         logger.info(f"품질 이슈: {' / '.join(issues)}")
+    if needs_retry:
+        logger.info(f"중대(수정가능) 이슈: {' / '.join(critical)}")
 
     return {
         "score": score,
         "issues": issues,
+        "critical": critical,
+        "needs_retry": needs_retry,
         "pass": passed,
         "detail": {
             "body_length": body_len,
