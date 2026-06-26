@@ -743,14 +743,22 @@ def _create_card_news(text: str) -> str | None:
             width=4
         )
         
-        # 폰트
+        # 폰트 — Windows(로컬) + Linux(GitHub Actions ubuntu 러너) 한글 폰트 모두 시도.
+        # ★Linux 경로가 없으면 load_default()(한글 미지원)로 폴백돼 카드뉴스 한글이 □로 깨진다.
+        #   → 러너에는 fonts-nanum 설치(워크플로) 필요. 아래 nanum 경로와 매칭됨.
         font_paths = [
+            # Windows (로컬)
             "C:\\Windows\\Fonts\\malgunbd.ttf",
             "C:\\Windows\\Fonts\\malgun.ttf",
             "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
-            "C:\\Windows\\Fonts\\arial.ttf"
+            # Linux (GitHub Actions / fonts-nanum)
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
         ]
-        
+
         def load_font(size):
             for path in font_paths:
                 if os.path.exists(path):
@@ -758,6 +766,11 @@ def _create_card_news(text: str) -> str | None:
                         return ImageFont.truetype(path, size)
                     except Exception:
                         continue
+            # 한글 미지원 비트맵 폰트 폴백 → 카드뉴스 한글이 깨짐. 명시적으로 경고.
+            logger.warning(
+                "카드뉴스 한글 폰트를 찾지 못함 — load_default()로 폴백(한글 □ 깨짐 위험). "
+                "러너에 fonts-nanum 설치 또는 폰트 번들 필요."
+            )
             return ImageFont.load_default()
         
         # 브랜드 상단 문구
@@ -1881,6 +1894,19 @@ async def _post(
                     break
                 if not (0 <= img_idx < len(images)):
                     continue
+                # ── 앵커 충돌 방지 ─────────────────────────────────────
+                # 표/FAQ 앵커와 같은 단락이면 이미지가 표(셀) 안에 끼어 들어가므로 건너뛴다.
+                # URL 줄(관련링크)에는 이미지를 붙이지 않는다(링크 카드 자리 침범 방지).
+                _a = (anchor_text or "").strip()
+                if table_anchor_text and _a == table_anchor_text.strip():
+                    logger.warning(f"이미지 {img_idx+1}번 앵커가 표 앵커와 동일 — 표 안 삽입 방지로 건너뜀")
+                    continue
+                if faq_anchor_text and _a == faq_anchor_text.strip():
+                    logger.warning(f"이미지 {img_idx+1}번 앵커가 FAQ 앵커와 동일 — 건너뜀")
+                    continue
+                if _a.startswith("http://") or _a.startswith("https://"):
+                    logger.warning(f"이미지 {img_idx+1}번 앵커가 URL(관련링크) 줄 — 건너뜀")
+                    continue
                 local_path = _download_image_to_temp(images[img_idx]["url"], label=images[img_idx].get("label"))
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
@@ -1894,11 +1920,24 @@ async def _post(
                     local_path=local_path,
                     alt_text=images[img_idx].get("alt_text", ""),
                 )
+                # 첫 이미지 등 간헐 실패 대비: 1회 재시도 (사진 팝업/에디터 워밍업 지연으로
+                # 첫 삽입만 카운트 검증 전에 실패하던 케이스를 잡는다. 후속 이미지는 동일 경로로 성공)
+                if not ok:
+                    logger.warning(f"이미지 {img_idx+1}번 1차 삽입 실패 — 재시도")
+                    await _delay(1500, 2000)
+                    await _move_cursor_after_text(write_page, anchor_text)
+                    await write_page.keyboard.press("Enter")
+                    await _delay(200, 400)
+                    ok = await _insert_image_file(
+                        write_page,
+                        local_path=local_path,
+                        alt_text=images[img_idx].get("alt_text", ""),
+                    )
                 if ok:
                     images_inserted += 1
                     logger.info(f"이미지 {img_idx+1}번 삽입 성공 (앵커: {anchor_text[:20]})")
                 else:
-                    logger.warning(f"이미지 {img_idx+1}번 삽입 실패 — 본문 유지하고 계속")
+                    logger.warning(f"이미지 {img_idx+1}번 삽입 실패(재시도 포함) — 본문 유지하고 계속")
                 await _delay(500, 900)
         elif images:
             logger.info(f"마커 없음 — 본문 끝에 이미지 best-effort 삽입 ({min(3, len(images))}장)")
