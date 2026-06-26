@@ -1481,33 +1481,52 @@ async def _apply_paragraph_style(page: Page, style_name: str = "제목 2") -> bo
     return False
 
 
+_align_dropdown_dumped = False
+
+
 async def _apply_align_center(page: Page) -> bool:
-    """현재 선택/커서 위치에 가운데 정렬 적용 (표 헤더/첫열용). 툴바 버튼 best-effort."""
+    """셀/단락 텍스트를 가운데 정렬. 네이버는 '정렬 드롭다운'(align-drop-down-with-justify)을
+    열어 가운데 옵션을 골라야 한다. (table-align[data-value=center]는 표 위치 정렬이라 오답)"""
+    global _align_dropdown_dumped
     target = await _get_editor_frame(page)
-    sels = [
-        "[data-name='align-center']",
-        "[data-value='center']",
-        ".se-toolbar-item-align-center",
-        "button[aria-label*='가운데']",
-        "[class*='align-center']",
-    ]
-    for st in (target, page):
-        for sel in sels:
-            try:
-                loc = st.locator(sel).first
-                if await loc.count() and await loc.is_visible(timeout=400):
-                    await loc.click(timeout=1200)
-                    await _delay(80, 160)
-                    logger.info(f"가운데정렬 적용: {sel}")
-                    return True
-            except Exception:
-                continue
-    # 키보드 단축키 폴백 (네이버 SE 가운데정렬)
-    try:
-        await page.keyboard.press("Control+Shift+e")
-        return True
-    except Exception:
-        return False
+    # 1) 정렬 드롭다운 열기
+    opened = False
+    for sel in ("[data-name='align-drop-down-with-justify']", "[data-name*='align-drop']",
+                "button[class*='align'][class*='drop']"):
+        try:
+            dd = target.locator(sel).first
+            if await dd.count() and await dd.is_visible(timeout=400):
+                await dd.click(timeout=1000)
+                await _delay(180, 320)
+                opened = True
+                break
+        except Exception:
+            continue
+    if opened and not _align_dropdown_dumped:
+        try:
+            opts = await target.evaluate("""() =>
+                [...document.querySelectorAll('button,[role=option],li,a')]
+                  .filter(b => b.offsetParent && /align|center|가운데|정렬|left|right/i.test(
+                    (b.getAttribute('aria-label')||'')+(b.getAttribute('data-name')||'')+(b.getAttribute('data-value')||'')+(b.className||'')))
+                  .map(b => ({al:b.getAttribute('aria-label'), dn:b.getAttribute('data-name'), dv:b.getAttribute('data-value'), cls:(b.className||'').slice(0,45)})).slice(0,18)
+            """)
+            logger.info(f"[정렬드롭다운옵션] {opts}")
+        except Exception:
+            pass
+        _align_dropdown_dumped = True
+    # 2) 가운데 옵션 클릭 (table-align 류는 제외)
+    for sel in ("[data-name='align-center']", "[data-value='center']:not([data-name='table-align'])",
+                "button[aria-label*='가운데']", "[class*='align-center']"):
+        try:
+            loc = target.locator(sel).first
+            if await loc.count() and await loc.is_visible(timeout=400):
+                await loc.click(timeout=1200)
+                await _delay(80, 160)
+                logger.info(f"가운데정렬(텍스트) 적용: {sel}")
+                return True
+        except Exception:
+            continue
+    return False
 
 
 async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int, n_rows: int):
