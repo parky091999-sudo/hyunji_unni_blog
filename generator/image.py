@@ -4,12 +4,62 @@ image_keywords (content.py에서 생성된 7개 키워드) 사용 시 각 위치
 """
 import logging
 import re
+import tempfile
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 _PEXELS_SEARCH = "https://api.pexels.com/v1/search"
+
+
+def generate_dish_image(dish: str, api_key: str) -> str | None:
+    """레시피 대표 이미지를 AI로 생성(실제 한국 가정식 사진 톤). 성공 시 로컬 PNG 경로, 실패 시 None.
+    Pexels는 한식 사진이 빈약해 대표컷이 어색하므로, 같은 GOOGLE_API_KEY로 이미지를 생성한다.
+    Imagen → Gemini 이미지생성 순으로 시도하고, 둘 다 실패하면 None(상위에서 Pexels/카드 폴백)."""
+    if not dish or not api_key:
+        return None
+    prompt = (
+        f"A realistic, appetizing top-down food photograph of Korean home-style dish '{dish}', "
+        f"served on a plate on a clean wooden table, natural soft daylight, cozy home kitchen mood, "
+        f"high detail, no text, no people, no watermark."
+    )
+
+    def _save_png(data) -> str:
+        import base64
+        raw = base64.b64decode(data) if isinstance(data, str) else data
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.write(raw)
+        tmp.close()
+        return tmp.name
+
+    # 현지씨(coupang) 파이프라인에서 검증된 방식: gemini-3.1-flash-image, response_modalities=['IMAGE'].
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key)
+        for model in ("gemini-3.1-flash-image", "gemini-2.5-flash-image"):
+            try:
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=[prompt],
+                    config=gtypes.GenerateContentConfig(response_modalities=["IMAGE"]),
+                )
+                for part in resp.parts:
+                    if getattr(part, "thought", False):
+                        continue
+                    inline = getattr(part, "inline_data", None)
+                    if inline is not None and getattr(inline, "data", None):
+                        path = _save_png(inline.data)
+                        logger.info(f"대표 이미지 AI 생성 성공({model}): {dish} -> {path}")
+                        return path
+            except Exception as e:
+                logger.info(f"Gemini 이미지({model}) 생성 실패: {e.__class__.__name__}: {str(e)[:90]}")
+    except Exception as e:
+        logger.warning(f"AI 이미지 생성 모듈 오류(폴백 진행): {e}")
+
+    logger.warning(f"대표 이미지 AI 생성 실패 — Pexels/카드로 폴백: {dish}")
+    return None
 
 # 카테고리/키워드 → 영문 검색어 매핑
 _KO_TO_EN: list[tuple[re.Pattern, str]] = [

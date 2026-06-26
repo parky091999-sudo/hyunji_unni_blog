@@ -58,6 +58,7 @@ jobs:
           NAVER_BLOG_ID:  ${{ secrets.NAVER_BLOG_ID }}
           NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
           DRAFT:          ${{ github.event.inputs.draft || 'false' }}

@@ -431,6 +431,22 @@ async def _type_in_editor(page: Page, text: str):
                     logger.info(f"URL 감지 → 링크 카드 생성 대기: {stripped_line[:40]}...")
                     await page.keyboard.press("Enter")
                     await _delay(3500, 4500)
+                    # 링크 카드 생성 후 남아있는 '생 URL 텍스트 단락'만 제거(카드는 유지).
+                    # 카드(.se-oglink)는 도메인만 표시하므로, 전체 URL과 일치하는 텍스트 단락만 안전히 삭제.
+                    try:
+                        _tgt = await _get_editor_frame(page)
+                        _url_p = _tgt.locator(
+                            f".se-text-paragraph:has-text('{stripped_line}')"
+                        ).first
+                        if await _url_p.count():
+                            await _url_p.click(click_count=3)   # 단락 전체 선택
+                            await _delay(120, 220)
+                            await page.keyboard.press("Delete")
+                            await page.keyboard.press("Backspace")  # 남은 빈 줄 정리
+                            await _delay(150, 300)
+                            logger.info("생 URL 텍스트 단락 제거 완료 (링크 카드만 유지)")
+                    except Exception as _e:
+                        logger.info(f"생 URL 텍스트 제거 스킵: {_e.__class__.__name__}")
                 elif j < len(lines) - 1:
                     await _delay(80, 250)
             if j < len(lines) - 1 and not (stripped_line.startswith("http://") or stripped_line.startswith("https://")):
@@ -724,117 +740,125 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
         return False
 
 
-def _create_card_news(text: str) -> str | None:
-    """
-    배경 없이 깔끔한 단색(아이보리) 배경의 카드뉴스를 새로 생성합니다.
-    (이미지를 다운로드하여 배경으로 쓰지 않음)
-    """
+def _load_card_font(size: int):
+    """카드뉴스용 한글 폰트 로드 (Windows 로컬 + Linux 러너 fonts-nanum)."""
+    font_paths = [
+        "C:\\Windows\\Fonts\\malgunbd.ttf",
+        "C:\\Windows\\Fonts\\malgun.ttf",
+        "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    logger.warning(
+        "카드뉴스 한글 폰트를 찾지 못함 — load_default()로 폴백(한글 □ 깨짐 위험). "
+        "러너에 fonts-nanum 설치 또는 폰트 번들 필요."
+    )
+    return ImageFont.load_default()
+
+
+def _parse_card_content(content: str) -> tuple[str, list[str]]:
+    """카드 라벨 파싱. '제목 :: 요점1 · 요점2 · 요점3' 형태를 (제목, [요점...])로 분해.
+    '::' 없으면 전체를 제목으로, 요점 없음. (구버전 라벨 호환)"""
+    content = (content or "").strip()
+    if "::" in content:
+        title, rest = content.split("::", 1)
+        title = title.strip()
+        # 요점 구분자: 가운뎃점(·), 슬래시(/), 세미콜론(;)
+        points = [p.strip() for p in re.split(r"[·/;]", rest) if p.strip()]
+    else:
+        title, points = content, []
+    return title, points
+
+
+def _create_card_news(content: str) -> str | None:
+    """소주제 요약 카드뉴스 생성: 상단 제목(핵심 결론) + 하단 요약 요점(2~3줄).
+    content 형식: '제목 :: 요점1 · 요점2 · 요점3' (요점 없으면 제목만 크게).
+    한눈에 보는 정보 시각화가 목적 — 큰 글자만 박지 않는다."""
     try:
         width, height = 800, 800
-        img = Image.new("RGBA", (width, height), (250, 248, 245, 255))
+        bg = (250, 248, 245, 255)
+        accent = (210, 122, 90, 255)      # 테라코타 포인트
+        title_col = (40, 38, 36, 255)
+        point_col = (74, 70, 66, 255)
+        img = Image.new("RGBA", (width, height), bg)
         draw = ImageDraw.Draw(img)
-        
-        # 외곽선 (카드 박스 느낌)
+
         margin = 40
         draw.rounded_rectangle(
             [(margin, margin), (width - margin, height - margin)],
-            radius=20,
-            outline=(225, 220, 212, 255),
-            width=4
+            radius=24, outline=(228, 222, 214, 255), width=4,
         )
-        
-        # 폰트 — Windows(로컬) + Linux(GitHub Actions ubuntu 러너) 한글 폰트 모두 시도.
-        # ★Linux 경로가 없으면 load_default()(한글 미지원)로 폴백돼 카드뉴스 한글이 □로 깨진다.
-        #   → 러너에는 fonts-nanum 설치(워크플로) 필요. 아래 nanum 경로와 매칭됨.
-        font_paths = [
-            # Windows (로컬)
-            "C:\\Windows\\Fonts\\malgunbd.ttf",
-            "C:\\Windows\\Fonts\\malgun.ttf",
-            "C:\\Windows\\Fonts\\NanumGothicBold.ttf",
-            # Linux (GitHub Actions / fonts-nanum)
-            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-        ]
 
-        def load_font(size):
-            for path in font_paths:
-                if os.path.exists(path):
-                    try:
-                        return ImageFont.truetype(path, size)
-                    except Exception:
-                        continue
-            # 한글 미지원 비트맵 폰트 폴백 → 카드뉴스 한글이 깨짐. 명시적으로 경고.
-            logger.warning(
-                "카드뉴스 한글 폰트를 찾지 못함 — load_default()로 폴백(한글 □ 깨짐 위험). "
-                "러너에 fonts-nanum 설치 또는 폰트 번들 필요."
-            )
-            return ImageFont.load_default()
-        
-        # 브랜드 상단 문구
-        # ✦ 별표는 나눔폰트에 글리프가 없어 □로 깨지므로 제거(브랜드명은 유지).
+        title, points = _parse_card_content(content)
+
+        def text_size(s, font):
+            try:
+                b = draw.textbbox((0, 0), s, font=font)
+                return b[2] - b[0], b[3] - b[1]
+            except AttributeError:
+                return draw.textsize(s, font=font)
+
+        # 상단 브랜드
         brand_text = "현지언니의 살림 가이드"
-        brand_font = load_font(24)
-        
-        try:
-            brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
-            brand_w = brand_bbox[2] - brand_bbox[0]
-        except AttributeError:
-            brand_w, _ = draw.textsize(brand_text, font=brand_font)
-            
-        brand_x = (width - brand_w) // 2
-        brand_y = 120
-        draw.text((brand_x, brand_y), brand_text, font=brand_font, fill=(135, 115, 95, 255))
-        
-        # 구분선
-        line_y = brand_y + 40
-        line_w = 300
-        line_x0 = (width - line_w) // 2
-        line_x1 = line_x0 + line_w
-        draw.line([(line_x0, line_y), (line_x1, line_y)], fill=(220, 210, 198, 255), width=2)
-        
-        # 메인 텍스트
-        main_font_size = 48
-        main_font = load_font(main_font_size)
-        max_text_w = width - 160
-        
-        lines = _wrap_korean_text(text, draw, main_font, max_text_w)
-        if len(lines) > 3:
-            main_font_size = 36
-            main_font = load_font(main_font_size)
-            lines = _wrap_korean_text(text, draw, main_font, max_text_w)
-            
-        line_heights = []
-        for line in lines:
-            try:
-                bbox = draw.textbbox((0, 0), line, font=main_font)
-                lh = bbox[3] - bbox[1]
-            except AttributeError:
-                _, lh = draw.textsize(line, font=main_font)
-            line_heights.append(lh)
-            
-        line_spacing = int(main_font_size * 0.5)
-        total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1)
-        
-        main_y = (height - total_text_h) // 2 + 30
-        
-        current_y = main_y
-        for i, line in enumerate(lines):
-            try:
-                bbox = draw.textbbox((0, 0), line, font=main_font)
-                lw = bbox[2] - bbox[0]
-            except AttributeError:
-                lw, _ = draw.textsize(line, font=main_font)
-            lx = (width - lw) // 2
-            draw.text((lx, current_y), line, font=main_font, fill=(34, 34, 34, 255))
-            current_y += line_heights[i] + line_spacing
-            
+        brand_font = _load_card_font(24)
+        bw, _ = text_size(brand_text, brand_font)
+        draw.text(((width - bw) // 2, 88), brand_text, font=brand_font, fill=(150, 128, 108, 255))
+
+        max_w = width - 150
+
+        # 제목 (핵심 결론) — 요점이 있으면 위쪽, 없으면 중앙 크게
+        title_size = 52 if points else 60
+        title_font = _load_card_font(title_size)
+        t_lines = _wrap_korean_text(title, draw, title_font, max_w)
+        if len(t_lines) > 2:
+            title_size = 42
+            title_font = _load_card_font(title_size)
+            t_lines = _wrap_korean_text(title, draw, title_font, max_w)
+
+        # 요점 폰트/줄
+        point_font = _load_card_font(30)
+        wrapped_points: list[str] = []
+        for p in points[:3]:
+            for wl in _wrap_korean_text("• " + p, draw, point_font, max_w):
+                wrapped_points.append(wl)
+
+        # 세로 중앙 정렬 계산
+        t_lh = title_size + 16
+        p_lh = 46
+        block_h = len(t_lines) * t_lh + (28 + len(wrapped_points) * p_lh if wrapped_points else 0)
+        y = (height - block_h) // 2 + 10
+
+        # 제목 그리기 (가운데)
+        for ln in t_lines:
+            lw, _ = text_size(ln, title_font)
+            draw.text(((width - lw) // 2, y), ln, font=title_font, fill=title_col)
+            y += t_lh
+
+        # 제목-요점 사이 포인트 바
+        if wrapped_points:
+            bar_w = 70
+            draw.line([((width - bar_w) // 2, y + 6), ((width + bar_w) // 2, y + 6)],
+                      fill=accent, width=4)
+            y += 28
+            # 요점 (좌측 정렬, 블록을 가운데로)
+            left_x = 130
+            for ln in wrapped_points:
+                draw.text((left_x, y), ln, font=point_font, fill=point_col)
+                y += p_lh
+
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
         img.save(tmp.name, "PNG")
-        logger.info(f"카드뉴스 자체 생성 완료: '{text}' -> {tmp.name}")
+        logger.info(f"카드뉴스 생성: 제목='{title}' 요점{len(points)}개 -> {tmp.name}")
         return tmp.name
     except Exception as e:
         logger.warning(f"카드뉴스 자체 생성 중 예외 발생: {e}")
@@ -861,6 +885,21 @@ def _download_image_to_temp(url: str, label: str = None) -> str | None:
     except Exception as e:
         logger.warning(f"이미지 다운로드 실패: {e}")
         return None
+
+
+async def _caret_in_table(page: Page) -> bool:
+    """현재 캐럿(선택)이 표 셀 안에 있는지. 이미지가 표 안에 삽입되는 것을 막기 위함."""
+    target = await _get_editor_frame(page)
+    try:
+        return await target.evaluate("""() => {
+            const sel = document.getSelection();
+            if (!sel || !sel.anchorNode) return false;
+            const node = sel.anchorNode;
+            const el = node.nodeType === 1 ? node : node.parentElement;
+            return !!(el && el.closest('.se-section-table, .se-table, table'));
+        }""")
+    except Exception:
+        return False
 
 
 async def _count_editor_images(target) -> int:
@@ -1340,10 +1379,18 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
                 await page.keyboard.press("Control+a")
                 if text:
                     await page.keyboard.type(text, delay=12)
-                    # 첫 번째 행(헤더)일 경우 굵게 처리
-                    if i < grid_cols:
-                        await _delay(100, 200)
-                        await page.keyboard.press("Control+b")
+                    # 첫 행(헤더) 또는 첫 열(구분)이면 가운데 정렬 + 굵게
+                    is_first_row = i < grid_cols
+                    is_first_col = grid_cols and (i % grid_cols == 0)
+                    if is_first_row or is_first_col:
+                        await _delay(90, 170)
+                        # 방금 친 셀 텍스트만 선택(Shift+Home) — Ctrl+A는 표 전체 선택 위험
+                        await page.keyboard.down("Shift")
+                        await page.keyboard.press("Home")
+                        await page.keyboard.up("Shift")
+                        await _delay(60, 120)
+                        await page.keyboard.press("Control+b")   # 굵게
+                        await _apply_align_center(page)          # 가운데 정렬
                 else:
                     await page.keyboard.press("Delete")
                 filled += 1
@@ -1439,6 +1486,34 @@ async def _apply_paragraph_style(page: Page, style_name: str = "제목 2") -> bo
     return False
 
 
+async def _apply_align_center(page: Page) -> bool:
+    """현재 선택/커서 위치에 가운데 정렬 적용 (표 헤더/첫열용). 툴바 버튼 best-effort."""
+    target = await _get_editor_frame(page)
+    sels = [
+        "[data-name='align-center']",
+        "[data-value='center']",
+        ".se-toolbar-item-align-center",
+        "button[aria-label*='가운데']",
+        "[class*='align-center']",
+    ]
+    for st in (target, page):
+        for sel in sels:
+            try:
+                loc = st.locator(sel).first
+                if await loc.count():
+                    await loc.click(timeout=1200)
+                    await _delay(80, 160)
+                    return True
+            except Exception:
+                continue
+    # 키보드 단축키 폴백 (네이버 SE 가운데정렬)
+    try:
+        await page.keyboard.press("Control+Shift+e")
+        return True
+    except Exception:
+        return False
+
+
 async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
     """현재 선택 영역 또는 위치에 인용구(Quotation) 적용"""
     target = await _get_editor_frame(page)
@@ -1450,13 +1525,28 @@ async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
             await _delay(500, 800)
             
             if quote_type:
-                # 드롭다운 옵션 중 원하는 인용구 타입 클릭
-                opt = target.locator(f"button:has-text('{quote_type}'), li:has-text('{quote_type}'), [role='option']:has-text('{quote_type}')").first
-                if await opt.count():
-                    await opt.click(timeout=2000)
-                    await _delay(350, 600)
-                    logger.info(f"인용구 타입 선택: {quote_type}")
-                else:
+                # 네이버 인용구 스타일은 텍스트 라벨이 아닌 아이콘 버튼이라, 다양한 셀렉터로 탐색.
+                # '버티컬 라인'(세로줄) 스타일을 우선 적용.
+                style_sels = [
+                    "[data-value='line']", "[data-name='quotation-line']",
+                    ".se-quotation-style-line", "[class*='quotation-style-line']",
+                    "[class*='quotation'][class*='line']", "[class*='vertical']",
+                    "button[aria-label*='라인']", "[aria-label*='세로']",
+                    f"button:has-text('{quote_type}')", f"[role='option']:has-text('{quote_type}')",
+                ]
+                applied = False
+                for sel in style_sels:
+                    try:
+                        opt = target.locator(sel).first
+                        if await opt.count() and await opt.is_visible(timeout=500):
+                            await opt.click(timeout=1500)
+                            await _delay(300, 550)
+                            logger.info(f"인용구 버티컬라인 스타일 적용: {sel}")
+                            applied = True
+                            break
+                    except Exception:
+                        continue
+                if not applied:
                     logger.info(f"인용구 타입 '{quote_type}' 못 찾음. 기본 적용.")
                     
             logger.info("인용구 컴포넌트 적용 완료")
@@ -1908,11 +1998,18 @@ async def _post(
                 if _a.startswith("http://") or _a.startswith("https://"):
                     logger.warning(f"이미지 {img_idx+1}번 앵커가 URL(관련링크) 줄 — 건너뜀")
                     continue
-                local_path = _download_image_to_temp(images[img_idx]["url"], label=images[img_idx].get("label"))
+                # 미리 만든 로컬 이미지(예: AI 대표 요리사진)가 있으면 그대로 사용
+                local_path = images[img_idx].get("local_path") or _download_image_to_temp(
+                    images[img_idx].get("url", ""), label=images[img_idx].get("label")
+                )
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
                 await _move_cursor_after_text(write_page, anchor_text)
+                # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
+                if await _caret_in_table(write_page):
+                    logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
+                    continue
                 # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 이미지 삽입
                 await write_page.keyboard.press("Enter")
                 await _delay(200, 400)
@@ -1943,7 +2040,7 @@ async def _post(
         elif images:
             logger.info(f"마커 없음 — 본문 끝에 이미지 best-effort 삽입 ({min(3, len(images))}장)")
             for img in images[:3]:
-                local_path = _download_image_to_temp(img["url"], label=img.get("label"))
+                local_path = img.get("local_path") or _download_image_to_temp(img.get("url", ""), label=img.get("label"))
                 if not local_path:
                     continue
                 await _move_cursor_after_text(write_page, "")
