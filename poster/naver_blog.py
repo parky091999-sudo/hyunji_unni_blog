@@ -1379,23 +1379,18 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
                 await page.keyboard.press("Control+a")
                 if text:
                     await page.keyboard.type(text, delay=12)
-                    # 첫 행(헤더) 또는 첫 열(구분)이면 가운데 정렬 + 굵게
-                    is_first_row = i < grid_cols
-                    is_first_col = grid_cols and (i % grid_cols == 0)
-                    if is_first_row or is_first_col:
-                        await _delay(90, 170)
-                        # 방금 친 셀 텍스트만 선택(Shift+Home) — Ctrl+A는 표 전체 선택 위험
-                        await page.keyboard.down("Shift")
-                        await page.keyboard.press("Home")
-                        await page.keyboard.up("Shift")
-                        await _delay(60, 120)
-                        await page.keyboard.press("Control+b")   # 굵게
-                        await _apply_align_center(page)          # 가운데 정렬
                 else:
                     await page.keyboard.press("Delete")
                 filled += 1
             except Exception:
                 continue
+
+        # ── 첫 행(헤더)·첫 열(구분) 가운데정렬+볼드 패스 (채우기 완료 후 별도 처리) ──
+        try:
+            await _format_table_header(page, cell_loc, ccount, grid_cols, n_rows)
+        except Exception as e:
+            logger.warning(f"표 헤더 서식 패스 예외(계속): {e}")
+
         await _screenshot(page, "after_table_fill", full_page=True)
         await page.keyboard.press("Escape")
         await page.keyboard.press("Control+End")
@@ -1500,9 +1495,10 @@ async def _apply_align_center(page: Page) -> bool:
         for sel in sels:
             try:
                 loc = st.locator(sel).first
-                if await loc.count():
+                if await loc.count() and await loc.is_visible(timeout=400):
                     await loc.click(timeout=1200)
                     await _delay(80, 160)
+                    logger.info(f"가운데정렬 적용: {sel}")
                     return True
             except Exception:
                 continue
@@ -1512,6 +1508,61 @@ async def _apply_align_center(page: Page) -> bool:
         return True
     except Exception:
         return False
+
+
+async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int, n_rows: int):
+    """표 첫 행(헤더)+첫 열(구분) 셀에 가운데정렬+볼드 적용. 첫 셀에서 서식 툴바를 진단 덤프해
+    실제 굵게/가운데 버튼 셀렉터를 로그로 남긴다(블라인드 iteration 단축용)."""
+    target = await _get_editor_frame(page)
+    idxs = set(range(min(grid_cols, ccount)))          # 첫 행
+    for r in range(n_rows):                            # 각 행의 첫 열
+        if r * grid_cols < ccount:
+            idxs.add(r * grid_cols)
+    idxs = sorted(idxs)
+
+    async def _dump_toolbar(tag):
+        for fr in (target, page):
+            try:
+                btns = await fr.evaluate("""() =>
+                    [...document.querySelectorAll('button,[role=button]')]
+                      .filter(b => b.offsetParent && /bold|align|center|justify|굵|가운데|정렬/i.test(
+                        (b.getAttribute('aria-label')||'')+(b.getAttribute('data-name')||'')+(b.getAttribute('data-value')||'')+(b.className||'')+(b.textContent||'')))
+                      .map(b => ({al:b.getAttribute('aria-label'), dn:b.getAttribute('data-name'), dv:b.getAttribute('data-value'), cls:(b.className||'').slice(0,45)})).slice(0,22)
+                """)
+                if btns:
+                    logger.info(f"[표서식툴바 {tag} {fr.url[:22]}] {btns}")
+            except Exception:
+                pass
+
+    bold_sels = ["[data-name='bold']", ".se-toolbar-item-bold",
+                 "button[aria-label*='굵']", "[class*='toolbar'][class*='bold']"]
+    applied = 0
+    for n, i in enumerate(idxs):
+        try:
+            await cell_loc.nth(i).click()
+            await _delay(80, 140)
+            await page.keyboard.press("Control+a")     # 셀 내용 선택
+            await _delay(60, 110)
+            if n == 0:
+                await _dump_toolbar("첫헤더셀")
+            ok_bold = False
+            for sel in bold_sels:
+                try:
+                    loc = target.locator(sel).first
+                    if await loc.count() and await loc.is_visible(timeout=400):
+                        await loc.click(timeout=1000)
+                        ok_bold = True
+                        break
+                except Exception:
+                    continue
+            if not ok_bold:
+                await page.keyboard.press("Control+b")
+            await _apply_align_center(page)
+            applied += 1
+            await _delay(60, 110)
+        except Exception:
+            continue
+    logger.info(f"표 헤더/첫열 서식 적용: {applied}/{len(idxs)}개 셀 (굵게+가운데 시도)")
 
 
 async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
