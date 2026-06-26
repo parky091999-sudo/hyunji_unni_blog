@@ -245,7 +245,7 @@ def run():
                 category="cooking",
                 image_keywords=image_keywords if image_keywords else None,
             )
-            # 각 이미지 객체에 한글 라벨 텍스트 매핑
+            # 각 이미지 객체에 한글 라벨 텍스트 매핑(2~5번은 요약 카드, 1번은 대표사진이라 아래에서 교체)
             for idx, img in enumerate(images):
                 if idx < len(image_labels):
                     img["label"] = image_labels[idx]
@@ -254,6 +254,22 @@ def run():
             logger.warning(f"이미지 수집 실패 (무시): {e}")
     else:
         logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
+
+    # ── 대표 이미지(사진1)는 실제 요리 사진을 AI로 생성 (Pexels는 한식 빈약) ──
+    try:
+        from generator.image import generate_dish_image
+        ai_path = generate_dish_image(dish, GOOGLE_API_KEY)
+        if ai_path:
+            rep = {"local_path": ai_path, "label": None, "alt_text": f"{dish} 완성 사진", "url": ""}
+            if images:
+                images[0] = rep   # 첫 사진을 실제 요리 대표컷으로 교체(카드 아님)
+            else:
+                images = [rep]
+            logger.info("대표 이미지(사진1)를 AI 생성 요리사진으로 설정")
+        else:
+            logger.info("AI 대표 이미지 미생성 — 기존 이미지/카드 유지")
+    except Exception as e:
+        logger.warning(f"대표 이미지 생성 단계 예외(무시): {e}")
 
     # 쿠팡 우회 쇼핑 가이드 연계
     post["body"] = _append_shopping_guide(post["body"], post.get("coupang_hints"))
