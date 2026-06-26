@@ -1,5 +1,31 @@
 [
   {
+    "date": "2026-06-26",
+    "timestamp": "2026-06-26T20:02:38.846469+09:00",
+    "dish": "김치볶음밥",
+    "title": "김치볶음밥 황금레시피 | 15분 뚝딱! 신혼부부 주말 집밥 끝판왕",
+    "tags": [
+      "김치볶음밥",
+      "김치볶음밥레시피",
+      "신혼부부밥상",
+      "자취생요리",
+      "간단한끼",
+      "주말메뉴",
+      "집밥레시피",
+      "볶음밥",
+      "한그릇요리",
+      "초간단레시피"
+    ],
+    "category": "오늘의 집밥 레시피",
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224328292126",
+    "quality_score": 59,
+    "quality_pass": false,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
     "date": "2026-06-25",
     "timestamp": "2026-06-25T19:48:28.090963+09:00",
     "dish": "제육볶음",
