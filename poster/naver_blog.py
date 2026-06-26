@@ -1384,7 +1384,11 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
                     is_first_col = grid_cols and (i % grid_cols == 0)
                     if is_first_row or is_first_col:
                         await _delay(90, 170)
-                        await page.keyboard.press("Control+a")  # 셀 내용 선택
+                        # 방금 친 셀 텍스트만 선택(Shift+Home) — Ctrl+A는 표 전체 선택 위험
+                        await page.keyboard.down("Shift")
+                        await page.keyboard.press("Home")
+                        await page.keyboard.up("Shift")
+                        await _delay(60, 120)
                         await page.keyboard.press("Control+b")   # 굵게
                         await _apply_align_center(page)          # 가운데 정렬
                 else:

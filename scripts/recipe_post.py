@@ -256,9 +256,11 @@ def run():
         logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
 
     # ── 대표 이미지(사진1)는 실제 요리 사진을 AI로 생성 (Pexels는 한식 빈약) ──
+    # 이미지 생성은 과금 키가 필요 → GEMINI_API_KEY(현지씨 파이프라인과 동일 키) 우선, 없으면 GOOGLE_API_KEY.
     try:
         from generator.image import generate_dish_image
-        ai_path = generate_dish_image(dish, GOOGLE_API_KEY)
+        img_key = os.environ.get("GEMINI_API_KEY") or GOOGLE_API_KEY
+        ai_path = generate_dish_image(dish, img_key)
         if ai_path:
             rep = {"local_path": ai_path, "label": None, "alt_text": f"{dish} 완성 사진", "url": ""}
             if images:
