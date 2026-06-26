@@ -774,7 +774,8 @@ def _create_card_news(text: str) -> str | None:
             return ImageFont.load_default()
         
         # 브랜드 상단 문구
-        brand_text = "✦ 현지언니의 살림 가이드 ✦"
+        # ✦ 별표는 나눔폰트에 글리프가 없어 □로 깨지므로 제거(브랜드명은 유지).
+        brand_text = "현지언니의 살림 가이드"
         brand_font = load_font(24)
         
         try:
