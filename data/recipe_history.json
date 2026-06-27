@@ -1,5 +1,31 @@
 [
   {
+    "date": "2026-06-27",
+    "timestamp": "2026-06-27T19:25:03.008581+09:00",
+    "dish": "잡채",
+    "title": "잡채 황금레시피 | 30분 만에 불지 않는 쫄깃함 끝판왕!",
+    "tags": [
+      "잡채",
+      "잡채레시피",
+      "초간단잡채",
+      "집밥레시피",
+      "신혼밥상",
+      "자취요리",
+      "손님초대요리",
+      "한식",
+      "당면요리",
+      "반찬"
+    ],
+    "category": "오늘의 집밥 레시피",
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329058452",
+    "quality_score": 60,
+    "quality_pass": true,
+    "images_inserted": 4,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
     "date": "2026-06-26",
     "timestamp": "2026-06-26T20:02:38.846469+09:00",
     "dish": "김치볶음밥",
