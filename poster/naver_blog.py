@@ -420,12 +420,17 @@ async def _type_in_editor(page: Page, text: str):
     for i, para in enumerate(paragraphs):
         lines = para.split("\n")
         for j, line in enumerate(lines):
-            stripped_line = line.strip()
+            raw_stripped = line.strip()
+            is_centered = raw_stripped.startswith("[가운데]")
+            stripped_line = raw_stripped[len("[가운데]"):].strip() if is_centered else raw_stripped
             if stripped_line:
                 # 인간적인 타이핑: 짧은 문장은 빠르게, 긴 문장은 느리게, 중간에 쉬는 구간
                 char_delay = random.randint(12, 35)
+                if is_centered:
+                    await page.keyboard.press("Control+e")  # 가운데 정렬
+                    await _delay(80, 150)
                 await page.keyboard.type(stripped_line, delay=char_delay)
-                
+
                 # URL 감지 시 네이버 에디터가 링크 카드로 렌더링하도록 3~4초간 대기
                 if stripped_line.startswith("http://") or stripped_line.startswith("https://"):
                     logger.info(f"URL 감지 → 링크 카드 생성 대기: {stripped_line[:40]}...")
@@ -447,10 +452,16 @@ async def _type_in_editor(page: Page, text: str):
                             logger.info("생 URL 텍스트 단락 제거 완료 (링크 카드만 유지)")
                     except Exception as _e:
                         logger.info(f"생 URL 텍스트 제거 스킵: {_e.__class__.__name__}")
+                    if is_centered:
+                        await page.keyboard.press("Control+l")  # 왼쪽 정렬 복귀
+                        await _delay(80, 150)
                 elif j < len(lines) - 1:
                     await _delay(80, 250)
             if j < len(lines) - 1 and not (stripped_line.startswith("http://") or stripped_line.startswith("https://")):
                 await page.keyboard.press("Enter")
+                if is_centered:
+                    await page.keyboard.press("Control+l")  # 왼쪽 정렬 복귀
+                    await _delay(80, 150)
         if i < len(paragraphs) - 1:
             await page.keyboard.press("Enter")
             await page.keyboard.press("Enter")

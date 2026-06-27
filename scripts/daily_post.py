@@ -115,14 +115,15 @@ def _append_shopping_guide(body: str, hints: list) -> str:
     return body
 
 
-def _append_internal_links(body: str, history: list, blog_category: str) -> str:
-    """과거 발행 성공한 글 중 현재 블로그 카테고리와 같은 글 1~2개를 본문 끝에 자동 연계"""
+def _append_internal_links(body: str, history: list, blog_category: str) -> tuple:
+    """과거 발행 성공한 글 중 현재 블로그 카테고리와 같은 글 1~2개를 본문 맨 끝에 자동 연계.
+    반환: (수정된_body, 추가_소제목_리스트)
+    """
     related = []
     for h in history:
         if h.get("status") != "posted" or not h.get("post_url") or not h.get("title"):
             continue
-        
-        # Determine the blog category of this history entry
+
         h_blog_cat = h.get("blog_category")
         if not h_blog_cat:
             kw_cat = h.get("category")
@@ -134,32 +135,22 @@ def _append_internal_links(body: str, history: list, blog_category: str) -> str:
                 h_blog_cat = "일상"
             else:
                 h_blog_cat = "알뜰 살림 꿀팁"
-                
+
         if h_blog_cat == blog_category:
             related.append(h)
             if len(related) >= 2:
                 break
 
     if not related:
-        return body
+        return body, []
 
-    # 생 URL을 각각 독립 단락(\n\n)으로 분리 → 네이버가 URL을 링크 카드로 깔끔히 변환하고
-    # 생 URL 텍스트는 남기지 않는다. 제목(👉 …) 텍스트는 카드에 이미 노출되므로 넣지 않는다.
-    links_text = "\n\n💡 함께 보면 좋은 살림 꿀팁!"
+    # 소제목 + 가운데 정렬 URL — 항상 본문 맨 끝에 추가 (마지막 사진 이후)
+    links_text = "\n\n함께 보면 좋은 글\n"
     for r in related:
-        links_text += f"\n\n{r['post_url']}"
+        links_text += f"\n[가운데] {r['post_url']}"
     links_text += "\n"
 
-    # [사진N] 중 가장 마지막 마커를 찾아서 그 바로 앞에 삽입
-    last_photo_match = list(re.finditer(r"\[사진\d+\]", body))
-    if last_photo_match:
-        last_match = last_photo_match[-1]
-        start_idx = last_match.start()
-        body = body[:start_idx] + links_text + "\n" + body[start_idx:]
-    else:
-        body = body + links_text
-
-    return body
+    return body + links_text, ["함께 보면 좋은 글"]
 
 
 def run():
@@ -321,7 +312,8 @@ def run():
             logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
 
         # 과거 관련 포스팅 링크 연계 (Action 3)
-        post["body"] = _append_internal_links(post["body"], history, blog_cat)
+        post["body"], extra_subs = _append_internal_links(post["body"], history, blog_cat)
+        post["subheadings"] = post.get("subheadings", []) + extra_subs
 
         # ── 5. 포스팅 ────────────────────────────────────────────────
         from poster.naver_blog import post_to_naver_blog
