@@ -2004,6 +2004,10 @@ async def _post(
         await _screenshot(write_page, "after_title")
 
         # ── 본문 입력 (소실 방지 최우선): 마커 제거한 전체 본문을 한 번에 안정 입력 ──
+        # [사진N] 마커가 문장 중간에 있으면 앵커가 잘려서 이미지가 문단 중간에 삽입되므로
+        # 마커를 항상 독립된 줄로 강제 정규화한다.
+        body = re.sub(r"([^\n])\[사진(\d+)\]", r"\1\n[사진\2]", body)
+        body = re.sub(r"\[사진(\d+)\]([^\n])", r"[사진\1]\n\2", body)
         _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
         marker_positions = _PHOTO_MARKER.findall(body)
         table_anchor_text = _get_preceding_text(body, "[표삽입]") if table_str else None
