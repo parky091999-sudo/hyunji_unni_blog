@@ -876,6 +876,74 @@ def _create_card_news(content: str) -> str | None:
         return None
 
 
+def create_health_header_card(title: str, keyword: str = "") -> str | None:
+    """건돌이 HEALTH 스타일의 다크 브랜드 헤더 카드 이미지 생성.
+    다크 네이비 배경, 상단 현지언니 HEALTH 브랜딩, 중앙 대형 토픽 텍스트."""
+    try:
+        width, height = 800, 450
+        bg = (22, 32, 48)          # 다크 네이비
+        accent = (52, 183, 163)    # 청록색 포인트
+        img = Image.new("RGB", (width, height), bg)
+        draw = ImageDraw.Draw(img)
+
+        # 상단/하단 액센트 라인
+        draw.rectangle([(0, 0), (width, 7)], fill=accent)
+        draw.rectangle([(0, height - 7), (width, height)], fill=accent)
+
+        # 브랜드 텍스트
+        brand_font = _load_card_font(26)
+        brand_text = "현지언니  H E A L T H"
+        try:
+            bw = draw.textbbox((0, 0), brand_text, font=brand_font)[2]
+        except AttributeError:
+            bw, _ = draw.textsize(brand_text, font=brand_font)
+        draw.text(((width - bw) // 2, 52), brand_text, font=brand_font, fill=accent)
+
+        # 구분선
+        draw.line([(width // 2 - 80, 100), (width // 2 + 80, 100)], fill=(70, 90, 115), width=1)
+
+        # 토픽 텍스트 (키워드 우선, 없으면 제목에서 추출)
+        display = keyword if keyword else title
+        if len(display) > 22:
+            display = display[:22]
+
+        title_font = _load_card_font(58)
+        t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
+        if len(t_lines) > 2:
+            title_font = _load_card_font(46)
+            t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
+
+        lh = int(title_font.size * 1.3) if hasattr(title_font, "size") else 70
+        total_h = len(t_lines) * lh
+        y = (height - total_h) // 2 + 15
+
+        for line in t_lines:
+            try:
+                lw = draw.textbbox((0, 0), line, font=title_font)[2]
+            except AttributeError:
+                lw, _ = draw.textsize(line, font=title_font)
+            draw.text(((width - lw) // 2, y), line, font=title_font, fill=(255, 255, 255))
+            y += lh
+
+        # 하단 서브텍스트
+        sub_font = _load_card_font(22)
+        sub_text = "건강 정보 총정리"
+        try:
+            sw = draw.textbbox((0, 0), sub_text, font=sub_font)[2]
+        except AttributeError:
+            sw, _ = draw.textsize(sub_text, font=sub_font)
+        draw.text(((width - sw) // 2, height - 50), sub_text, font=sub_font, fill=(140, 160, 185))
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.close()
+        img.save(tmp.name, "PNG")
+        logger.info(f"헬스 헤더 카드 생성: {display!r} → {tmp.name}")
+        return tmp.name
+    except Exception as e:
+        logger.warning(f"헬스 헤더 카드 생성 실패: {e}")
+        return None
+
+
 def _download_image_to_temp(url: str, label: str = None) -> str | None:
     """Pexels URL 다운로드 우선 → 실패 시 label로 카드뉴스 폴백."""
     # 1. Pexels 이미지 URL 다운로드 우선
