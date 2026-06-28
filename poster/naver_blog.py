@@ -876,13 +876,14 @@ def _create_card_news(content: str) -> str | None:
         return None
 
 
-def create_health_header_card(title: str, keyword: str = "") -> str | None:
-    """건돌이 HEALTH 스타일의 다크 브랜드 헤더 카드 이미지 생성.
-    다크 네이비 배경, 상단 현지언니 HEALTH 브랜딩, 중앙 대형 토픽 텍스트."""
+def create_health_header_card(title: str, keyword: str = "", category: str = "health") -> str | None:
+    """다크 브랜드 헤더 카드 이미지 생성.
+    category='health': 현지언니 HEALTH (청록), category='gov': 현지언니 정부혜택 (금색).
+    다크 네이비 배경, 상단 현지언니 브랜딩, 중앙 대형 토픽 텍스트."""
     try:
         width, height = 800, 450
         bg = (22, 32, 48)          # 다크 네이비
-        accent = (52, 183, 163)    # 청록색 포인트
+        accent = (52, 183, 163) if category == "health" else (212, 175, 55)  # 청록 or 금색
         img = Image.new("RGB", (width, height), bg)
         draw = ImageDraw.Draw(img)
 
@@ -892,7 +893,7 @@ def create_health_header_card(title: str, keyword: str = "") -> str | None:
 
         # 브랜드 텍스트
         brand_font = _load_card_font(26)
-        brand_text = "현지언니  H E A L T H"
+        brand_text = "현지언니  H E A L T H" if category == "health" else "현지언니  정부혜택  가이드"
         try:
             bw = draw.textbbox((0, 0), brand_text, font=brand_font)[2]
         except AttributeError:
@@ -927,7 +928,7 @@ def create_health_header_card(title: str, keyword: str = "") -> str | None:
 
         # 하단 서브텍스트
         sub_font = _load_card_font(22)
-        sub_text = "건강 정보 총정리"
+        sub_text = "건강 정보 총정리" if category == "health" else "정부지원 혜택 총정리"
         try:
             sw = draw.textbbox((0, 0), sub_text, font=sub_font)[2]
         except AttributeError:

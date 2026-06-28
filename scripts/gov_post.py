@@ -145,19 +145,34 @@ def run():
     images: list[dict] = []
     image_keywords = post.get("image_keywords", [])
     image_labels = post.get("image_labels", [])
-    if PEXELS_API_KEY and image_keywords:
+
+    # 브랜드 헤더 카드 (images[0] = [사진1])
+    try:
+        from poster.naver_blog import create_health_header_card
+        header_path = create_health_header_card(title=post["title"], keyword=keyword, category="gov")
+        if header_path:
+            images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
+            logger.info(f"정부지원 헤더 카드 생성 완료: {header_path}")
+    except Exception as e:
+        logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
+
+    # Pexels 이미지 수집 ([사진2]+ = images[1]+)
+    pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else image_keywords
+    pexels_labels = image_labels[1:] if len(image_labels) > 1 else image_labels
+    if PEXELS_API_KEY and pexels_keywords:
         try:
             from generator.image import get_post_images
-            images = get_post_images(
+            pexels_imgs = get_post_images(
                 keyword=keyword,
                 api_key=PEXELS_API_KEY,
-                count=len(image_keywords),
-                image_keywords=image_keywords,
+                count=len(pexels_keywords),
+                image_keywords=pexels_keywords,
             )
-            for idx, img in enumerate(images):
-                if idx < len(image_labels):
-                    img["label"] = image_labels[idx]
-            logger.info(f"Pexels 이미지 {len(images)}장 수집")
+            for idx, img in enumerate(pexels_imgs):
+                if idx < len(pexels_labels):
+                    img["label"] = pexels_labels[idx]
+            images.extend(pexels_imgs)
+            logger.info(f"Pexels 이미지 {len(pexels_imgs)}장 수집")
         except Exception as e:
             logger.warning(f"이미지 수집 실패 (무시): {e}")
 
