@@ -91,6 +91,39 @@ def _append_internal_links(body: str, history: list) -> tuple:
     return body + links_text, ["함께 보면 좋은 글"]
 
 
+def _center_body_lines(body: str) -> str:
+    """모든 텍스트 줄에 [가운데] 추가 (이미지 마커·URL·빈줄 제외)"""
+    lines = body.split("\n")
+    result = []
+    for line in lines:
+        s = line.strip()
+        if not s:
+            result.append(line)
+            continue
+        if (s.startswith("[가운데]")
+                or re.match(r"\[사진\d+\]", s)
+                or s.startswith("http://")
+                or s.startswith("https://")):
+            result.append(line)
+            continue
+        result.append("[가운데] " + s)
+    return "\n".join(result)
+
+
+def _extract_subheadings(body: str) -> list[str]:
+    """본문에서 [소제목] 줄의 항목명 추출 (인포그래픽용)"""
+    headings = []
+    for line in body.split("\n"):
+        s = line.strip()
+        if s.startswith("[소제목]"):
+            heading = s[len("[소제목]"):].strip()
+            # ①②③④⑤ 등 원형 번호 제거
+            heading = re.sub(r"^[①②③④⑤⑥⑦⑧⑨⑩]\s*", "", heading)
+            if heading:
+                headings.append(heading)
+    return headings
+
+
 def run():
     run_slot = os.environ.get("RUN_SLOT", datetime.now(KST).strftime("%H"))
     logger.info("=" * 60)
@@ -148,7 +181,12 @@ def run():
     image_keywords = post.get("image_keywords", [])
     image_labels = post.get("image_labels", [])
 
-    # 브랜드 헤더 카드 생성 (images[0] = [사진1] = 최상단 헤더)
+    # ── 3-phase 이미지 조립 ──
+    # images[0] = PIL 헤더 카드 ([사진1])
+    # images[1] = Gemini AI 인포그래픽 ([사진2])
+    # images[2+] = Pexels 소제목별 사진 ([사진3]+)
+
+    # Phase 1: 브랜드 헤더 카드 (images[0] = [사진1] = 최상단)
     try:
         from poster.naver_blog import create_health_header_card
         header_path = create_health_header_card(title=post["title"], keyword=keyword)
@@ -158,10 +196,32 @@ def run():
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
 
-    # Pexels 이미지 수집 ([사진2]+ = images[1]+)
-    # image_keywords[0]은 "health header" 자리이므로 [1:]부터만 Pexels 수집
-    pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else image_keywords
-    pexels_labels = image_labels[1:] if len(image_labels) > 1 else image_labels
+    # Phase 2: Gemini AI 인포그래픽 (images[1] = [사진2])
+    subheadings_for_infographic = _extract_subheadings(post.get("body", ""))
+    if subheadings_for_infographic and GOOGLE_API_KEY:
+        try:
+            from generator.image import generate_health_infographic
+            infographic_path = generate_health_infographic(
+                title=post["title"],
+                subheadings=subheadings_for_infographic,
+                api_key=GOOGLE_API_KEY,
+            )
+            if infographic_path:
+                images.append({"local_path": infographic_path, "url": "", "alt_text": f"{keyword} 인포그래픽", "label": "인포그래픽"})
+                logger.info(f"AI 인포그래픽 생성 완료: {infographic_path}")
+            else:
+                logger.warning("AI 인포그래픽 생성 실패 — [사진2] 슬롯 빈 자리로 진행")
+        except Exception as e:
+            logger.warning(f"AI 인포그래픽 생성 예외 (무시): {e}")
+
+    # Phase 3: Pexels 소제목별 사진 (images[2+] = [사진3]+)
+    # image_keywords[0]="health header", [1]="health infographic", [2:]부터 Pexels
+    pexels_keywords = image_keywords[2:] if len(image_keywords) > 2 else []
+    pexels_labels = image_labels[2:] if len(image_labels) > 2 else []
+    if not pexels_keywords:
+        # 폴백: [1:]부터라도 수집
+        pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else image_keywords
+        pexels_labels = image_labels[1:] if len(image_labels) > 1 else image_labels
     if PEXELS_API_KEY and pexels_keywords:
         try:
             from generator.image import get_post_images
@@ -182,6 +242,9 @@ def run():
     # 내부 링크 연계
     post["body"], extra_subs = _append_internal_links(post["body"], history)
     post["subheadings"] = post.get("subheadings", []) + extra_subs
+
+    # 전체 가운데 정렬 후처리
+    post["body"] = _center_body_lines(post["body"])
 
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog

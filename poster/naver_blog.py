@@ -424,12 +424,23 @@ async def _type_in_editor(page: Page, text: str):
             is_centered = raw_stripped.startswith("[가운데]")
             stripped_line = raw_stripped[len("[가운데]"):].strip() if is_centered else raw_stripped
             if stripped_line:
-                # 인간적인 타이핑: 짧은 문장은 빠르게, 긴 문장은 느리게, 중간에 쉬는 구간
                 char_delay = random.randint(12, 35)
                 if is_centered:
                     await page.keyboard.press("Control+e")  # 가운데 정렬
                     await _delay(80, 150)
-                await page.keyboard.type(stripped_line, delay=char_delay)
+                # **bold** 파싱: **텍스트** → Ctrl+B 토글
+                if "**" in stripped_line:
+                    parts = re.split(r"(\*\*[^*]+\*\*)", stripped_line)
+                    for part in parts:
+                        if part.startswith("**") and part.endswith("**"):
+                            inner = part[2:-2]
+                            await page.keyboard.press("Control+b")
+                            await page.keyboard.type(inner, delay=char_delay)
+                            await page.keyboard.press("Control+b")
+                        elif part:
+                            await page.keyboard.type(part, delay=char_delay)
+                else:
+                    await page.keyboard.type(stripped_line, delay=char_delay)
 
                 # URL 감지 시 네이버 에디터가 링크 카드로 렌더링하도록 3~4초간 대기
                 if stripped_line.startswith("http://") or stripped_line.startswith("https://"):

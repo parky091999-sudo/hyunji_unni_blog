@@ -262,3 +262,60 @@ def fetch_image_urls(keyword: str, count: int = 4, api_key: str = "") -> list[st
     """기존 인터페이스 호환용 래퍼"""
     images = get_post_images(keyword=keyword, api_key=api_key, count=count)
     return [img["url"] for img in images]
+
+
+def generate_health_infographic(title: str, subheadings: list[str], api_key: str) -> str | None:
+    """건강 포스팅 요약 인포그래픽 AI 생성 (Gemini 이미지 생성 API).
+    subheadings: 섹션 제목 목록 (최대 5개). 성공 시 로컬 PNG 경로, 실패 시 None."""
+    if not api_key or not title:
+        return None
+
+    n = min(len(subheadings), 5)
+    if n == 0:
+        return None
+
+    points = " / ".join([f"{i+1}. {sh}" for i, sh in enumerate(subheadings[:n])])
+    prompt = (
+        f"Create a vibrant Korean health infographic. "
+        f"Main title in Korean: '{title}'. "
+        f"Show exactly {n} health benefit sections with icons and Korean labels: {points}. "
+        f"Design: light pastel background, {n} colorful numbered circular badges, "
+        f"Korean text labels inside each badge, clean magazine-style layout, "
+        f"no watermarks, no English brand logos. "
+        f"Style: similar to Korean health blog summary card with numbered sections 1 to {n}."
+    )
+
+    def _save_png(data) -> str:
+        import base64
+        raw = base64.b64decode(data) if isinstance(data, str) else data
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.write(raw)
+        tmp.close()
+        return tmp.name
+
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key)
+        for model in ("gemini-2.0-flash-preview-image-generation", "gemini-3.1-flash-image", "gemini-2.5-flash-image"):
+            try:
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=[prompt],
+                    config=gtypes.GenerateContentConfig(response_modalities=["IMAGE"]),
+                )
+                for part in resp.parts:
+                    if getattr(part, "thought", False):
+                        continue
+                    inline = getattr(part, "inline_data", None)
+                    if inline is not None and getattr(inline, "data", None):
+                        path = _save_png(inline.data)
+                        logger.info(f"인포그래픽 AI 생성 성공({model}): {title[:30]} → {path}")
+                        return path
+            except Exception as e:
+                logger.info(f"인포그래픽 생성 실패({model}): {e.__class__.__name__}: {str(e)[:90]}")
+    except Exception as e:
+        logger.warning(f"인포그래픽 생성 모듈 오류: {e}")
+
+    logger.warning(f"인포그래픽 AI 생성 실패 — PIL 폴백 없음: {title[:30]}")
+    return None
