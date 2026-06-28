@@ -623,18 +623,21 @@ async def _style_paragraphs(
 def _get_preceding_text(body: str, marker_str: str) -> str:
     """
     body에서 marker_str 바로 이전에 나타나는 비어있지 않은 단락/라인 텍스트를 찾아 반환합니다.
+    [소제목] 줄은 스타일 변환 후 quotation 블록이 되어 텍스트 검색이 어려우므로 건너뜁니다.
     """
     pos = body.find(marker_str)
     if pos == -1:
         return ""
-    
+
     preceding_part = body[:pos]
     preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", preceding_part)
-    
+
     lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
-    if lines:
-        return lines[-1]
-    return ""
+    # [소제목] 줄 건너뛰고 그 이전 일반 텍스트 사용
+    for line in reversed(lines):
+        if not re.match(r"^\[소제목\]", line):
+            return line
+    return lines[-1] if lines else ""
 
 
 def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
@@ -706,49 +709,65 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
     target = await _get_editor_frame(page)
     try:
-        paras = target.locator(".se-section-text .se-text-paragraph")
-        cnt = await paras.count()
-        if cnt == 0:
-            await page.keyboard.press("Control+End")
-            await _delay(150, 300)
-            return False
-
-        best_idx = -1
         clean_anchor = anchor_text.strip()
-        
-        for i in range(cnt):
-            try:
-                p_text = (await paras.nth(i).inner_text()).strip()
-                if not p_text:
-                    continue
-                if p_text == clean_anchor:
-                    best_idx = i
-                    break
-                if clean_anchor in p_text or p_text in clean_anchor:
-                    best_idx = i
-            except Exception:
-                continue
 
-        if best_idx >= 0:
-            para = paras.nth(best_idx)
-            logger.info(f"텍스트 매칭 단락 발견 (인덱스 {best_idx}): {clean_anchor[:30]}...")
-            
+        # 1차: 일반 텍스트 단락 검색
+        # 2차: quotation 블록 포함 확장 검색 (소제목이 스타일 적용 후 quotation 블록이 되는 경우 대비)
+        SELECTORS = [
+            ".se-section-text .se-text-paragraph",
+            ".se-text-paragraph",
+            "[class*='se-quotation'] .se-text-paragraph",
+            "[class*='se-quotation-content']",
+            "[class*='se-paragraph']",
+        ]
+
+        best_loc = None
+        for sel in SELECTORS:
+            paras = target.locator(sel)
+            cnt = await paras.count()
+            if cnt == 0:
+                continue
+            for i in range(cnt):
+                try:
+                    p_text = (await paras.nth(i).inner_text()).strip()
+                    if not p_text:
+                        continue
+                    if p_text == clean_anchor:
+                        best_loc = paras.nth(i)
+                        break
+                    if clean_anchor in p_text or p_text in clean_anchor:
+                        best_loc = paras.nth(i)
+                except Exception:
+                    continue
+            if best_loc:
+                break
+
+        # 3차 폴백: Playwright get_by_text (CSS 클래스 무관 전체 텍스트 검색)
+        if best_loc is None and len(clean_anchor) >= 4:
+            try:
+                loc = target.get_by_text(clean_anchor, exact=False).first
+                if await loc.count():
+                    best_loc = loc
+                    logger.info(f"get_by_text 폴백 매칭: {clean_anchor[:30]}")
+            except Exception:
+                pass
+
+        if best_loc is not None:
+            logger.info(f"앵커 단락 발견: {clean_anchor[:40]}")
             clicked = False
             try:
-                box = await para.bounding_box()
+                box = await best_loc.bounding_box()
                 if box and box["width"] > 6 and box["height"] > 6:
-                    await para.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                    await best_loc.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
                     clicked = True
             except Exception as e:
                 logger.warning(f"단락 박스 클릭 실패: {e}")
-                
             if not clicked:
-                await para.click()
-                
+                await best_loc.click()
             await page.keyboard.press("End")
             await _delay(200, 400)
             return True
-            
+
         logger.warning(f"앵커 텍스트 매칭 단락을 찾지 못함: {clean_anchor[:40]}")
         await page.keyboard.press("Control+End")
         await _delay(150, 300)
@@ -914,10 +933,11 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
         # 구분선
         draw.line([(width // 2 - 80, 100), (width // 2 + 80, 100)], fill=(70, 90, 115), width=1)
 
-        # 토픽 텍스트 (키워드 우선, 없으면 제목에서 추출)
-        display = keyword if keyword else title
-        if len(display) > 22:
-            display = display[:22]
+        # 토픽 텍스트: 제목의 | 앞부분 사용, 없으면 keyword
+        topic = title.split("|")[0].strip() if title and "|" in title else title.strip()
+        display = topic if topic else keyword
+        if len(display) > 20:
+            display = display[:20]
 
         title_font = _load_card_font(58)
         t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
@@ -2174,14 +2194,9 @@ async def _post(
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
-                # 헤더 카드([사진1], img_idx=0)는 항상 문서 맨 위에 삽입
-                if img_idx == 0:
-                    await write_page.keyboard.press("Control+Home")
-                    await _delay(150, 300)
-                else:
-                    # anchor에서 [가운데] 접두사 제거 (에디터 실제 텍스트와 매칭)
-                    clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
-                    await _move_cursor_after_text(write_page, clean_anchor)
+                # anchor에서 [가운데] 접두사 제거 (에디터 실제 텍스트와 매칭)
+                clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
+                await _move_cursor_after_text(write_page, clean_anchor)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
                 if await _caret_in_table(write_page):
                     logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
