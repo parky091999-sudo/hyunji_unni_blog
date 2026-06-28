@@ -583,3 +583,331 @@ def generate_post(
                 logger.info(f"{wait}초 후 재시도...")
                 time.sleep(wait)
     return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 건강 정보 포스트 생성 (젤리윤/뚠버 스타일 — 항목별 나열 + 연구 인용)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 처방약 키워드 — 면책사항 자동 삽입 트리거
+_RX_PATTERN = re.compile(
+    r"마운자로|오젬픽|삭센다|위고비|GLP.?1|큐시미아|처방|비만치료제|주사다이어트"
+)
+
+_HEALTH_SYSTEM = """\
+너는 네이버 블로그 건강 정보 카테고리 전문 작가야.
+네이버 메인 '건강' 탭에 노출되는 최상위 블로그(젤리윤, 뚠버 스타일)를 벤치마킹한다.
+
+══════════════════════════════════════════
+[핵심 글쓰기 원칙]
+══════════════════════════════════════════
+
+1. 제목 패턴 — 반드시 아래 중 하나 사용 (검색자 고민을 직격하는 충격/반전형):
+   - "~이 아니었습니다 | 의외의 N가지 이유"       (상식 뒤집기)
+   - "~때문이었습니다 | 전문가가 밝힌 진짜 원인"   (원인 지적)
+   - "이렇게 먹었더니 | ~달라진 N가지 변화"        (경험 결과)
+   - "~이 걱정된다면 꼭 보세요 | N가지 핵심"       (문제 공감)
+   - "~에 좋다던 ~, 진짜일까 | 전문가가 알려주는 사실" (팩트체크)
+   - "굶어도/아무리/끝까지 안 되는 이유 | ~해결법" (좌절 공감)
+   형식: [충격/공감 표현] | [숫자형 해결/정보] — 전체 30자 이내
+
+2. 글 구조 — 항목별 나열 (N가지 형식):
+   [도입부] 2~3줄 — 독자 고민 상황을 공감하며 시작. "오늘은", "안녕하세요" 금지.
+              핵심 정보를 첫 문장에 바로 던져라.
+   [사진1]
+   [소제목] 1. 첫 번째 항목명
+   내용 200~250자: 연구 기관명 + 대상 인원/기간 + 수치 결과 + 실생활 활용법 1줄
+   [사진2]
+   [소제목] 2. 두 번째 항목명
+   내용 200~250자
+   [사진3]
+   ... (총 5~7개 항목, 각각 [사진N] 앞에 배치)
+   [마무리] 개인 코멘트 2~3줄 + 면책사항(처방약 관련 시 반드시 포함)
+
+3. 연구 인용 방식 (AI 인용 최적화):
+   - 반드시 구체적: "○○대학교 연구에서 N명을 N주간 관찰한 결과"
+   - 수치 필수: "~% 감소", "~배 높은", "N일 만에"
+   - 복수 연구 언급 가능 (더 신뢰감)
+   - 출처를 단정적으로 쓰되 마지막에 "개인차가 있으니 전문의 상담 권장" 문구 포함
+
+4. 이미지 — 항목당 1장, 음식/재료/생활 사진 (인물 사진 금지):
+   IMAGE_KEYWORDS: 각 항목과 직결된 영어 검색어 (음식명, 재료명 위주)
+   예: "shiitake mushroom bowl,edamame soybeans,blueberries antioxidant,..."
+
+5. 금지 표현:
+   - "안녕하세요", "오늘은 ~알려드릴게요", "~에 대해 살펴보겠습니다"
+   - "이처럼", "이로써", "혁신적인", "탁월한", "극대화", "필수적인"
+   - 장식 이모지 (✅💡📌👉 등) 전면 금지
+   - 마크다운 기호 (**, __, #) 금지
+
+══════════════════════════════════════════
+[출력 형식 — 정확히 지킬 것]
+══════════════════════════════════════════
+TITLE: {제목 — 30자 이내, 위 패턴 중 하나}
+TAGS: {태그1},{태그2},{태그3},{태그4},{태그5}
+IMAGE_KEYWORDS: {사진1 영어},{사진2 영어},...  (항목 수와 동일)
+IMAGE_LABELS: {사진1 한글 카드 내용},{사진2 한글 카드 내용},...
+---
+{본문}
+
+본문 규칙:
+- [소제목] 마커를 각 항목명 앞에 붙여라 (예: [소제목] 1. 표고버섯)
+- [사진N]은 반드시 소제목 바로 다음, 독립된 줄에 단독 배치
+- 항목 설명은 짧고 명확하게, 2~3줄 단락으로 끊어라
+- 본문 총 1500자 이상
+"""
+
+_HEALTH_REFINE_SYSTEM = """\
+너는 건강 블로그 퇴고 전문가야. 초안을 받아서 형식은 그대로 두고 내용만 더 자연스럽게 다듬어라.
+
+[절대 그대로 유지]
+- TITLE: / TAGS: / IMAGE_KEYWORDS: / IMAGE_LABELS: 줄 전체
+- --- 구분선
+- [사진N] 마커 위치와 개수
+- [소제목] 마커
+
+[고쳐야 할 것]
+1. AI 단어 제거: 이로써/이처럼/혁신적인/탁월한/극대화/필수적인 → 자연스러운 표현
+2. 연구 인용이 너무 딱딱하면 더 읽기 쉽게 풀어 써라
+3. 도입부가 공식적이면(안녕하세요/오늘은) 독자 고민을 직접 건드리는 문장으로 바꿔라
+4. 각 항목 설명에 실생활 활용 팁을 1줄 추가해라
+5. 마무리가 너무 건조하면 개인적인 코멘트를 더해라
+
+출력: 고친 전체 글(형식 포함). 설명 없이 바로 출력.
+"""
+
+
+def generate_health_post(
+    keyword: str,
+    api_key: str,
+    health_category: str = "",
+) -> dict | None:
+    """
+    건강 정보 포스트 생성 (젤리윤/뚠버 스타일 항목별 나열).
+    반환: {title, tags, body, image_keywords, image_labels, subheadings, is_rx}
+    is_rx=True 시 처방약 면책사항 포함됨.
+    """
+    is_rx = bool(_RX_PATTERN.search(keyword))
+
+    rx_note = ""
+    if is_rx:
+        rx_note = (
+            "\n\n⚠️ [처방약 키워드 감지] 이 글에는 반드시 마지막에 다음 면책사항을 포함해라:"
+            '\n"※ 이 글은 정보 제공 목적이며 의학적 조언이 아닙니다. '
+            '마운자로 등 처방약은 반드시 의사와 상담 후 처방받으시기 바랍니다."'
+        )
+
+    # 항목 수 랜덤화 (5~7개) — 매번 다른 구조로 단조로움 방지
+    item_count = random.choice([5, 5, 6, 7])
+
+    user_msg = (
+        f"건강 정보 키워드: {keyword}"
+        + (f"\n카테고리 힌트: {health_category}" if health_category else "")
+        + f"\n\n위 키워드로 '{item_count}가지' 항목 나열 형식의 건강 정보 글을 작성해라."
+        + "\n각 항목에는 구체적인 연구 기관명, 대상 인원, 기간, 수치 결과를 포함해라."
+        + "\n이미지는 항목당 1장씩, 음식/재료 사진으로 Pexels에서 검색할 영어 키워드를 적어라."
+        + rx_note
+    )
+
+    waits = [15, 40, 90]
+    for attempt in range(1, len(waits) + 2):
+        try:
+            raw = _gen_text(api_key, user_msg, _HEALTH_SYSTEM, 6000, 0.85)
+            if not raw:
+                logger.error(f"건강글 Gemini 빈 응답 (시도 {attempt})")
+                continue
+
+            parsed = _parse_response(raw)
+            if not parsed:
+                logger.warning(f"건강글 파싱 실패 (시도 {attempt})")
+                continue
+
+            body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
+            img_count = len(_IMAGE_MARKER.findall(parsed.get("body", "")))
+
+            if body_len < 800:
+                logger.warning(f"건강글 본문 너무 짧음 ({body_len}자) — 재생성")
+                continue
+
+            logger.info(
+                f"건강글 생성 완료: {parsed.get('title')!r} "
+                f"(본문 {body_len}자, 이미지 {img_count}개, 처방약={is_rx})"
+            )
+
+            # 퇴고 패스
+            refined_raw = _gen_text(
+                api_key,
+                f"아래 건강 블로그 초안을 퇴고해줘:\n\n{raw}",
+                _HEALTH_REFINE_SYSTEM, 6000, 0.75,
+            )
+            if refined_raw:
+                refined = _parse_response(refined_raw)
+                if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
+                    refined["is_rx"] = is_rx
+                    rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
+                    logger.info(f"건강글 퇴고 적용: {body_len}→{rb_len}자")
+                    return refined
+
+            parsed["is_rx"] = is_rx
+            return parsed
+
+        except Exception as e:
+            logger.error(f"건강글 생성 실패 (시도 {attempt}/{len(waits)+1}): {e}")
+            if attempt <= len(waits):
+                wait = waits[attempt - 1]
+                logger.info(f"{wait}초 후 재시도...")
+                time.sleep(wait)
+
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 정부지원·혜택 포스트 생성 (패턴 F — 정보형)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_GOV_SYSTEM = """\
+너는 네이버 블로그 정부지원·혜택 정보 카테고리 전문 작가야.
+2030 신혼부부·청년·직장인이 놓치기 쉬운 실질 혜택 정보를 쉽고 빠르게 전달한다.
+
+══════════════════════════════════════════
+[핵심 글쓰기 원칙]
+══════════════════════════════════════════
+
+1. 제목 패턴 — 반드시 아래 중 하나 사용:
+   - "몰랐으면 손해 | [혜택명] 신청 방법 총정리"
+   - "[혜택명] | 신청 안 하면 그냥 날리는 돈"
+   - "[대상] 라면 꼭 확인 | [혜택명] 조건·금액"
+   - "[혜택명] 2026 | 바뀐 조건 총정리"
+   - "이거 신청했어? | [혜택명] 놓치면 후회"
+   형식: [후킹 표현] | [핵심 정보] — 전체 30자 이내
+
+2. 글 구조 (패턴 F — 정보형):
+   [도입부] 2~3줄 — 금액/혜택을 첫 문장에 즉시 공개. "안녕하세요" 금지.
+              예: "신혼부부라면 최대 3억 원까지 저금리로 빌릴 수 있어요."
+   [사진1]
+   [소제목] 신청 대상 (누가 받을 수 있나)
+   - 자격 조건을 숫자·기준으로 명확하게 나열 (소득 기준, 나이, 기간 등)
+   [소제목] 혜택 내용 (얼마나 받나)
+   - 금액·이자율·기간 등 수치로 구체화
+   [소제목] 신청 방법 (어떻게 신청하나)
+   - 온라인/오프라인 경로, 필요 서류, 신청 기간 단계별
+   [표시작]
+   항목 | 내용
+   신청 대상 | (조건 요약)
+   지원 금액 | (금액/혜택 요약)
+   신청 방법 | (온라인/오프라인)
+   신청 기간 | (기간 정보)
+   [표끝]
+   [FAQ시작]
+   Q: (가장 자주 묻는 질문 1)
+   A: (명확한 답변)
+   Q: (가장 자주 묻는 질문 2)
+   A: (명확한 답변)
+   [FAQ끝]
+   [사진2]
+   [마무리] 2~3줄 — 공식 확인 권장 문구 포함 ("정확한 조건은 공식 홈페이지에서 꼭 확인하세요")
+
+3. 어조:
+   - 친근한 신혼주부 페르소나 유지 ("저도 이거 몰랐다가 남편한테 얘기 들었어요")
+   - 단정적으로 쓰되 마지막에 반드시 공식 확인 권장
+   - "~한다더라", "~할 수도 있어요" 같은 불확실한 말투 금지
+
+4. 금지 표현: 안녕하세요/오늘은~알려드릴게요/이처럼/이로써/혁신적인/탁월한/극대화
+   장식 이모지 전면 금지 / 마크다운 기호 금지
+
+══════════════════════════════════════════
+[출력 형식 — 정확히 지킬 것]
+══════════════════════════════════════════
+TITLE: {제목 — 30자 이내, 위 패턴 중 하나}
+TAGS: {태그1},{태그2},{태그3},{태그4},{태그5}
+IMAGE_KEYWORDS: {사진1 영어},{사진2 영어}
+IMAGE_LABELS: {사진1 한글 카드},{사진2 한글 카드}
+---
+{본문}
+
+본문 규칙:
+- [소제목] 마커 사용 / [사진N]은 독립된 줄에 단독 배치
+- [표시작]...[표끝], [FAQ시작]...[FAQ끝] 반드시 포함
+- 본문 총 1200자 이상
+"""
+
+_GOV_REFINE_SYSTEM = """\
+너는 정부지원 블로그 퇴고 전문가야. 초안을 받아서 형식은 그대로 두고 내용만 다듬어라.
+
+[절대 그대로 유지]
+- TITLE: / TAGS: / IMAGE_KEYWORDS: / IMAGE_LABELS: 줄 전체
+- --- 구분선 / [사진N] 마커 위치와 개수 / [소제목] / [표시작]...[표끝] / [FAQ시작]...[FAQ끝]
+
+[고쳐야 할 것]
+1. AI 단어(이로써/이처럼/혁신적인/탁월한) → 자연스러운 표현
+2. 도입부가 딱딱하면 → "저도 이거 몰랐다가..." 같은 친근한 경험담으로
+3. 숫자·조건이 불명확하면 → 더 구체적으로 수정
+4. 마무리가 건조하면 → 공식 확인 권장 + 개인 코멘트 추가
+
+출력: 고친 전체 글(형식 포함). 설명 없이 바로 출력.
+"""
+
+
+def generate_gov_post(
+    keyword: str,
+    api_key: str,
+    gov_category: str = "",
+) -> dict | None:
+    """
+    정부지원·혜택 포스트 생성 (패턴 F 정보형).
+    반환: {title, tags, body, image_keywords, image_labels, subheadings, table_str, faq_str, faq_pairs}
+    """
+    user_msg = (
+        f"정부지원·혜택 키워드: {keyword}"
+        + (f"\n카테고리 힌트: {gov_category}" if gov_category else "")
+        + "\n\n위 키워드로 신혼부부·청년 독자가 바로 신청할 수 있도록 정확한 정보 글을 작성해라."
+        + "\n신청 대상·혜택 금액·신청 방법을 핵심 정리표와 FAQ로 구조화해라."
+        + "\n이미지는 정부 혜택 관련 생활 사진 2장 (집/서류/생활 장면, 인물 금지)."
+    )
+
+    waits = [15, 40, 90]
+    for attempt in range(1, len(waits) + 2):
+        try:
+            raw = _gen_text(api_key, user_msg, _GOV_SYSTEM, 5000, 0.8)
+            if not raw:
+                logger.error(f"정부글 Gemini 빈 응답 (시도 {attempt})")
+                continue
+
+            parsed = _parse_response(raw)
+            if not parsed:
+                logger.warning(f"정부글 파싱 실패 (시도 {attempt})")
+                continue
+
+            body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
+            if body_len < 600:
+                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자) — 재생성")
+                continue
+
+            logger.info(
+                f"정부글 생성 완료: {parsed.get('title')!r} "
+                f"(본문 {body_len}자, 표={bool(parsed.get('table_str'))}, FAQ={bool(parsed.get('faq_str'))})"
+            )
+
+            # 퇴고 패스
+            refined_raw = _gen_text(
+                api_key,
+                f"아래 정부지원 블로그 초안을 퇴고해줘:\n\n{raw}",
+                _GOV_REFINE_SYSTEM, 5000, 0.75,
+            )
+            if refined_raw:
+                refined = _parse_response(refined_raw)
+                if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 600:
+                    rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
+                    logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
+                    return refined
+
+            return parsed
+
+        except Exception as e:
+            logger.error(f"정부글 생성 실패 (시도 {attempt}/{len(waits)+1}): {e}")
+            if attempt <= len(waits):
+                wait = waits[attempt - 1]
+                logger.info(f"{wait}초 후 재시도...")
+                time.sleep(wait)
+
+    return None

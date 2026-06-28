@@ -877,25 +877,29 @@ def _create_card_news(content: str) -> str | None:
 
 
 def _download_image_to_temp(url: str, label: str = None) -> str | None:
-    """이미지 URL → 임시 파일로 다운로드. label이 있으면 텍스트 카드뉴스 이미지를 자체 생성."""
+    """Pexels URL 다운로드 우선 → 실패 시 label로 카드뉴스 폴백."""
+    # 1. Pexels 이미지 URL 다운로드 우선
+    if url:
+        try:
+            import ssl
+            context = ssl._create_unverified_context()
+            suffix = ".jpg" if "jpg" in url.lower() else ".png"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, context=context, timeout=15) as resp:
+                tmp.write(resp.read())
+            tmp.close()
+            logger.info(f"Pexels 이미지 다운로드 완료: {tmp.name}")
+            return tmp.name
+        except Exception as e:
+            logger.warning(f"Pexels 이미지 다운로드 실패 (카드뉴스 폴백): {e}")
+
+    # 2. 폴백: label이 있으면 카드뉴스 자체 생성
     if label:
-        logger.info(f"카드뉴스 자체 생성 시작 (다운로드 안 함): '{label}'")
+        logger.info(f"카드뉴스 폴백 생성: '{label}'")
         return _create_card_news(label)
 
-    try:
-        import ssl
-        context = ssl._create_unverified_context()
-        suffix = ".jpg" if "jpg" in url.lower() else ".png"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, context=context, timeout=15) as resp:
-            tmp.write(resp.read())
-        tmp.close()
-        logger.info(f"이미지 다운로드 완료: {tmp.name}")
-        return tmp.name
-    except Exception as e:
-        logger.warning(f"이미지 다운로드 실패: {e}")
-        return None
+    return None
 
 
 async def _caret_in_table(page: Page) -> bool:
