@@ -283,6 +283,82 @@ def fetch_image_urls(keyword: str, count: int = 4, api_key: str = "") -> list[st
     return [img["url"] for img in images]
 
 
+def generate_recipe_step_image(
+    dish: str,
+    scene_desc: str,
+    step_desc: str,
+    api_key: str,
+    step_index: int = 0,
+) -> str | None:
+    """레시피 단계별 AI 이미지 생성.
+    scene_desc: 모든 이미지에 공통으로 적용되는 주방 배경 묘사 (일관성 anchor).
+    step_desc: 이 단계에서 보여줄 구체적인 조리 장면 묘사.
+    성공 시 로컬 PNG 경로, 실패 시 None."""
+    if not api_key or not step_desc:
+        return None
+
+    # scene_desc가 없으면 기본 한국 가정식 주방 묘사 사용
+    if not scene_desc:
+        scene_desc = (
+            "Cozy Korean home kitchen with cream-colored tile countertop. "
+            "Stainless steel frying pan on gas stove, wooden cutting board, "
+            "natural soft window light from the left side."
+        )
+
+    is_final = step_index == 0
+    if is_final:
+        prompt = (
+            f"{scene_desc} "
+            f"Beautiful finished Korean home-cooked dish '{dish}': {step_desc} "
+            f"Plated elegantly on white ceramic dish, garnished, appetizing and photorealistic. "
+            f"No people, no text, no watermarks. Top-down or 45-degree food photography angle."
+        )
+    else:
+        prompt = (
+            f"{scene_desc} "
+            f"Cooking step {step_index} for '{dish}': {step_desc} "
+            f"Show the key action of this step clearly. Same kitchen and cookware as the scene description. "
+            f"Photorealistic food photography, no people, no text, no watermarks. "
+            f"45-degree overhead angle, warm natural lighting."
+        )
+
+    def _save_png(data) -> str:
+        import base64
+        raw = base64.b64decode(data) if isinstance(data, str) else data
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_step{step_index}.png")
+        tmp.write(raw)
+        tmp.close()
+        return tmp.name
+
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key)
+        for model in ("gemini-3.1-flash-image", "gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"):
+            try:
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=[prompt],
+                    config=gtypes.GenerateContentConfig(response_modalities=["IMAGE"]),
+                )
+                for part in resp.parts:
+                    if getattr(part, "thought", False):
+                        continue
+                    inline = getattr(part, "inline_data", None)
+                    if inline is not None and getattr(inline, "data", None):
+                        path = _save_png(inline.data)
+                        label = "완성" if is_final else f"단계{step_index}"
+                        logger.info(f"레시피 {label} 이미지 생성 성공({model}): {path}")
+                        return path
+            except Exception as e:
+                logger.info(f"레시피 이미지({model}) 실패: {e.__class__.__name__}: {str(e)[:80]}")
+    except Exception as e:
+        logger.warning(f"레시피 이미지 생성 모듈 오류: {e}")
+
+    logger.warning(f"레시피 단계{step_index} 이미지 생성 실패: {dish}")
+    return None
+
+
 def generate_health_infographic(title: str, subheadings: list[str], api_key: str) -> str | None:
     """건강 포스팅 요약 인포그래픽 AI 생성 (Gemini 이미지 생성 API).
     subheadings: 섹션 제목 목록 (최대 5개). 성공 시 로컬 PNG 경로, 실패 시 None."""

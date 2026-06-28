@@ -223,47 +223,43 @@ def run():
     logger.info(f"메뉴: {dish} | 제목: {post['title']}")
     logger.info("===== 본문 전문 시작 =====\n" + post.get("body", "") + "\n===== 본문 전문 끝 =====")
 
-    # ── 2. 이미지 수집 (5장) ──
+    # ── 2. AI 이미지 생성 (완성사진 1장 + 단계별 4장) ──
+    # Pexels 대신 전부 Gemini AI 생성 — 같은 주방/도구/식재료로 일관성 유지
     images: list[dict] = []
-    image_keywords = post.get("image_keywords", [])
-    image_labels = post.get("image_labels", [])
-    if PEXELS_API_KEY:
-        try:
-            from generator.image import get_post_images
-            images = get_post_images(
-                keyword=dish or "korean home food",
-                api_key=PEXELS_API_KEY,
-                count=len(image_keywords) if image_keywords else 5,
-                category="cooking",
-                image_keywords=image_keywords if image_keywords else None,
-            )
-            # 각 이미지 객체에 한글 라벨 텍스트 매핑(2~5번은 요약 카드, 1번은 대표사진이라 아래에서 교체)
-            for idx, img in enumerate(images):
-                if idx < len(image_labels):
-                    img["label"] = image_labels[idx]
-            logger.info(f"이미지 수집 및 라벨 매핑 완료: {len(images)}장")
-        except Exception as e:
-            logger.warning(f"이미지 수집 실패 (무시): {e}")
-    else:
-        logger.info("PEXELS_API_KEY 없음 — 이미지 없이 진행")
+    img_key = os.environ.get("GEMINI_API_KEY") or GOOGLE_API_KEY
+    scene_desc = post.get("scene_desc", "")
+    step_images = post.get("step_images", [])
 
-    # ── 대표 이미지(사진1)는 실제 요리 사진을 AI로 생성 (Pexels는 한식 빈약) ──
-    # 이미지 생성은 과금 키가 필요 → GEMINI_API_KEY(현지씨 파이프라인과 동일 키) 우선, 없으면 GOOGLE_API_KEY.
-    try:
-        from generator.image import generate_dish_image
-        img_key = os.environ.get("GEMINI_API_KEY") or GOOGLE_API_KEY
-        ai_path = generate_dish_image(dish, img_key)
-        if ai_path:
-            rep = {"local_path": ai_path, "label": None, "alt_text": f"{dish} 완성 사진", "url": ""}
-            if images:
-                images[0] = rep   # 첫 사진을 실제 요리 대표컷으로 교체(카드 아님)
+    from generator.image import generate_recipe_step_image
+
+    # step_images[0] = 완성요리, step_images[1..] = 단계별
+    # [사진1] = 완성요리, [사진2~5] = 단계별
+    total_slots = 5
+    for i in range(total_slots):
+        step_desc = step_images[i] if i < len(step_images) else ""
+        if not step_desc and i == 0:
+            step_desc = f"beautifully plated {dish}, Korean home cooking style"
+        if not step_desc:
+            step_desc = f"cooking step {i} of {dish}"
+
+        try:
+            path = generate_recipe_step_image(
+                dish=dish,
+                scene_desc=scene_desc,
+                step_desc=step_desc,
+                api_key=img_key,
+                step_index=i,
+            )
+            label = "완성 요리" if i == 0 else f"단계 {i}"
+            if path:
+                images.append({"local_path": path, "url": "", "alt_text": f"{dish} {label}", "label": label})
+                logger.info(f"[사진{i+1}] AI 이미지 생성 완료: {label}")
             else:
-                images = [rep]
-            logger.info("대표 이미지(사진1)를 AI 생성 요리사진으로 설정")
-        else:
-            logger.info("AI 대표 이미지 미생성 — 기존 이미지/카드 유지")
-    except Exception as e:
-        logger.warning(f"대표 이미지 생성 단계 예외(무시): {e}")
+                logger.warning(f"[사진{i+1}] AI 이미지 생성 실패 — 슬롯 건너뜀")
+        except Exception as e:
+            logger.warning(f"[사진{i+1}] 이미지 생성 예외(무시): {e}")
+
+    logger.info(f"AI 이미지 총 {len(images)}장 생성 완료")
 
     # 쿠팡 우회 쇼핑 가이드 연계
     post["body"] = _append_shopping_guide(post["body"], post.get("coupang_hints"))
