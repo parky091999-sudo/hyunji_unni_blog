@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-06-28",
+    "timestamp": "2026-06-28T17:17:10.974929+09:00",
+    "run_slot": "17",
+    "keyword": "감기 빨리 낫는 방법",
+    "health_category": "생활건강&증상",
+    "blog_category": "건강, 다이어트",
+    "title": "감기 빨리 낫는 법 | 연구로 증명된 6가지",
+    "tags": [
+      "감기",
+      "감기 빨리 낫는 법",
+      "면역력",
+      "수분 섭취",
+      "숙면",
+      "비타민C"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329722164",
+    "images_count": 6,
+    "images_inserted": 6,
+    "is_rx": false
+  },
+  {
+    "date": "2026-06-28",
     "timestamp": "2026-06-28T16:49:25.255560+09:00",
     "run_slot": "16",
     "keyword": "탈모 원인 여성 탈모",
