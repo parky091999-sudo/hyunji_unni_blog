@@ -1,5 +1,78 @@
 [
   {
+    "date": "2026-06-28",
+    "timestamp": "2026-06-28T15:09:16.312814+09:00",
+    "keyword": "여름맞이 이불 세탁하고 코인빨래방 다녀옴",
+    "category": "신혼일상",
+    "category_name": "신혼일상",
+    "blog_category": "일상",
+    "title": "여름 이불 세탁 | 코인빨래방으로 해방된 주말",
+    "tags": [
+      "여름이불세탁",
+      "코인빨래방",
+      "신혼살림",
+      "주말루틴",
+      "살림팁"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329635397",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": false,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-28",
+    "timestamp": "2026-06-28T15:00:34.960251+09:00",
+    "keyword": "무드등 추천",
+    "category": "인테리어",
+    "category_name": "인테리어&소품",
+    "blog_category": "살림템 비교·추천",
+    "title": "무드등 추천 | 나만의 힐링 공간 만드는 법",
+    "tags": [
+      "무드등",
+      "침실무드등",
+      "인테리어소품",
+      "수면등추천",
+      "아늑한침실",
+      "조명추천"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329629604",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": false
+  },
+  {
+    "date": "2026-06-28",
+    "timestamp": "2026-06-28T14:53:00.327040+09:00",
+    "keyword": "청약 가점 계산 방법",
+    "category": "정보성",
+    "category_name": "생활정보",
+    "blog_category": "알뜰 살림 꿀팁",
+    "title": "청약 가점 계산 방법 | 내 점수 오차 없이 확인하고 당첨 전략 세우기",
+    "tags": [
+      "청약가점",
+      "청약가점계산",
+      "내집마련",
+      "청약당첨",
+      "부동산정보"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329624649",
+    "quality_score": 100,
+    "quality_pass": true,
+    "images_count": 2,
+    "images_inserted": 1,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
     "date": "2026-06-27",
     "timestamp": "2026-06-27T14:36:30.345858+09:00",
     "keyword": "신혼부부 식비 절약 냉장고 털기 일상",
