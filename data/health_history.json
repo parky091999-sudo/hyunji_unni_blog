@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-06-28",
+    "timestamp": "2026-06-28T21:03:00.987598+09:00",
+    "run_slot": "20",
+    "keyword": "피부 좋아지는 음식",
+    "health_category": "건강식품&영양",
+    "blog_category": "건강, 다이어트",
+    "title": "피부에 좋은 음식 6가지 | 연구로 증명된 효과",
+    "tags": [
+      "피부건강",
+      "피부관리",
+      "피부좋아지는음식",
+      "이너뷰티",
+      "건강식품",
+      "영양"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329866075",
+    "images_count": 6,
+    "images_inserted": 6,
+    "is_rx": false
+  },
+  {
+    "date": "2026-06-28",
     "timestamp": "2026-06-28T17:17:10.974929+09:00",
     "run_slot": "17",
     "keyword": "감기 빨리 낫는 방법",
