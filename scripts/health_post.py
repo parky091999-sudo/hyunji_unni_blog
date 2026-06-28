@@ -181,12 +181,9 @@ def run():
     image_keywords = post.get("image_keywords", [])
     image_labels = post.get("image_labels", [])
 
-    # ── 3-phase 이미지 조립 ──
-    # images[0] = PIL 헤더 카드 ([사진1])
-    # images[1] = Gemini AI 인포그래픽 ([사진2])
-    # images[2+] = Pexels 소제목별 사진 ([사진3]+)
+    # 이미지 조립: images[0]=헤더카드([사진1]), images[1+]=Pexels 소제목별([사진2+])
 
-    # Phase 1: 브랜드 헤더 카드 (images[0] = [사진1] = 최상단)
+    # 브랜드 헤더 카드 (images[0] = [사진1])
     try:
         from poster.naver_blog import create_health_header_card
         header_path = create_health_header_card(title=post["title"], keyword=keyword)
@@ -196,32 +193,10 @@ def run():
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
 
-    # Phase 2: Gemini AI 인포그래픽 (images[1] = [사진2])
-    subheadings_for_infographic = _extract_subheadings(post.get("body", ""))
-    if subheadings_for_infographic and GOOGLE_API_KEY:
-        try:
-            from generator.image import generate_health_infographic
-            infographic_path = generate_health_infographic(
-                title=post["title"],
-                subheadings=subheadings_for_infographic,
-                api_key=GOOGLE_API_KEY,
-            )
-            if infographic_path:
-                images.append({"local_path": infographic_path, "url": "", "alt_text": f"{keyword} 인포그래픽", "label": "인포그래픽"})
-                logger.info(f"AI 인포그래픽 생성 완료: {infographic_path}")
-            else:
-                logger.warning("AI 인포그래픽 생성 실패 — [사진2] 슬롯 빈 자리로 진행")
-        except Exception as e:
-            logger.warning(f"AI 인포그래픽 생성 예외 (무시): {e}")
-
-    # Phase 3: Pexels 소제목별 사진 (images[2+] = [사진3]+)
-    # image_keywords[0]="health header", [1]="health infographic", [2:]부터 Pexels
-    pexels_keywords = image_keywords[2:] if len(image_keywords) > 2 else []
-    pexels_labels = image_labels[2:] if len(image_labels) > 2 else []
-    if not pexels_keywords:
-        # 폴백: [1:]부터라도 수집
-        pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else image_keywords
-        pexels_labels = image_labels[1:] if len(image_labels) > 1 else image_labels
+    # Pexels 소제목별 사진 (images[1+] = [사진2+])
+    # image_keywords[0]="health header", [1:]부터 Pexels
+    pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else []
+    pexels_labels = image_labels[1:] if len(image_labels) > 1 else []
     if PEXELS_API_KEY and pexels_keywords:
         try:
             from generator.image import get_post_images

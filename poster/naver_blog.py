@@ -623,7 +623,6 @@ async def _style_paragraphs(
 def _get_preceding_text(body: str, marker_str: str) -> str:
     """
     body에서 marker_str 바로 이전에 나타나는 비어있지 않은 단락/라인 텍스트를 찾아 반환합니다.
-    [소제목] 줄은 스타일 변환 후 quotation 블록이 되어 텍스트 검색이 어려우므로 건너뜁니다.
     """
     pos = body.find(marker_str)
     if pos == -1:
@@ -633,11 +632,9 @@ def _get_preceding_text(body: str, marker_str: str) -> str:
     preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", preceding_part)
 
     lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
-    # [소제목] 줄 건너뛰고 그 이전 일반 텍스트 사용
-    for line in reversed(lines):
-        if not re.match(r"^\[소제목\]", line):
-            return line
-    return lines[-1] if lines else ""
+    if lines:
+        return lines[-1]
+    return ""
 
 
 def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
