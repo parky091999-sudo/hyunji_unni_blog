@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-06-28",
+    "timestamp": "2026-06-28T16:16:25.492620+09:00",
+    "run_slot": "16",
+    "keyword": "에너지바우처 신청 대상 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "2026 에너지바우처 | 취약계층 최대 71만원 지원 신청방법",
+    "tags": [
+      "에너지바우처",
+      "정부지원",
+      "취약계층지원",
+      "난방비지원",
+      "냉방비지원",
+      "복지로",
+      "주민센터"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224329680521",
+    "images_count": 4,
+    "images_inserted": 2,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-28",
     "timestamp": "2026-06-28T15:26:49.590480+09:00",
     "run_slot": "15",
     "keyword": "차상위계층 혜택 정리",
