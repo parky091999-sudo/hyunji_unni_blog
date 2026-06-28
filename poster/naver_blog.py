@@ -2174,7 +2174,14 @@ async def _post(
                 if not local_path:
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
-                await _move_cursor_after_text(write_page, anchor_text)
+                # 헤더 카드([사진1], img_idx=0)는 항상 문서 맨 위에 삽입
+                if img_idx == 0:
+                    await write_page.keyboard.press("Control+Home")
+                    await _delay(150, 300)
+                else:
+                    # anchor에서 [가운데] 접두사 제거 (에디터 실제 텍스트와 매칭)
+                    clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
+                    await _move_cursor_after_text(write_page, clean_anchor)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
                 if await _caret_in_table(write_page):
                     logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
@@ -2192,7 +2199,12 @@ async def _post(
                 if not ok:
                     logger.warning(f"이미지 {img_idx+1}번 1차 삽입 실패 — 재시도")
                     await _delay(1500, 2000)
-                    await _move_cursor_after_text(write_page, anchor_text)
+                    if img_idx == 0:
+                        await write_page.keyboard.press("Control+Home")
+                        await _delay(150, 300)
+                    else:
+                        clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
+                        await _move_cursor_after_text(write_page, clean_anchor)
                     await write_page.keyboard.press("Enter")
                     await _delay(200, 400)
                     ok = await _insert_image_file(

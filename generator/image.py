@@ -63,6 +63,25 @@ def generate_dish_image(dish: str, api_key: str) -> str | None:
 
 # 카테고리/키워드 → 영문 검색어 매핑
 _KO_TO_EN: list[tuple[re.Pattern, str]] = [
+    # ── 건강·의학 ──────────────────────────────────────────────────
+    (re.compile(r"탈모|두피|모발"), "hair care healthy scalp shampoo herbal no people"),
+    (re.compile(r"철분|빈혈|헤모글로빈|페리틴"), "iron rich food spinach lentils dark greens no people"),
+    (re.compile(r"호르몬|에스트로겐|갑상선|안드로겐"), "herbal wellness tea hormone health food no people"),
+    (re.compile(r"단백질|아미노산|케라틴"), "eggs nuts beans protein food ingredients no people"),
+    (re.compile(r"비타민|영양소|미네랄|영양제"), "colorful fresh vegetables vitamins supplements no people"),
+    (re.compile(r"다이어트|체중|비만|살빼"), "healthy meal prep salad vegetables weight loss no people"),
+    (re.compile(r"혈당|혈압|혈류|혈관"), "fresh berries vegetables heart health food no people"),
+    (re.compile(r"장|유산균|프로바이오틱|장내"), "yogurt fermented kimchi gut health food no people"),
+    (re.compile(r"피부|콜라겐|항산화|기미"), "fresh berries antioxidant fruits beautiful skin no people"),
+    (re.compile(r"면역|항체|염증"), "lemon ginger honey immune boost drink no people"),
+    (re.compile(r"뇌|인지|기억력|치매"), "omega fish walnuts brain health food no people"),
+    (re.compile(r"뼈|칼슘|골다공증|관절"), "dairy milk calcium rich food bones no people"),
+    (re.compile(r"심장|심혈관|동맥경화"), "heart healthy food salmon berries omega no people"),
+    (re.compile(r"눈|시력|루테인|안구"), "colorful carrots blueberries eye health food no people"),
+    (re.compile(r"스트레스|피로|수면|불면"), "calm relaxing herbal tea sleep wellness no people"),
+    (re.compile(r"식단|영양|건강식"), "healthy balanced meal colorful vegetables no people"),
+    (re.compile(r"운동|근육|근력|헬스"), "fitness exercise healthy lifestyle workout no people"),
+    # ── 살림/생활 ──────────────────────────────────────────────────
     (re.compile(r"욕실|화장실|샤워"), "clean bathroom interior aesthetic no people"),
     (re.compile(r"주방|부엌|싱크대"), "cozy kitchen counter still life aesthetic no people"),
     (re.compile(r"세탁기|빨래"), "laundry room aesthetic details no people"),
