@@ -1360,22 +1360,30 @@ async def _add_tags(page: Page, tags: list[str]):
     logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
-async def _delete_table_last_col(page: Page, cell_loc, pre_insert_cells: int, cur_grid_cols: int) -> bool:
-    """현재 표의 마지막 열(인덱스 cur_grid_cols-1)을 SE ONE 컨텍스트 메뉴로 삭제.
-    삭제 성공 시 True, 실패 시 False 반환(호출자가 중단 판단)."""
+async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
+    """현재(마지막) 표의 마지막 열을 SE ONE 컨텍스트 메뉴로 삭제.
+    JS로 직접 셀에 이벤트를 발생시켜 에디터 포커스 문제를 우회. 성공 시 True."""
     target = await _get_editor_frame(page)
-    last_col_idx = pre_insert_cells + (cur_grid_cols - 1)
     try:
-        if last_col_idx >= await cell_loc.count():
-            logger.warning(f"열 삭제: 셀 인덱스 {last_col_idx} 범위 초과")
-            return False
+        # ① JS로 마지막 표의 마지막 열 첫 셀에 포커스·click 이벤트 발생 (nth() 타임아웃 우회)
+        await target.evaluate("""() => {
+            const tables = document.querySelectorAll('.se-section-table table, .se-table table, table');
+            if (!tables.length) return;
+            const t = tables[tables.length - 1];
+            const firstRow = t.querySelector('tr');
+            if (!firstRow) return;
+            const cells = [...firstRow.querySelectorAll('td, th')];
+            const lastCell = cells[cells.length - 1];
+            if (!lastCell) return;
+            const editable = lastCell.querySelector('[contenteditable]') || lastCell;
+            editable.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+            editable.dispatchEvent(new MouseEvent('mouseup',   {bubbles: true}));
+            editable.dispatchEvent(new MouseEvent('click',     {bubbles: true}));
+            if (editable.focus) editable.focus();
+        }""")
+        await _delay(300, 500)
 
-        # ① 마지막 열 첫 셀 클릭
-        cell = cell_loc.nth(last_col_idx)
-        await cell.click()
-        await _delay(200, 350)
-
-        # ② 컨트롤바/data-name 버튼으로 시도
+        # ② 컨트롤바 / data-name 버튼 시도
         del_sels = [
             ".se-cell-controlbar-column .se-cell-delete-button",
             "[data-name='deleteCol']", "[data-name='delete-column']", "[data-name='columnDelete']",
@@ -1386,16 +1394,32 @@ async def _delete_table_last_col(page: Page, cell_loc, pre_insert_cells: int, cu
                 try:
                     btn = fr.locator(sel).first
                     if await btn.count() and await btn.is_visible(timeout=400):
-                        await btn.click(timeout=1200)
+                        await btn.click(timeout=1500)
                         await _delay(400, 600)
                         logger.info(f"열 삭제 성공(셀렉터): {sel}")
                         return True
                 except Exception:
                     continue
 
-        # ③ 우클릭 → 컨텍스트 메뉴 텍스트 검색 ("현재 열 삭제")
-        await cell.click(button='right')
-        await _delay(600, 900)
+        # ③ JS로 마지막 열 셀에 contextmenu 이벤트 발생
+        await target.evaluate("""() => {
+            const tables = document.querySelectorAll('.se-section-table table, .se-table table, table');
+            if (!tables.length) return;
+            const t = tables[tables.length - 1];
+            const firstRow = t.querySelector('tr');
+            if (!firstRow) return;
+            const cells = [...firstRow.querySelectorAll('td, th')];
+            const lastCell = cells[cells.length - 1];
+            if (!lastCell) return;
+            const r = lastCell.getBoundingClientRect();
+            lastCell.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true,
+                clientX: r.left + r.width / 2, clientY: r.top + r.height / 2
+            }));
+        }""")
+        await _delay(700, 1000)
+
+        # ④ 컨텍스트 메뉴에서 "열 삭제" 텍스트 버튼 탐색
         for fr in [target, page]:
             try:
                 items = fr.locator("button, [role='menuitem'], .se-popup-item, .se-context-menu-item")
@@ -1407,7 +1431,7 @@ async def _delete_table_last_col(page: Page, cell_loc, pre_insert_cells: int, cu
                             continue
                         txt = (await item.inner_text()).strip()
                         if '열 삭제' in txt:
-                            await item.click()
+                            await item.click(timeout=2000)
                             await _delay(400, 600)
                             logger.info(f"열 삭제 성공(컨텍스트): {txt}")
                             return True
@@ -1416,7 +1440,7 @@ async def _delete_table_last_col(page: Page, cell_loc, pre_insert_cells: int, cu
             except Exception:
                 continue
 
-        # ④ 실패 시 디버그 덤프
+        # ⑤ 실패 디버그 덤프
         try:
             visible = await target.evaluate("""() =>
                 [...document.querySelectorAll('button,[role=menuitem]')]
@@ -1632,7 +1656,7 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
             logger.info(f"초과 열 {cols_to_remove}개 삭제 시도 ({grid_cols}열 → {n_cols}열)")
             removed = 0
             for _ in range(cols_to_remove):
-                ok = await _delete_table_last_col(page, cell_loc, pre_insert_cells, grid_cols - removed)
+                ok = await _delete_table_last_col(page, grid_cols - removed)
                 if ok:
                     removed += 1
                 else:
