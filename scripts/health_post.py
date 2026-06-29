@@ -236,6 +236,7 @@ def run():
             draft=draft,
             allow_pw_login=os.environ.get("ALLOW_PW_LOGIN", "false").lower() == "true",
             table_str=post.get("table_str", ""),
+            table_strs=post.get("table_strs", []),
             subheadings=post.get("subheadings", []),
             faq_questions=post.get("faq_questions", []),
             category=BLOG_CATEGORY,

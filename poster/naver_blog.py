@@ -620,6 +620,13 @@ async def _style_paragraphs(
     logger.info(f"{label} 적용 {styled}/{len(items)}개 (크기 {size_label}, 굵게 {bold}, 타입 {style_type})")
 
 
+def _preceding_text_at(body: str, pos: int) -> str:
+    """body의 pos 위치 바로 이전 비어있지 않은 단락/라인 텍스트를 반환(마커 제거)."""
+    preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", body[:pos])
+    lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
+    return lines[-1] if lines else ""
+
+
 def _get_preceding_text(body: str, marker_str: str) -> str:
     """
     body에서 marker_str 바로 이전에 나타나는 비어있지 않은 단락/라인 텍스트를 찾아 반환합니다.
@@ -627,14 +634,7 @@ def _get_preceding_text(body: str, marker_str: str) -> str:
     pos = body.find(marker_str)
     if pos == -1:
         return ""
-
-    preceding_part = body[:pos]
-    preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", preceding_part)
-
-    lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
-    if lines:
-        return lines[-1]
-    return ""
+    return _preceding_text_at(body, pos)
 
 
 def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
@@ -2015,6 +2015,7 @@ async def _post(
     draft: bool = False,
     allow_pw_login: bool = False,
     table_str: str = "",
+    table_strs: list[str] | None = None,
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
     category: str = "",
@@ -2107,14 +2108,24 @@ async def _post(
         body = re.sub(r"\[사진(\d+)\]([^\n])", r"[사진\1]\n\2", body)
         _PHOTO_MARKER = re.compile(r"\[사진(\d+)\]")
         marker_positions = _PHOTO_MARKER.findall(body)
-        table_anchor_text = _get_preceding_text(body, "[표삽입]") if table_str else None
+        # 다중 표: 각 [표삽입] 위치별로 (표 데이터, 앵커 텍스트) 매핑
+        src_tables = list(table_strs) if table_strs else ([table_str] if table_str else [])
+        table_jobs: list[tuple[str, str]] = []
+        for i, m in enumerate(re.finditer(r"\[표삽입\]", body)):
+            data = src_tables[i] if i < len(src_tables) else None
+            if not data:
+                continue
+            table_jobs.append((data, _preceding_text_at(body, m.start())))
+        table_anchor_set = {a.strip() for _, a in table_jobs if a}
         faq_anchor_text = _get_preceding_text(body, "[FAQ삽입]") if faq_pairs else None
         body_text = _PHOTO_MARKER.sub("", body)
         body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거
         body_text = re.sub(r"\[FAQ삽입\]", "", body_text)  # FAQ 자리표시자 제거
+        # 혹시 본문에 남은 표/FAQ 마커 잔재 제거(대괄호 유무 무관) — 본문 노출 방지
+        body_text = re.sub(r"\[?\s*(?:표시작|표끝|FAQ시작|FAQ끝)\s*\]?", "", body_text)
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
 
-        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표앵커텍스트: {table_anchor_text[:20] if table_anchor_text else None}, FAQ앵커텍스트: {faq_anchor_text[:20] if faq_anchor_text else None})")
+        logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표 {len(table_jobs)}개, FAQ앵커텍스트: {faq_anchor_text[:20] if faq_anchor_text else None})")
         await _type_in_editor(write_page, body_text)
         await _delay(1000, 1500)
 
@@ -2144,13 +2155,13 @@ async def _post(
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
 
-        # ── 진짜 네이버 표 삽입 ──
-        if table_str and table_anchor_text is not None:
+        # ── 진짜 네이버 표 삽입 (다중 표 지원) ──
+        for ti, (tdata, tanchor) in enumerate(table_jobs):
             try:
-                ok_tbl = await _insert_table(write_page, table_str, table_anchor_text)
-                logger.info(f"표 삽입 {'성공' if ok_tbl else '실패(본문 유지)'}")
+                ok_tbl = await _insert_table(write_page, tdata, tanchor)
+                logger.info(f"표 {ti+1}/{len(table_jobs)} 삽입 {'성공' if ok_tbl else '실패(본문 유지)'} (앵커: {tanchor[:20]})")
             except Exception as e:
-                logger.warning(f"표 삽입 예외(계속): {e}")
+                logger.warning(f"표 {ti+1} 삽입 예외(계속): {e}")
 
         # ── FAQ 인용구 세트 삽입 (Q와 A를 하나의 인용구 상자에 개행으로 묶어 삽입) ──
         if faq_pairs and faq_anchor_text is not None:
@@ -2175,7 +2186,7 @@ async def _post(
                 # 표/FAQ 앵커와 같은 단락이면 이미지가 표(셀) 안에 끼어 들어가므로 건너뛴다.
                 # URL 줄(관련링크)에는 이미지를 붙이지 않는다(링크 카드 자리 침범 방지).
                 _a = (anchor_text or "").strip()
-                if table_anchor_text and _a == table_anchor_text.strip():
+                if _a and _a in table_anchor_set:
                     logger.warning(f"이미지 {img_idx+1}번 앵커가 표 앵커와 동일 — 표 안 삽입 방지로 건너뜀")
                     continue
                 if faq_anchor_text and _a == faq_anchor_text.strip():
@@ -2193,7 +2204,14 @@ async def _post(
                     continue
                 # anchor에서 [가운데] 접두사 제거 (에디터 실제 텍스트와 매칭)
                 clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
-                await _move_cursor_after_text(write_page, clean_anchor)
+                # 헤더카드/최상단 이미지(첫 이미지+로컬 생성 + 빈 앵커)는 빈앵커→문서끝(Control+End)이 아니라
+                # 문서 맨 위(Control+Home)에 삽입해야 한다(gov/health 브랜드 헤더카드가 글 맨 아래로 가던 버그).
+                is_header_top = img_idx == 0 and bool(images[img_idx].get("local_path")) and not clean_anchor.strip()
+                if is_header_top:
+                    await write_page.keyboard.press("Control+Home")
+                    await _delay(150, 300)
+                else:
+                    await _move_cursor_after_text(write_page, clean_anchor)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
                 if await _caret_in_table(write_page):
                     logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
@@ -2276,6 +2294,7 @@ def post_to_naver_blog(
     draft: bool = False,
     allow_pw_login: bool = False,
     table_str: str = "",
+    table_strs: list[str] | None = None,
     subheadings: list[str] | None = None,
     faq_questions: list[str] | None = None,
     category: str = "",
@@ -2294,6 +2313,7 @@ def post_to_naver_blog(
             draft=draft,
             allow_pw_login=allow_pw_login,
             table_str=table_str,
+            table_strs=table_strs,
             subheadings=subheadings,
             faq_questions=faq_questions,
             category=category,

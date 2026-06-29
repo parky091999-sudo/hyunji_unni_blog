@@ -311,25 +311,27 @@ def _parse_response(raw: str) -> dict | None:
         if body_start is not None:
             body_raw = "\n".join(lines[body_start:]).strip()
 
-            # 표 마커 추출
-            table_match = re.search(r"\[표시작\](.*?)\[표끝\]", body_raw, re.DOTALL)
-            result["table_str"] = table_match.group(1).strip() if table_match else ""
+            # 표/FAQ 마커 추출 — 대괄호는 선택적(모델이 [ ]를 누락하는 경우 대비),
+            # finditer로 모든 표/FAQ 블록을 처리(gov 글은 표 5개 이상).
+            _TABLE_RE = re.compile(r"\[?\s*표시작\s*\]?\s*(.*?)\s*\[?\s*표끝\s*\]?", re.DOTALL)
+            _FAQ_RE = re.compile(r"\[?\s*FAQ시작\s*\]?\s*(.*?)\s*\[?\s*FAQ끝\s*\]?", re.DOTALL)
 
-            # FAQ 마커 추출
-            faq_match = re.search(r"\[FAQ시작\](.*?)\[FAQ끝\]", body_raw, re.DOTALL)
-            result["faq_str"] = faq_match.group(1).strip() if faq_match else ""
-            result["faq_pairs"] = _parse_faq_pairs(result["faq_str"])
+            table_strs = [m.strip() for m in _TABLE_RE.findall(body_raw) if m.strip()]
+            result["table_strs"] = table_strs
+            result["table_str"] = table_strs[0] if table_strs else ""  # 하위호환(단일 표 기준 코드)
+
+            faq_strs = [m.strip() for m in _FAQ_RE.findall(body_raw) if m.strip()]
+            result["faq_str"] = faq_strs[0] if faq_strs else ""
+            result["faq_pairs"] = []
+            for fs in faq_strs:
+                result["faq_pairs"].extend(_parse_faq_pairs(fs))
 
             body = body_raw
-            # 표 마커 → [표삽입] 자리표시자 (poster가 진짜 네이버 표로 삽입). table_str로 데이터 전달.
-            if table_match:
-                body = body.replace(table_match.group(0), "\n[표삽입]\n")
-            # FAQ 마커 → [FAQ삽입] 자리표시자 (poster가 인용구 세트로 직접 삽입)
-            if faq_match:
-                body = body.replace(
-                    faq_match.group(0),
-                    "\n[FAQ삽입]\n",
-                )
+            # 표/FAQ 마커 → 자리표시자(블록마다 1개). poster가 table_strs/faq_pairs로 실제 삽입.
+            body = _TABLE_RE.sub("\n[표삽입]\n", body)
+            body = _FAQ_RE.sub("\n[FAQ삽입]\n", body)
+            # 짝이 안 맞아 남은 마커 잔재 제거(대괄호 유무 무관) — 본문에 ' 표끝' 등이 노출되지 않도록
+            body = re.sub(r"\[?\s*(?:표시작|표끝|FAQ시작|FAQ끝)\s*\]?", "", body)
             # 쿠팡 플레이스홀더 제거
             body = re.sub(r"\[쿠팡추천\d+\]", "", body)
             # 마크다운/기호 제거 (Gemini 후처리)
@@ -789,7 +791,7 @@ _GOV_SYSTEM = """\
 [글 구조 — 총정리 백과사전형]
 ══════════════════════════════════════════
 
-[사진1]                  ← 브랜드 헤더카드 (본문 최상단, 도입부보다 위)
+[사진1]                  ← 브랜드 헤더카드 (본문 최상단 단독 줄, 도입부보다 위에 배치)
 [도입부] 3~4줄
 - 첫 문장: 핵심 혜택과 금액을 즉시 공개 ("~라면 최대 OOO원을 지원받을 수 있습니다")
 - "안녕하세요" 절대 금지. 바로 본론.
@@ -813,8 +815,9 @@ _GOV_SYSTEM = """\
 대상 | 조건 | 비고
 ~ | ~ | ~
 [표끝]
+- 위 표 조건 중 하나라도 해당하면 신청 대상이니 꼼꼼히 확인하세요. (← 표 바로 뒤 한 줄 요약 문장)
 
-[사진2] — 서류/신청 관련 이미지
+[사진2] — 서류/신청 관련 이미지 (반드시 위 요약 문장 다음 줄에 단독 배치 — 표/마커 바로 뒤 금지)
 
 [소제목] 3. 지원 금액 (얼마나 받나)
 - 가구원 수별/조건별 금액 표로 정리
@@ -826,7 +829,9 @@ _GOV_SYSTEM = """\
 [소제목] 4. 신청 방법 (어떻게 신청하나)
 - 온라인/오프라인 경로
 - 필요 서류 목록
-- 단계별 신청 절차
+- 단계별 신청 절차를 문장으로 설명
+
+[사진3] — 신청/혜택 관련 이미지 (위 신청 절차 설명 문장 다음 줄에 단독 배치)
 
 [소제목] 5. 자주 묻는 질문
 [FAQ시작]
@@ -837,8 +842,6 @@ A: (명확하고 구체적인 답변)
 Q: (실제로 자주 묻는 핵심 질문 3)
 A: (명확하고 구체적인 답변)
 [FAQ끝]
-
-[사진3] — 혜택 수혜 관련 이미지
 
 [마무리] 3~4줄
 - 신청 전 최종 체크포인트 1~2가지
@@ -861,8 +864,8 @@ A: (명확하고 구체적인 답변)
 ══════════════════════════════════════════
 TITLE: {제목 — 실제 금액·수치 포함, 35자 이내}
 TAGS: {태그1},{태그2},{태그3},{태그4},{태그5},{태그6},{태그7}
-IMAGE_KEYWORDS: gov header,{사진2 영어 검색어},{사진3 영어 검색어},{사진4 영어 검색어}
-IMAGE_LABELS: {키워드 한글},{사진2 한글},{사진3 한글},{사진4 한글}
+IMAGE_KEYWORDS: gov header,{사진2 영어 검색어},{사진3 영어 검색어}
+IMAGE_LABELS: {키워드 한글},{사진2 한글},{사진3 한글}
 ---
 {본문 — [사진1] 첫 줄(헤더카드), 4000자 이상, 표 5개 이상, [소제목]/[사진N]/[표시작][표끝]/[FAQ시작][FAQ끝] 마커 모두 포함}
 """
