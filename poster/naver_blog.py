@@ -1369,6 +1369,13 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     n_cols = max(len(r) for r in rows)
     logger.info(f"표 삽입 시도: {n_rows}행 x {n_cols}열 (앵커: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
+    cell_sel = ".se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th"
+    # 삽입 전 셀 수 기록 — 다중 표 삽입 시 이전 표 셀을 건드리지 않도록 오프셋으로 사용
+    try:
+        pre_insert_cells = await target.locator(cell_sel).count()
+    except Exception:
+        pre_insert_cells = 0
+
     await _move_cursor_after_text(page, anchor_text)
     await _delay(300, 500)
 
@@ -1431,8 +1438,9 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     # 줄밀림이 안 생긴다(2열 데이터를 3열 표에 순차로 부으면 전부 어긋남).
     try:
         grid_cols = await target.evaluate("""() => {
-            const t = document.querySelector('.se-section-table table, .se-table table, table');
-            if (!t) return 0;
+            const tables = document.querySelectorAll('.se-section-table table, .se-table table, table');
+            if (!tables.length) return 0;
+            const t = tables[tables.length - 1];
             const row = t.querySelector('tr');
             return row ? row.children.length : 0;
         }""")
@@ -1444,7 +1452,6 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
         logger.info(f"표 실제 열 수={grid_cols} (데이터 열 수={n_cols}) — 실제 열 수에 맞춰 채움")
 
     # ── 표 편집 툴바 덤프 (디버그 — 행 추가 버튼 찾기) ──
-    cell_sel = ".se-cell [contenteditable], .se-table-cell [contenteditable], table td, table th"
     for fr in [target, page]:
         try:
             tbtns = await fr.evaluate("""() =>
@@ -1463,18 +1470,20 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     # 맨 마지막 버튼을 누르면 표 맨 아래에 행이 추가된다. (상단 .se-cell-controlbar-column
     # 의 add-button은 '열 추가'이므로 반드시 -row 컨트롤바로 한정해야 함.)
     try:
-        cur_cells = await target.locator(cell_sel).count()
+        _total = await target.locator(cell_sel).count()
+        cur_cells = _total - pre_insert_cells
     except Exception:
         cur_cells = 0
     cur_rows = (cur_cells // grid_cols) if grid_cols else 0
-    logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행")
+    logger.info(f"표 현재 셀 {cur_cells}개(≈{cur_rows}행), 목표 {n_rows}행 (오프셋={pre_insert_cells})")
 
     row_add_sel = ".se-cell-controlbar-row .se-cell-add-button"
     table_sel = ".se-section-table, table"
 
     async def _row_count() -> int:
         try:
-            return ((await target.locator(cell_sel).count()) // grid_cols) if grid_cols else 0
+            total = await target.locator(cell_sel).count()
+            return ((total - pre_insert_cells) // grid_cols) if grid_cols else 0
         except Exception:
             return 0
 
@@ -1517,14 +1526,16 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     flat = [c for row in rows for c in (row + [""] * grid_cols)[:grid_cols]]
     try:
         cell_loc = target.locator(cell_sel)
-        ccount = await cell_loc.count()
-        logger.info(f"표 셀 {ccount}개 (필요 {len(flat)})")
+        ccount_total = await cell_loc.count()
+        new_cell_count = ccount_total - pre_insert_cells
+        logger.info(f"표 셀 {new_cell_count}개 (필요 {len(flat)}, 오프셋={pre_insert_cells})")
         filled = 0
         for i, text in enumerate(flat):
-            if i >= ccount:
+            cell_idx = pre_insert_cells + i
+            if cell_idx >= ccount_total:
                 break
             try:
-                await cell_loc.nth(i).click()
+                await cell_loc.nth(cell_idx).click()
                 await _delay(90, 160)
                 await page.keyboard.press("Control+a")
                 if text:
@@ -1537,14 +1548,14 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
 
         # ── 첫 행(헤더)·첫 열(구분) 가운데정렬+볼드 패스 (채우기 완료 후 별도 처리) ──
         try:
-            await _format_table_header(page, cell_loc, ccount, grid_cols, n_rows)
+            await _format_table_header(page, cell_loc, new_cell_count, grid_cols, n_rows, pre_insert_cells)
         except Exception as e:
             logger.warning(f"표 헤더 서식 패스 예외(계속): {e}")
 
         await _screenshot(page, "after_table_fill", full_page=True)
         await page.keyboard.press("Escape")
         await page.keyboard.press("Control+End")
-        logger.info(f"표 셀 채우기 완료 (nth 방식, {filled}/{len(flat)})")
+        logger.info(f"표 셀 채우기 완료 (nth 방식, {filled}/{len(flat)}, 오프셋={pre_insert_cells})")
         return filled > 0
     except Exception as e:
         logger.warning(f"표 셀 채우기 실패: {e}")
@@ -1679,7 +1690,7 @@ async def _apply_align_center(page: Page) -> bool:
     return False
 
 
-async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int, n_rows: int):
+async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int, n_rows: int, cell_offset: int = 0):
     """표 첫 행(헤더)+첫 열(구분) 셀에 가운데정렬+볼드 적용. 첫 셀에서 서식 툴바를 진단 덤프해
     실제 굵게/가운데 버튼 셀렉터를 로그로 남긴다(블라인드 iteration 단축용)."""
     target = await _get_editor_frame(page)
@@ -1708,7 +1719,7 @@ async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int
     applied = 0
     for n, i in enumerate(idxs):
         try:
-            await cell_loc.nth(i).click()
+            await cell_loc.nth(cell_offset + i).click()
             await _delay(80, 140)
             await page.keyboard.press("Control+a")     # 셀 내용 선택
             await _delay(60, 110)

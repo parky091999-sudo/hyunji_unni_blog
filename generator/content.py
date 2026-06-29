@@ -276,6 +276,32 @@ def _parse_faq_pairs(faq_str: str) -> list[tuple[str, str]]:
 _IMAGE_MARKER = re.compile(r"\[사진\d+\]")
 
 
+def _strip_empty_table_cols(tstr: str) -> str:
+    """표 문자열에서 항상 비어있는 열을 제거 (Gemini 3열 → 2열 정규화)."""
+    rows_raw = []
+    for ln in tstr.splitlines():
+        ln = ln.strip()
+        if not ln or set(ln) <= {'-', '|', ' ', '+'}:
+            continue
+        parts = [c.strip() for c in ln.split('|')]
+        if parts and not parts[0]:
+            parts = parts[1:]
+        if parts and not parts[-1]:
+            parts = parts[:-1]
+        if parts:
+            rows_raw.append(parts)
+    if not rows_raw:
+        return tstr
+    n_cols = max(len(r) for r in rows_raw)
+    if n_cols <= 2:
+        return tstr
+    rows_pad = [r + [""] * (n_cols - len(r)) for r in rows_raw]
+    keep = [c for c in range(n_cols) if any(rows_pad[r][c] for r in range(len(rows_pad)))]
+    if len(keep) >= n_cols:
+        return tstr
+    return "\n".join(" | ".join(rows_pad[r][c] for c in keep) for r in range(len(rows_pad)))
+
+
 def _parse_response(raw: str) -> dict | None:
     try:
         lines = raw.strip().splitlines()
@@ -321,7 +347,8 @@ def _parse_response(raw: str) -> dict | None:
             summary_m = _SUMMARY_RE.search(body_raw)
             result["summary_text"] = summary_m.group(1).strip() if summary_m else ""
 
-            table_strs = [m.strip() for m in _TABLE_RE.findall(body_raw) if m.strip()]
+            table_strs_raw = [m.strip() for m in _TABLE_RE.findall(body_raw) if m.strip()]
+            table_strs = [_strip_empty_table_cols(t) for t in table_strs_raw]
             result["table_strs"] = table_strs
             result["table_str"] = table_strs[0] if table_strs else ""  # 하위호환(단일 표 기준 코드)
 
@@ -809,6 +836,7 @@ _GOV_SYSTEM = """\
 [요약끝]
 
 [소제목] 1. 한눈에 보는 핵심 정보
+(소제목 바로 아래 1~2문장으로 핵심 정보 요약. 예: "2026년 기준 지원 금액과 신청 조건을 한 표로 정리했습니다.")
 ★ [표시작] 마커를 반드시 정확히 써야 표가 블로그에 삽입됩니다 ★
 [표시작]
 항목 | 내용
@@ -821,10 +849,10 @@ _GOV_SYSTEM = """\
 [표끝]
 
 [소제목] 2. 신청 자격 — 내가 해당되나?
-(조건을 짧은 줄로 나열. 한 줄 = 조건 하나.)
-- 나이: ~세 이상 ~세 이하
-- 소득: 중위소득 ~% 이하
-- 기타: ~
+(조건을 짧은 줄로 나열. 한 줄 = 조건 하나. 반드시 · 가운뎃점 기호 사용, 대시(-) 금지.)
+· 나이: ~세 이상 ~세 이하
+· 소득: 중위소득 ~% 이하
+· 기타: ~
 
 [표시작]
 조건 | 기준
@@ -846,10 +874,10 @@ _GOV_SYSTEM = """\
 [표끝]
 
 [소제목] 4. 신청 방법 — [사이트명/기관]에서 N분이면 끝
-(단계별로 번호 목록. 2~4단계만.)
-1. ~
-2. ~
-3. ~
+(신청 단계를 짧은 줄로 정리. 반드시 ①②③ 기호 사용 — 1. 2. 3. 같은 숫자·점 조합 금지.)
+① ~
+② ~
+③ ~
 (필요 서류: 짧게 나열)
 
 [사진3]
@@ -879,6 +907,9 @@ A: (답변)
 7. 순수 정보형: 페르소나·감정 표현 없음. 팩트만
 8. 소제목은 결론/수치 포함 ("신청 방법" → "복지로에서 10분이면 끝")
 9. 금지: 안녕하세요/이처럼/이로써/혁신적인/탁월한/극대화/마크다운(**__#)/이모지
+10. 조건 나열 시 반드시 · (가운뎃점) 사용, 대시(-) 금지
+11. 신청 단계 번호는 ①②③ 기호 사용 — "1. 2. 3." 숫자+점 형식 금지 (소제목 번호와 혼동)
+12. 소제목은 반드시 [소제목] 마커로만 표시 — "2. 신혼부부 전용..." 같이 마커 없이 숫자로 시작하는 줄 완전 금지
 
 ══════════════════════════════════════════
 [출력 형식 — 반드시 정확히]
