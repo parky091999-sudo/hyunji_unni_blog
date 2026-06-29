@@ -741,19 +741,22 @@ def generate_health_post(
                 f"(본문 {body_len}자, 이미지 {img_count}개, 처방약={is_rx})"
             )
 
-            # 퇴고 패스
-            refined_raw = _gen_text(
-                api_key,
-                f"아래 건강 블로그 초안을 퇴고해줘:\n\n{raw}",
-                _HEALTH_REFINE_SYSTEM, 8192, 0.75,
-            )
-            if refined_raw:
-                refined = _parse_response(refined_raw)
-                if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
-                    refined["is_rx"] = is_rx
-                    rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
-                    logger.info(f"건강글 퇴고 적용: {body_len}→{rb_len}자")
-                    return refined
+            # 퇴고 패스 — 실패해도 원본 반환 (퇴고 503이 글 생성 실패로 오인되지 않도록)
+            try:
+                refined_raw = _gen_text(
+                    api_key,
+                    f"아래 건강 블로그 초안을 퇴고해줘:\n\n{raw}",
+                    _HEALTH_REFINE_SYSTEM, 8192, 0.75,
+                )
+                if refined_raw:
+                    refined = _parse_response(refined_raw)
+                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
+                        refined["is_rx"] = is_rx
+                        rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
+                        logger.info(f"건강글 퇴고 적용: {body_len}→{rb_len}자")
+                        return refined
+            except Exception as refine_err:
+                logger.warning(f"건강글 퇴고 실패 — 원본 사용: {refine_err}")
 
             parsed["is_rx"] = is_rx
             return parsed
@@ -934,18 +937,21 @@ def generate_gov_post(
                 f"(본문 {body_len}자, 표={bool(parsed.get('table_str'))}, FAQ={bool(parsed.get('faq_str'))})"
             )
 
-            # 퇴고 패스
-            refined_raw = _gen_text(
-                api_key,
-                f"아래 정부지원 블로그 초안을 퇴고해줘:\n\n{raw}",
-                _GOV_REFINE_SYSTEM, 8192, 0.75,
-            )
-            if refined_raw:
-                refined = _parse_response(refined_raw)
-                if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 2000:
-                    rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
-                    logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
-                    return refined
+            # 퇴고 패스 — 실패해도 원본 반환 (퇴고 503이 글 생성 실패로 오인되지 않도록)
+            try:
+                refined_raw = _gen_text(
+                    api_key,
+                    f"아래 정부지원 블로그 초안을 퇴고해줘:\n\n{raw}",
+                    _GOV_REFINE_SYSTEM, 8192, 0.75,
+                )
+                if refined_raw:
+                    refined = _parse_response(refined_raw)
+                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 2000:
+                        rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
+                        logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
+                        return refined
+            except Exception as refine_err:
+                logger.warning(f"정부글 퇴고 실패 — 원본 사용: {refine_err}")
 
             return parsed
 
