@@ -1361,29 +1361,26 @@ async def _add_tags(page: Page, tags: list[str]):
 
 
 async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
-    """현재(마지막) 표의 마지막 열을 SE ONE 컨텍스트 메뉴로 삭제.
-    JS로 직접 셀에 이벤트를 발생시켜 에디터 포커스 문제를 우회. 성공 시 True."""
+    """현재(마지막) 표의 마지막 열을 SE ONE 우클릭 컨텍스트 메뉴로 삭제.
+    bounding_box()로 페이지 좌표를 얻어 page.mouse.click(right) → isTrusted=true."""
     target = await _get_editor_frame(page)
     try:
-        # ① JS로 마지막 표의 마지막 열 첫 셀에 포커스·click 이벤트 발생 (nth() 타임아웃 우회)
-        await target.evaluate("""() => {
-            const tables = document.querySelectorAll('.se-section-table table, .se-table table, table');
-            if (!tables.length) return;
-            const t = tables[tables.length - 1];
-            const firstRow = t.querySelector('tr');
-            if (!firstRow) return;
-            const cells = [...firstRow.querySelectorAll('td, th')];
-            const lastCell = cells[cells.length - 1];
-            if (!lastCell) return;
-            const editable = lastCell.querySelector('[contenteditable]') || lastCell;
-            editable.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-            editable.dispatchEvent(new MouseEvent('mouseup',   {bubbles: true}));
-            editable.dispatchEvent(new MouseEvent('click',     {bubbles: true}));
-            if (editable.focus) editable.focus();
-        }""")
-        await _delay(300, 500)
+        # ① 마지막 표 첫 행의 마지막 셀 좌표를 bounding_box()로 취득 (액션어빌리티 체크 없음)
+        last_col_loc = target.locator(
+            "table tr:first-child td:last-child, table tr:first-child th:last-child"
+        )
+        bbox = await last_col_loc.last.bounding_box()
+        if not bbox:
+            logger.warning("열 삭제: 마지막 열 셀 bbox 취득 실패")
+            return False
+        cx, cy = bbox['x'] + bbox['width'] / 2, bbox['y'] + bbox['height'] / 2
+        logger.info(f"열 삭제 대상 좌표: ({cx:.0f}, {cy:.0f})")
 
-        # ② 컨트롤바 / data-name 버튼 시도
+        # ② 컨트롤바 / data-name 버튼 먼저 시도 (셀 클릭 후 나타나는 경우)
+        await page.mouse.move(cx, cy)
+        await _delay(100, 200)
+        await page.mouse.click(cx, cy)
+        await _delay(300, 500)
         del_sels = [
             ".se-cell-controlbar-column .se-cell-delete-button",
             "[data-name='deleteCol']", "[data-name='delete-column']", "[data-name='columnDelete']",
@@ -1401,25 +1398,10 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
                 except Exception:
                     continue
 
-        # ③ JS로 마지막 열 셀에 contextmenu 이벤트 발생
-        await target.evaluate("""() => {
-            const tables = document.querySelectorAll('.se-section-table table, .se-table table, table');
-            if (!tables.length) return;
-            const t = tables[tables.length - 1];
-            const firstRow = t.querySelector('tr');
-            if (!firstRow) return;
-            const cells = [...firstRow.querySelectorAll('td, th')];
-            const lastCell = cells[cells.length - 1];
-            if (!lastCell) return;
-            const r = lastCell.getBoundingClientRect();
-            lastCell.dispatchEvent(new MouseEvent('contextmenu', {
-                bubbles: true, cancelable: true,
-                clientX: r.left + r.width / 2, clientY: r.top + r.height / 2
-            }));
-        }""")
+        # ③ page.mouse 우클릭 (isTrusted=true) → SE ONE 컨텍스트 메뉴 트리거
+        await page.mouse.click(cx, cy, button='right')
         await _delay(700, 1000)
 
-        # ④ 컨텍스트 메뉴에서 "열 삭제" 텍스트 버튼 탐색
         for fr in [target, page]:
             try:
                 items = fr.locator("button, [role='menuitem'], .se-popup-item, .se-context-menu-item")
@@ -1433,14 +1415,14 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
                         if '열 삭제' in txt:
                             await item.click(timeout=2000)
                             await _delay(400, 600)
-                            logger.info(f"열 삭제 성공(컨텍스트): {txt}")
+                            logger.info(f"열 삭제 성공(우클릭): {txt}")
                             return True
                     except Exception:
                         continue
             except Exception:
                 continue
 
-        # ⑤ 실패 디버그 덤프
+        # ④ 실패 디버그 덤프
         try:
             visible = await target.evaluate("""() =>
                 [...document.querySelectorAll('button,[role=menuitem]')]
