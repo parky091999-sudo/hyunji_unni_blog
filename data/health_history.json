@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-06-29",
+    "timestamp": "2026-06-29T19:17:39.486454+09:00",
+    "run_slot": "19",
+    "keyword": "비타민D 부족 증상",
+    "health_category": "건강식품&영양",
+    "blog_category": "건강, 다이어트",
+    "title": "만성피로? | 비타민D 결핍 의외의 5가지",
+    "tags": [
+      "비타민D",
+      "비타민D부족",
+      "만성피로",
+      "뼈건강",
+      "면역력",
+      "탈모"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224330913076",
+    "images_count": 6,
+    "images_inserted": 6,
+    "is_rx": false
+  },
+  {
+    "date": "2026-06-29",
     "timestamp": "2026-06-29T13:09:04.573042+09:00",
     "run_slot": "12",
     "keyword": "2주 만에 3kg 빼는 식단",
