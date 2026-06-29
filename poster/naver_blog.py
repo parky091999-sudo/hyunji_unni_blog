@@ -421,6 +421,10 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             raw_stripped = line.strip()
+            # [구분선] 마커: 소제목 앞 구분선 삽입 후 다음 줄로
+            if raw_stripped == "[구분선]":
+                await _insert_divider(page)
+                continue
             is_centered = raw_stripped.startswith("[가운데]")
             stripped_line = raw_stripped[len("[가운데]"):].strip() if is_centered else raw_stripped
             if stripped_line:
@@ -622,7 +626,7 @@ async def _style_paragraphs(
 
 def _preceding_text_at(body: str, pos: int) -> str:
     """body의 pos 위치 바로 이전 비어있지 않은 단락/라인 텍스트를 반환(마커 제거)."""
-    preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]", "", body[:pos])
+    preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]|\[요약삽입\]|\[구분선\]", "", body[:pos])
     lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
     return lines[-1] if lines else ""
 
@@ -1090,6 +1094,40 @@ async def _click_photo_button(page: Page) -> bool:
         except Exception:
             continue
     return False
+
+
+async def _insert_divider(page: Page) -> bool:
+    """SE ONE 에디터에 구분선(가로줄) 삽입. 툴바 버튼 → 텍스트 폴백 순으로 시도."""
+    target = await _get_editor_frame(page)
+    try:
+        # SE ONE 툴바의 구분선 버튼 — 에디터 버전마다 셀렉터가 다를 수 있으므로 다중 시도
+        for sel in [
+            "button[data-name='horizontalLine']",
+            "button[data-name='line']",
+            "button[title='구분선']",
+            "button[aria-label='구분선']",
+            ".se-toolbar-item-horizontalLine button",
+            "[data-log-actionid='divider']",
+        ]:
+            try:
+                btn = target.locator(sel).first
+                if await btn.count() and await btn.is_visible(timeout=600):
+                    await btn.click(timeout=1500)
+                    await _delay(300, 500)
+                    logger.info(f"구분선 삽입(툴바): {sel}")
+                    return True
+            except Exception:
+                continue
+
+        # 폴백: box-drawing character로 시각적 구분선 삽입
+        await page.keyboard.type("─" * 28, delay=5)
+        await page.keyboard.press("Enter")
+        await _delay(100, 200)
+        logger.info("구분선 삽입(텍스트 폴백)")
+        return True
+    except Exception as e:
+        logger.warning(f"구분선 삽입 실패: {e}")
+        return False
 
 
 async def _fill_image_caption(page: Page, alt_text: str) -> bool:
@@ -1738,6 +1776,33 @@ async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
     return False
 
 
+async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str) -> bool:
+    """도입부 뒤 앵커 위치에 핵심 요약 버티컬라인 인용구 블록 삽입"""
+    if not summary_text:
+        return False
+    try:
+        if anchor_text:
+            await _move_cursor_after_text(page, anchor_text)
+        else:
+            await page.keyboard.press("Control+Home")
+            await _delay(150, 300)
+        await page.keyboard.press("Enter")
+        await _delay(300, 500)
+        ok = await _apply_quotation(page, quote_type="버티컬 라인")
+        if ok:
+            await page.keyboard.type(summary_text, delay=random.randint(10, 20))
+            await _delay(400, 600)
+            await page.keyboard.press("Escape")
+            await _delay(200, 350)
+            await page.keyboard.press("Control+End")
+            logger.info(f"요약 블록 삽입 성공 (앵커: {anchor_text[:25] if anchor_text else '없음'})")
+            return True
+        logger.warning("인용구 적용 실패로 요약 블록 미삽입")
+    except Exception as e:
+        logger.warning(f"요약 블록 삽입 실패(계속): {e}")
+    return False
+
+
 async def _simulate_human_review(page: Page):
     """실제 인간이 작성한 글을 다시 위아래로 훑어보며 마우스를 움직이는 제스처를 시뮬레이션"""
     logger.info("휴먼 검토 제스처 시뮬레이션 시작...")
@@ -2118,11 +2183,16 @@ async def _post(
             table_jobs.append((data, _preceding_text_at(body, m.start())))
         table_anchor_set = {a.strip() for _, a in table_jobs if a}
         faq_anchor_text = _get_preceding_text(body, "[FAQ삽입]") if faq_pairs else None
+        # 요약 블록 앵커: [요약삽입] 직전 텍스트 (도입부 마지막 줄)
+        summary_m = re.search(r"\[요약삽입\]", body)
+        summary_anchor_text = _preceding_text_at(body, summary_m.start()) if summary_m and summary_text else None
         body_text = _PHOTO_MARKER.sub("", body)
         body_text = re.sub(r"\[표삽입\]", "", body_text)  # 표 자리표시자 제거
         body_text = re.sub(r"\[FAQ삽입\]", "", body_text)  # FAQ 자리표시자 제거
+        body_text = re.sub(r"\[요약삽입\]", "", body_text)  # 요약 자리표시자 제거
+        # ※ [구분선]은 _type_in_editor가 처리하므로 body_text에 남겨둬야 함
         # 혹시 본문에 남은 표/FAQ 마커 잔재 제거(대괄호 유무 무관) — 본문 노출 방지
-        body_text = re.sub(r"\[?\s*(?:표시작|표끝|FAQ시작|FAQ끝)\s*\]?", "", body_text)
+        body_text = re.sub(r"\[?\s*(?:표시작|표끝|FAQ시작|FAQ끝|요약시작|요약끝)\s*\]?", "", body_text)
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
 
         logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표 {len(table_jobs)}개, FAQ앵커텍스트: {faq_anchor_text[:20] if faq_anchor_text else None})")
@@ -2170,6 +2240,14 @@ async def _post(
                 logger.info(f"FAQ 인용구 세트 삽입 {'성공' if ok_faq else '실패(본문 유지)'}")
             except Exception as e:
                 logger.warning(f"FAQ 인용구 세트 삽입 예외(계속): {e}")
+
+        # ── 핵심 요약 버티컬라인 블록 삽입 (도입부 바로 뒤) ──
+        if summary_text and summary_anchor_text is not None:
+            try:
+                ok_summary = await _insert_summary_block(write_page, summary_text, summary_anchor_text)
+                logger.info(f"요약 블록 삽입 {'성공' if ok_summary else '실패(본문 유지)'}")
+            except Exception as e:
+                logger.warning(f"요약 블록 삽입 예외(계속): {e}")
 
         # ── 이미지 삽입 (best-effort): 단락 앵커 위치에 삽입, 실패해도 본문 유지 ──
         images_inserted = 0
@@ -2219,10 +2297,11 @@ async def _post(
                 # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 이미지 삽입
                 await write_page.keyboard.press("Enter")
                 await _delay(200, 400)
+                img_caption = images[img_idx].get("label") or images[img_idx].get("alt_text", "")
                 ok = await _insert_image_file(
                     write_page,
                     local_path=local_path,
-                    alt_text=images[img_idx].get("alt_text", ""),
+                    alt_text=img_caption,
                 )
                 # 첫 이미지 등 간헐 실패 대비: 1회 재시도 (사진 팝업/에디터 워밍업 지연으로
                 # 첫 삽입만 카운트 검증 전에 실패하던 케이스를 잡는다. 후속 이미지는 동일 경로로 성공)
@@ -2240,7 +2319,7 @@ async def _post(
                     ok = await _insert_image_file(
                         write_page,
                         local_path=local_path,
-                        alt_text=images[img_idx].get("alt_text", ""),
+                        alt_text=img_caption,
                     )
                 if ok:
                     images_inserted += 1
@@ -2255,7 +2334,7 @@ async def _post(
                 if not local_path:
                     continue
                 await _move_cursor_after_text(write_page, "")
-                if await _insert_image_file(write_page, local_path=local_path, alt_text=img.get("alt_text", "")):
+                if await _insert_image_file(write_page, local_path=local_path, alt_text=img.get("label") or img.get("alt_text", "")):
                     images_inserted += 1
                 await _delay(500, 900)
 
@@ -2299,6 +2378,7 @@ def post_to_naver_blog(
     faq_questions: list[str] | None = None,
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
+    summary_text: str = "",
 ) -> dict | None:
     return asyncio.run(
         _post(
@@ -2318,5 +2398,6 @@ def post_to_naver_blog(
             faq_questions=faq_questions,
             category=category,
             faq_pairs=faq_pairs,
+            summary_text=summary_text,
         )
     )

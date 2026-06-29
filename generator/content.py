@@ -316,6 +316,11 @@ def _parse_response(raw: str) -> dict | None:
             _TABLE_RE = re.compile(r"\[?\s*표시작\s*\]?\s*(.*?)\s*\[?\s*표끝\s*\]?", re.DOTALL)
             _FAQ_RE = re.compile(r"\[?\s*FAQ시작\s*\]?\s*(.*?)\s*\[?\s*FAQ끝\s*\]?", re.DOTALL)
 
+            # 핵심 요약 블록 추출 → poster가 버티컬라인 인용구로 삽입
+            _SUMMARY_RE = re.compile(r"\[?요약시작\]?\s*(.*?)\s*\[?요약끝\]?", re.DOTALL)
+            summary_m = _SUMMARY_RE.search(body_raw)
+            result["summary_text"] = summary_m.group(1).strip() if summary_m else ""
+
             table_strs = [m.strip() for m in _TABLE_RE.findall(body_raw) if m.strip()]
             result["table_strs"] = table_strs
             result["table_str"] = table_strs[0] if table_strs else ""  # 하위호환(단일 표 기준 코드)
@@ -327,7 +332,8 @@ def _parse_response(raw: str) -> dict | None:
                 result["faq_pairs"].extend(_parse_faq_pairs(fs))
 
             body = body_raw
-            # 표/FAQ 마커 → 자리표시자(블록마다 1개). poster가 table_strs/faq_pairs로 실제 삽입.
+            # 요약/표/FAQ 마커 → 자리표시자. poster가 실제 컴포넌트로 교체.
+            body = _SUMMARY_RE.sub("\n[요약삽입]\n", body)
             body = _TABLE_RE.sub("\n[표삽입]\n", body)
             body = _FAQ_RE.sub("\n[FAQ삽입]\n", body)
             # 짝이 안 맞아 남은 마커 잔재 제거(대괄호 유무 무관) — 본문에 ' 표끝' 등이 노출되지 않도록
@@ -341,11 +347,12 @@ def _parse_response(raw: str) -> dict | None:
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)
             body = re.sub(r"[✅💡🛒📌👉🧹🥄💰📦]\s*", "", body)
-            # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤 마커만 제거
+            # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤
+            # 마커를 [구분선]\n으로 교체 → poster가 소제목 앞에 가로 구분선 자동 삽입
             result["subheadings"] = [
                 s.strip() for s in re.findall(r"^\[소제목\]\s*(.+)$", body, flags=re.MULTILINE) if s.strip()
             ]
-            body = re.sub(r"^\[소제목\]\s*", "", body, flags=re.MULTILINE)
+            body = re.sub(r"^\[소제목\]\s*", "[구분선]\n", body, flags=re.MULTILINE)
             # FAQ 스타일링: '자주 묻는 질문' 머리말은 소제목 처리
             if result.get("faq_str"):
                 result["faq_questions"] = _faq_questions(result["faq_str"])
@@ -795,6 +802,12 @@ _GOV_SYSTEM = """\
 (도입부 2~3줄. 첫 문장에 핵심 금액과 대상 즉시 공개. "안녕하세요" 절대 금지.)
 (예: "신혼부부라면 최대 300만원을 지원받을 수 있습니다. 2026년 기준 조건과 신청 방법을 한 번에 정리했습니다.")
 
+[요약시작]
+✔ 지원 금액: (최대 금액 한 줄)
+✔ 신청 대상: (나이·소득 조건 한 줄)
+✔ 신청 방법: (온라인/오프라인 경로 한 줄)
+[요약끝]
+
 [소제목] 1. 한눈에 보는 핵심 정보
 ★ [표시작] 마커를 반드시 정확히 써야 표가 블로그에 삽입됩니다 ★
 [표시작]
@@ -879,6 +892,7 @@ IMAGE_LABELS: {키워드 한글},{사진2 한글},{사진3 한글}
 
 ★★★ 마커 체크리스트 — 출력 전 반드시 확인 ★★★
 - [사진1] [사진2] [사진3] 각 단독 줄에 존재하는가
+- [요약시작] ~ [요약끝] 정확히 1쌍 존재하는가 (도입부 바로 뒤)
 - [표시작] ~ [표끝] 정확히 3쌍 존재하는가
 - [FAQ시작] ~ [FAQ끝] 정확히 1쌍 존재하는가
 - [소제목] 마커 5개 존재하는가
@@ -891,6 +905,7 @@ _GOV_REFINE_SYSTEM = """\
 - TITLE: / TAGS: / IMAGE_KEYWORDS: / IMAGE_LABELS: 줄 전체
 - --- 구분선
 - [사진1] [사진2] [사진3] 마커 (위치·개수 변경 금지)
+- [요약시작]...[요약끝] (1쌍, 삭제·이동 금지)
 - [소제목] 마커 (5개, 위치 변경 금지)
 - [표시작]...[표끝] (3쌍, 삭제·추가 금지)
 - [FAQ시작]...[FAQ끝] (1쌍, 삭제 금지)

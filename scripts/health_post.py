@@ -241,6 +241,7 @@ def run():
             faq_questions=post.get("faq_questions", []),
             category=BLOG_CATEGORY,
             faq_pairs=post.get("faq_pairs", []),
+            summary_text=post.get("summary_text", ""),
         )
     except Exception as e:
         logger.error(f"포스팅 중 예외: {e}")
