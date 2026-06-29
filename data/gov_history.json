@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-06-29",
+    "timestamp": "2026-06-29T23:51:38.436573+09:00",
+    "run_slot": "23",
+    "keyword": "노인 기초연금 신청 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "기초연금 | 최대 34.8만원 받는 조건과 신청법",
+    "tags": [
+      "기초연금",
+      "노인복지",
+      "정부지원",
+      "복지로",
+      "국민연금",
+      "어르신혜택",
+      "노후준비"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224331143244",
+    "images_count": 3,
+    "images_inserted": 2,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-29",
     "timestamp": "2026-06-29T23:39:20.984612+09:00",
     "run_slot": "23",
     "keyword": "신혼부부 취득세 감면 조건",
