@@ -2085,6 +2085,7 @@ async def _post(
     faq_questions: list[str] | None = None,
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
+    summary_text: str = "",
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
