@@ -1360,6 +1360,80 @@ async def _add_tags(page: Page, tags: list[str]):
     logger.warning("태그 입력 영역 없음 — 태그 생략")
 
 
+async def _delete_table_last_col(page: Page, cell_loc, pre_insert_cells: int, cur_grid_cols: int) -> bool:
+    """현재 표의 마지막 열(인덱스 cur_grid_cols-1)을 SE ONE 컨텍스트 메뉴로 삭제.
+    삭제 성공 시 True, 실패 시 False 반환(호출자가 중단 판단)."""
+    target = await _get_editor_frame(page)
+    last_col_idx = pre_insert_cells + (cur_grid_cols - 1)
+    try:
+        if last_col_idx >= await cell_loc.count():
+            logger.warning(f"열 삭제: 셀 인덱스 {last_col_idx} 범위 초과")
+            return False
+
+        # ① 마지막 열 첫 셀 클릭
+        cell = cell_loc.nth(last_col_idx)
+        await cell.click()
+        await _delay(200, 350)
+
+        # ② 컨트롤바/data-name 버튼으로 시도
+        del_sels = [
+            ".se-cell-controlbar-column .se-cell-delete-button",
+            "[data-name='deleteCol']", "[data-name='delete-column']", "[data-name='columnDelete']",
+            "button[aria-label*='열 삭제']", "button[aria-label*='열삭제']",
+        ]
+        for sel in del_sels:
+            for fr in [target, page]:
+                try:
+                    btn = fr.locator(sel).first
+                    if await btn.count() and await btn.is_visible(timeout=400):
+                        await btn.click(timeout=1200)
+                        await _delay(400, 600)
+                        logger.info(f"열 삭제 성공(셀렉터): {sel}")
+                        return True
+                except Exception:
+                    continue
+
+        # ③ 우클릭 → 컨텍스트 메뉴 텍스트 검색 ("현재 열 삭제")
+        await cell.click(button='right')
+        await _delay(600, 900)
+        for fr in [target, page]:
+            try:
+                items = fr.locator("button, [role='menuitem'], .se-popup-item, .se-context-menu-item")
+                cnt = await items.count()
+                for i in range(cnt):
+                    try:
+                        item = items.nth(i)
+                        if not await item.is_visible(timeout=200):
+                            continue
+                        txt = (await item.inner_text()).strip()
+                        if '열 삭제' in txt:
+                            await item.click()
+                            await _delay(400, 600)
+                            logger.info(f"열 삭제 성공(컨텍스트): {txt}")
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+        # ④ 실패 시 디버그 덤프
+        try:
+            visible = await target.evaluate("""() =>
+                [...document.querySelectorAll('button,[role=menuitem]')]
+                  .filter(b => b.offsetParent && (b.textContent||'').trim())
+                  .map(b => ({txt:(b.textContent||'').trim().slice(0,25), dn:b.getAttribute('data-name'), cls:(b.className||'').slice(0,40)}))
+                  .slice(0,20)
+            """)
+            logger.info(f"[열삭제 실패 가시버튼] {visible}")
+        except Exception:
+            pass
+        await page.keyboard.press("Escape")
+        return False
+    except Exception as e:
+        logger.warning(f"열 삭제 예외: {e}")
+        return False
+
+
 async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     """table_str(파이프 구분 행) → 네이버 SE 진짜 표 삽입. best-effort + 디버그 DOM 로그."""
     rows = _parse_table_rows(table_str)
@@ -1551,6 +1625,21 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
             await _format_table_header(page, cell_loc, new_cell_count, grid_cols, n_rows, pre_insert_cells)
         except Exception as e:
             logger.warning(f"표 헤더 서식 패스 예외(계속): {e}")
+
+        # ── 데이터 열 수보다 표 열 수가 많으면 초과 열 삭제 (SE ONE 기본 3열 → 데이터 열 수) ──
+        if n_cols < grid_cols:
+            cols_to_remove = grid_cols - n_cols
+            logger.info(f"초과 열 {cols_to_remove}개 삭제 시도 ({grid_cols}열 → {n_cols}열)")
+            removed = 0
+            for _ in range(cols_to_remove):
+                ok = await _delete_table_last_col(page, cell_loc, pre_insert_cells, grid_cols - removed)
+                if ok:
+                    removed += 1
+                else:
+                    logger.warning(f"열 삭제 {removed}/{cols_to_remove} 후 중단 (best-effort 유지)")
+                    break
+            if removed:
+                logger.info(f"초과 열 {removed}/{cols_to_remove}개 삭제 완료")
 
         await _screenshot(page, "after_table_fill", full_page=True)
         await page.keyboard.press("Escape")
