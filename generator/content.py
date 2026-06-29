@@ -957,13 +957,14 @@ def generate_gov_post(
                 continue
 
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
-            if body_len < 2000:
-                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자, 목표 4000자+) — 재생성")
+            # 표/FAQ/요약이 placeholder로 교체되므로 실제 prose는 800자+가 정상 (2000~2500자 글 기준)
+            if body_len < 800:
+                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자, 최소 800자) — 재생성")
                 continue
 
             logger.info(
                 f"정부글 생성 완료: {parsed.get('title')!r} "
-                f"(본문 {body_len}자, 표={bool(parsed.get('table_str'))}, FAQ={bool(parsed.get('faq_str'))})"
+                f"(본문 {body_len}자, 표={bool(parsed.get('table_str'))}, FAQ={bool(parsed.get('faq_str'))}, 요약={bool(parsed.get('summary_text'))})"
             )
 
             # 퇴고 패스 — 실패해도 원본 반환 (퇴고 503이 글 생성 실패로 오인되지 않도록)
@@ -975,7 +976,7 @@ def generate_gov_post(
                 )
                 if refined_raw:
                     refined = _parse_response(refined_raw)
-                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 2000:
+                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
                         rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
                         logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
                         return refined
