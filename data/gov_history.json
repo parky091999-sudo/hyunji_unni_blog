@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-06-30",
+    "timestamp": "2026-06-30T12:48:22.449307+09:00",
+    "run_slot": "12",
+    "keyword": "자녀장려금 신청 조건",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "자녀장려금 신청 조건 | 자녀당 최대 100만원 총정리",
+    "tags": [
+      "자녀장려금",
+      "정부지원",
+      "육아혜택",
+      "세금혜택",
+      "근로장려금",
+      "출산지원",
+      "복지제도"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224331669687",
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-30",
     "timestamp": "2026-06-30T11:43:21.811704+09:00",
     "run_slot": "11",
     "keyword": "신혼부부 주택청약 1순위 조건",
