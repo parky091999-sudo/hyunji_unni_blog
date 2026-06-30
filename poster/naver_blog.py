@@ -632,6 +632,42 @@ async def _convert_bullets_to_list(page: Page) -> int:
     return converted
 
 
+async def _center_oglink_cards(page: Page) -> int:
+    """관련글 링크 카드(.se-oglink)를 가운데정렬.
+    카드 선택 → 정렬 드롭다운([data-name='align-drop-down-with-justify']) 열고 → [data-value='center'] 클릭."""
+    target = await _get_editor_frame(page)
+    try:
+        cards = target.locator(".se-oglink")
+        n = await cards.count()
+    except Exception:
+        return 0
+    centered = 0
+    for i in range(n):
+        try:
+            await cards.nth(i).click(timeout=3000)
+            await _delay(220, 380)
+            opener = target.locator("[data-name='align-drop-down-with-justify']").first
+            if not (await opener.count() and await opener.is_visible(timeout=900)):
+                continue
+            await opener.click(timeout=1500)
+            await _delay(180, 320)
+            ctr = target.locator("[data-name='align-drop-down-with-justify'][data-value='center']").first
+            if await ctr.count():
+                await ctr.click(timeout=1500)
+                centered += 1
+                await _delay(180, 320)
+            else:
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+        except Exception:
+            continue
+    if centered:
+        logger.info(f"링크카드 가운데정렬 {centered}개")
+    return centered
+
+
 async def _style_paragraphs(
     page: Page,
     texts: list[str],
@@ -2427,6 +2463,12 @@ async def _post(
             await _convert_bullets_to_list(write_page)
         except Exception as e:
             logger.warning(f"글머리표 변환 예외(계속): {e}")
+
+        # ── 관련글 링크 카드 가운데정렬 ──
+        try:
+            await _center_oglink_cards(write_page)
+        except Exception as e:
+            logger.warning(f"링크카드 정렬 예외(계속): {e}")
 
         # ── 진짜 네이버 표 삽입 (다중 표 지원) ──
         for ti, (tdata, tanchor) in enumerate(table_jobs):
