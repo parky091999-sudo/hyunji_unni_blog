@@ -1,7 +1,10 @@
 name: 고CPC 정보성 포스팅 (금융·세금·보험·부동산)
 
 on:
-  # ⏸️ 스케줄 미설정 (최적화/검증 기간). 리런치 시 카테고리별 schedule 추가.
+  # 리런치(2026-06-30): 스케줄 실행 시 INFO_CATEGORY 미지정 → info_post.py가 4개 정보 카테고리 자동 순환.
+  schedule:
+    - cron: "0 6 * * *"   # KST 15:00
+    - cron: "0 10 * * *"  # KST 19:00
   workflow_dispatch:
     inputs:
       category:

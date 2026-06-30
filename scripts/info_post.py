@@ -36,7 +36,31 @@ INFO_CAT_MAP = {
     "부동산주거": "부동산, 주거",
 }
 
-INFO_CAT_ID = os.environ.get("INFO_CATEGORY", "금융재테크").strip()
+def _pick_least_recent_category() -> str:
+    """스케줄 실행(카테고리 미지정) 시: 4개 정보 카테고리 중 가장 오래 전 발행(또는 미발행)된 카테고리 선택 → 고른 순환 발행."""
+    best, best_ts = None, None
+    for cid in INFO_CAT_MAP:
+        path = os.path.join(DATA_DIR, f"info_{cid}_history.json")
+        last = ""
+        try:
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                posted = [h.get("timestamp", "") for h in data if h.get("status") == "posted"]
+                last = max(posted) if posted else ""
+        except Exception:
+            last = ""
+        # 미발행("")이 최우선, 그다음 가장 오래된 timestamp
+        key = last or "0000"
+        if best is None or key < best_ts:
+            best, best_ts = cid, key
+    return best or "금융재테크"
+
+
+INFO_CAT_ID = os.environ.get("INFO_CATEGORY", "").strip()
+if not INFO_CAT_ID or INFO_CAT_ID == "auto":
+    INFO_CAT_ID = _pick_least_recent_category()
+    print(f"[자동 순환] 카테고리 선택: {INFO_CAT_ID}")
 if INFO_CAT_ID not in INFO_CAT_MAP:
     print(f"알 수 없는 INFO_CATEGORY: {INFO_CAT_ID!r} (가능: {list(INFO_CAT_MAP)})")
     sys.exit(1)

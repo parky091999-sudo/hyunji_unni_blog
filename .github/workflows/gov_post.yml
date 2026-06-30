@@ -1,10 +1,9 @@
 name: 정부지원&혜택 포스팅
 
 on:
-  # ⏸️ 자동발행 일시정지 (2026-06-30, 프롬프트 최적화·게시글 정리 기간). 재개 시 schedule 주석 해제.
-  # schedule:
-  #   - cron: "0 2 * * *"   # KST 11:00
-  #   - cron: "0 7 * * *"   # KST 16:00
+  # 리런치(2026-06-30): 고CPC 정보성 재개. 1일 1회.
+  schedule:
+    - cron: "0 0 * * *"   # KST 09:00
   workflow_dispatch:
     inputs:
       force_post:
