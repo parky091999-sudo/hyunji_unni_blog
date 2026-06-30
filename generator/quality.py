@@ -119,20 +119,24 @@ def score_content(
     critical: list[str] = []
 
     # 1. 본문 길이 (패턴 D, A, B는 최대 30점, 패턴 C는 최대 20점)
+    # ★목표 글자수는 카테고리별로 다름(WRITING_SYSTEM §6 모바일 스캔형, 정보밀도>볼륨):
+    #   B(레시피)=1200 / D(일상)=1300 / A(살림)=1500 / C(절약)=1800.
+    # full=목표 이상, -10=목표-300 이상, -20=목표-600 이상, 그 미만은 매우 짧음.
     body_len = len(body)
     max_body_score = 30 if pattern in ["D", "A", "B"] else 20
-    if body_len >= 2000:
+    body_target = {"B": 1200, "D": 1300, "A": 1500, "C": 1800}.get(pattern, 1500)
+    if body_len >= body_target:
         score += max_body_score
-    elif body_len >= 1500:
+    elif body_len >= body_target - 300:
         score += (max_body_score - 10)
-        issues.append(f"본문 짧음 ({body_len}자, 권장 2000자+)")
-    elif body_len >= 1000:
+        issues.append(f"본문 약간 짧음 ({body_len}자, 목표 {body_target}자+)")
+    elif body_len >= body_target - 600:
         score += (max_body_score - 20)
-        issues.append(f"본문 너무 짧음 ({body_len}자, 권장 2000자+)")
-        critical.append(f"본문 너무 짧음 ({body_len}자) — 2000자+로 분량 보강(경험담·꿀팁 추가)")
+        issues.append(f"본문 짧음 ({body_len}자, 목표 {body_target}자+)")
+        critical.append(f"본문 짧음 ({body_len}자) — {body_target}자+로 보강(경험담·꿀팁 추가)")
     else:
-        issues.append(f"본문 매우 짧음 ({body_len}자) — 발행 비권장")
-        critical.append(f"본문 매우 짧음 ({body_len}자) — 2000자+로 대폭 보강 필요")
+        issues.append(f"본문 매우 짧음 ({body_len}자, 목표 {body_target}자+) — 발행 비권장")
+        critical.append(f"본문 매우 짧음 ({body_len}자) — {body_target}자+로 대폭 보강 필요")
 
     # 2. AI 패턴 감지 (패턴 D는 최대 30점, 패턴 A, B, C는 최대 20점)
     ai_base = 30 if pattern == "D" else 20
