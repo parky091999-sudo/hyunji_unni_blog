@@ -551,6 +551,87 @@ async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
         return False
 
 
+async def _apply_bullet_list_to_caret(page: Page, target: Page) -> bool:
+    """현재 커서가 위치한 단락에 네이티브 글머리표(•) 리스트 적용.
+    [data-name='list'] 드롭다운 열고 → [data-value='bullet'] 클릭. (네이티브 리스트=자동 내어쓰기)"""
+    opened = False
+    for sel in [".se-property-toolbar-drop-down-button[data-name='list']",
+                ".se-contents-toolbar-drop-down-button[data-name='list']",
+                "[data-name='list']"]:
+        try:
+            loc = target.locator(sel).first
+            if await loc.count() and await loc.is_visible(timeout=800):
+                await loc.click(timeout=1500)
+                opened = True
+                break
+        except Exception:
+            continue
+    if not opened:
+        return False
+    await _delay(180, 320)
+    try:
+        btn = target.locator("[data-name='list'][data-value='bullet']").first
+        if await btn.count():
+            await btn.click(timeout=1500)
+            await _delay(180, 320)
+            return True
+    except Exception:
+        pass
+    # 드롭다운 닫기(폴백)
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+    return False
+
+
+async def _convert_bullets_to_list(page: Page) -> int:
+    """본문에서 '· '/'• ' 로 시작하는 단락을 네이티브 글머리표 리스트로 변환.
+    글머리 리터럴(· ) 제거 후 list 적용 → 모바일 줄바꿈 시 둘째 줄이 첫 글자에 맞춰 내어쓰기됨."""
+    target = await _get_editor_frame(page)
+    converted = 0
+    guard = 0
+    while guard < 60:
+        guard += 1
+        try:
+            paras = target.locator(".se-section-text .se-text-paragraph")
+            n = await paras.count()
+        except Exception:
+            break
+        found = -1
+        for k in range(n):
+            try:
+                t = (await paras.nth(k).inner_text()).strip()
+            except Exception:
+                continue
+            if t.startswith("· ") or t.startswith("• "):
+                found = k
+                break
+        if found < 0:
+            break
+        try:
+            await paras.nth(found).click(timeout=4000)
+            await _delay(120, 200)
+            # 글머리 리터럴 '· ' (2글자) 선택 후 삭제
+            await page.keyboard.press("Home")
+            await page.keyboard.down("Shift")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.up("Shift")
+            await page.keyboard.press("Delete")
+            await _delay(100, 180)
+            if not await _apply_bullet_list_to_caret(page, target):
+                # 적용 실패 — 무한루프 방지를 위해 중단(이 단락은 '·' 제거돼 재검색 안 됨)
+                break
+            converted += 1
+        except Exception as e:
+            logger.info(f"글머리표 변환 단락 스킵: {e}")
+            break
+    if converted:
+        logger.info(f"글머리표(•) 리스트 변환 {converted}개 — 내어쓰기 적용")
+    return converted
+
+
 async def _style_paragraphs(
     page: Page,
     texts: list[str],
@@ -2340,6 +2421,12 @@ async def _post(
             await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목", style_type="quotation_vertical")
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
+
+        # ── 글머리(·) 줄 → 네이티브 글머리표 리스트(자동 내어쓰기) ──
+        try:
+            await _convert_bullets_to_list(write_page)
+        except Exception as e:
+            logger.warning(f"글머리표 변환 예외(계속): {e}")
 
         # ── 진짜 네이버 표 삽입 (다중 표 지원) ──
         for ti, (tdata, tanchor) in enumerate(table_jobs):
