@@ -1,10 +1,10 @@
 name: 정부지원&혜택 포스팅
 
 on:
-  schedule:
-    # KST 11:00 (UTC 02:00), 16:00 (UTC 07:00) — 하루 2회
-    - cron: "0 2 * * *"
-    - cron: "0 7 * * *"
+  # ⏸️ 자동발행 일시정지 (2026-06-30, 프롬프트 최적화·게시글 정리 기간). 재개 시 schedule 주석 해제.
+  # schedule:
+  #   - cron: "0 2 * * *"   # KST 11:00
+  #   - cron: "0 7 * * *"   # KST 16:00
   workflow_dispatch:
     inputs:
       force_post:

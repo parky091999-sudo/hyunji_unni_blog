@@ -1,9 +1,9 @@
 name: 네이버 블로그 레시피 포스팅
 
 on:
-  schedule:
-    # 매일 KST 17:00 (UTC 08:00) — 살림글(10시)과 시간대 분리
-    - cron: "0 8 * * *"
+  # ⏸️ 자동발행 일시정지 (2026-06-30, 프롬프트 최적화·게시글 정리 기간). 재개 시 schedule 주석 해제.
+  # schedule:
+  #   - cron: "0 8 * * *"   # 매일 KST 17:00
   workflow_dispatch:
     inputs:
       force_post:
