@@ -590,8 +590,9 @@ async def _convert_bullets_to_list(page: Page) -> int:
     글머리 리터럴(· ) 제거 후 list 적용 → 모바일 줄바꿈 시 둘째 줄이 첫 글자에 맞춰 내어쓰기됨."""
     target = await _get_editor_frame(page)
     converted = 0
+    fails = 0
     guard = 0
-    while guard < 60:
+    while guard < 250:
         guard += 1
         try:
             paras = target.locator(".se-section-text .se-text-paragraph")
@@ -621,11 +622,16 @@ async def _convert_bullets_to_list(page: Page) -> int:
             await page.keyboard.press("Delete")
             await _delay(100, 180)
             if not await _apply_bullet_list_to_caret(page, target):
-                # 적용 실패 — 무한루프 방지를 위해 중단(이 단락은 '·' 제거돼 재검색 안 됨)
-                break
+                # 적용 실패 — '·'는 이미 제거돼 재검색 안 되므로 다음 단락 계속 처리(중단 X)
+                fails += 1
+                if fails >= 8:
+                    logger.info("글머리표 변환 연속 실패 다수 — 중단")
+                    break
+                continue
             converted += 1
         except Exception as e:
-            logger.info(f"글머리표 변환 단락 스킵: {e}")
+            # 클릭 실패 등 — '·'가 남아 재매칭 무한루프 위험 → 중단
+            logger.info(f"글머리표 변환 단락 스킵(중단): {e}")
             break
     if converted:
         logger.info(f"글머리표(•) 리스트 변환 {converted}개 — 내어쓰기 적용")
