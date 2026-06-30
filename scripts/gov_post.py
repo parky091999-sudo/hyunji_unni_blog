@@ -138,6 +138,13 @@ def run():
         logger.error("정부지원글 생성 실패 — 종료")
         sys.exit(1)
 
+    # 안전장치: 헤더([사진1]) 외 본문 사진 마커([사진2]+)가 남아 있으면 제거 (리터럴 노출 방지)
+    if post.get("body"):
+        cleaned = re.sub(r"^\s*\[사진([2-9]|\d{2,})\]\s*$\n?", "", post["body"], flags=re.MULTILINE)
+        if cleaned != post["body"]:
+            logger.info("본문 사진 마커 [사진2]+ 제거 (헤더카드만 사용)")
+            post["body"] = cleaned
+
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:500] + "...\n===== 끝 =====")
 
@@ -156,25 +163,9 @@ def run():
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
 
-    # Pexels 이미지 수집 ([사진2]+ = images[1]+)
-    pexels_keywords = image_keywords[1:] if len(image_keywords) > 1 else image_keywords
-    pexels_labels = image_labels[1:] if len(image_labels) > 1 else image_labels
-    if PEXELS_API_KEY and pexels_keywords:
-        try:
-            from generator.image import get_post_images
-            pexels_imgs = get_post_images(
-                keyword=keyword,
-                api_key=PEXELS_API_KEY,
-                count=len(pexels_keywords),
-                image_keywords=pexels_keywords,
-            )
-            for idx, img in enumerate(pexels_imgs):
-                if idx < len(pexels_labels):
-                    img["label"] = pexels_labels[idx]
-            images.extend(pexels_imgs)
-            logger.info(f"Pexels 이미지 {len(pexels_imgs)}장 수집")
-        except Exception as e:
-            logger.warning(f"이미지 수집 실패 (무시): {e}")
+    # 정부지원 글은 헤더 카드만 사용 — Pexels 스톡사진 미수집(주제와 무관한 엉뚱한 사진 방지, 2026-06-30 사용자 요청).
+    # 정보 전달이 핵심인 카테고리라 본문 사진 없이 표·요약블록·불릿으로 구성.
+    logger.info("정부지원 글: 본문 스톡사진 생략 (헤더 카드만)")
 
     # 내부 링크 연계
     post["body"], extra_subs = _append_internal_links(post["body"], history)
