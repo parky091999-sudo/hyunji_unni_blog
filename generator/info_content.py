@@ -85,16 +85,15 @@ def _build_info_system(cfg: dict) -> str:
         "\n══════════════════════════════════════════\n[글 구조 — 모바일 스캔형. 이 순서 그대로]\n══════════════════════════════════════════\n"
         "\n[사진1]\n(도입부 2~3줄. 첫 문장에 핵심 결론·수치 즉시 공개. \"안녕하세요\" 절대 금지.)\n"
         "\n[요약시작]\n" + summary + "\n[요약끝]\n"
-        "\n[소제목] 한눈에 보는 핵심 정보\n(소제목 아래 1~2문장 요약.)\n"
-        "★ [표시작] 마커를 정확히 써야 표가 삽입됨 ★\n"
-        "(아래 표는 반드시 3열 — " + cfg["table_header"] + ". ★각 셀 핵심 단어만 10자 이내, 문장·괄호 설명 금지. 빈칸 금지: 세 칸 모두 의미 있는 값.)\n"
+        "\n[소제목] 한눈에 보는 핵심 정보\n(소제목 아래 1~2문장 요약. 그 다음 줄에 아래 표.)\n"
+        "(아래 표는 반드시 3열 — " + cfg["table_header"] + ". 각 셀 핵심 단어만 10자 이내, 문장·괄호 설명 금지. 빈칸 금지: 세 칸 모두 의미 있는 값.)\n"
         "[표시작]\n" + cfg["table_header"] + "\n" + rows + "\n[표끝]\n"
         "(표 아래 1줄: 제도명·기간·문의처를 한 문장으로.)\n"
         "\n[소제목] " + cfg["sec2"] + "\n(조건을 짧은 줄로. 한 줄=조건 하나. 반드시 '· '(가운뎃점+공백)로 시작. 별표·하이픈·점(•) 금지. 표 없이 불릿만.)\n· (조건1)\n· (조건2)\n· (조건3)\n· (조건4)\n"
         "\n[사진2]\n"
         "\n[소제목] 꼭 알아둘 점\n(놓치기 쉬운 주의사항·함정을 짧은 줄로. 모든 줄 '· '로 시작.)\n· (주의1)\n· (주의2)\n"
         "\n[소제목] " + cfg["sec4"] + "\n(단계를 짧은 줄로. 반드시 ①②③ 기호 사용 — \"1. 2. 3.\" 금지.)\n① ~\n② ~\n③ ~\n(필요 서류·준비물: 짧게)\n"
-        "\n[소제목] 자주 묻는 질문\n★ [FAQ시작] 마커를 정확히 써야 FAQ가 삽입됨 ★\n[FAQ시작]\nQ: (가장 많이 묻는 질문 1)\nA: (명확한 답변 1~2줄)\nQ: (질문 2)\nA: (답변)\nQ: (질문 3)\nA: (답변)\n[FAQ끝]\n"
+        "\n[소제목] 자주 묻는 질문\n[FAQ시작]\nQ: (가장 많이 묻는 질문 1)\nA: (명확한 답변 1~2줄)\nQ: (질문 2)\nA: (답변)\nQ: (질문 3)\nA: (답변)\n[FAQ끝]\n"
         "\n(마무리 2줄. 공식 확인 권장 + 면책: \"정확한 조건은 반드시 공식 사이트·상담으로 확인하세요.\")\n"
         "\n══════════════════════════════════════════\n[작성 원칙]\n══════════════════════════════════════════\n"
         "1. 정확성 최우선: 모든 수치·조건·기간은 2026년 기준, 틀린 정보 금지(불확실하면 '공식 확인 권장')\n"
@@ -179,8 +178,13 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                 refined_raw = _gen_text(api_key, f"아래 초안을 퇴고해줘:\n\n{raw}", _INFO_REFINE_SYSTEM, 8192, 0.75)
                 if refined_raw:
                     refined = _parse_response(refined_raw)
-                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
+                    # 퇴고가 구조(소제목·표)를 보존했을 때만 채택 — 마커 누락 시 원본 사용
+                    if (refined
+                            and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800
+                            and len(refined.get("subheadings", [])) >= len(parsed.get("subheadings", []))
+                            and bool(refined.get("table_strs")) >= bool(parsed.get("table_strs"))):
                         return refined
+                    logger.info(f"{cfg['name']}글 퇴고가 구조 훼손(소제목 {len(refined.get('subheadings', [])) if refined else 0}<{len(parsed.get('subheadings', []))}) — 원본 사용")
             except Exception as e:
                 logger.warning(f"{cfg['name']}글 퇴고 실패(원본 사용): {e}")
             return parsed

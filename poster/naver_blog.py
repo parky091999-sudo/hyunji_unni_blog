@@ -1100,7 +1100,12 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
 
         # 하단 서브텍스트
         sub_font = _load_card_font(22)
-        sub_text = "건강 정보 총정리" if category == "health" else "정부지원 혜택 총정리"
+        _SUB_TEXT = {
+            "health": "건강 정보 총정리", "gov": "정부지원 혜택 총정리",
+            "금융재테크": "금융·재테크 총정리", "세금절세": "세금·절세 총정리",
+            "보험": "보험 핵심 정리", "부동산주거": "부동산·주거 총정리",
+        }
+        sub_text = _SUB_TEXT.get(category, "생활정보 총정리")
         try:
             sw = draw.textbbox((0, 0), sub_text, font=sub_font)[2]
         except AttributeError:
