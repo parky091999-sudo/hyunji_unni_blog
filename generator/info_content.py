@@ -4,6 +4,7 @@
 content.py 헬퍼(_gen_text/_parse_response/_IMAGE_MARKER) 재사용.
 """
 import logging
+import re
 import time
 
 from generator.content import _gen_text, _parse_response, _IMAGE_MARKER
@@ -97,7 +98,8 @@ def _build_info_system(cfg: dict) -> str:
         "\n(마무리 2줄. 공식 확인 권장 + 면책: \"정확한 조건은 반드시 공식 사이트·상담으로 확인하세요.\")\n"
         "\n══════════════════════════════════════════\n[작성 원칙]\n══════════════════════════════════════════\n"
         "1. ★★소제목은 반드시 5개. 각 소제목 줄은 무조건 '[소제목] '으로 시작(마커 없는 제목 절대 금지). 위 구조의 5개 [소제목] 그대로 사용.\n"
-        "2. ★불릿('· ')은 오직 '자격/대상' 섹션과 '꼭 알아둘 점' 섹션 두 곳에서만, 각 3~4줄. 나머지 섹션(도입부·표 설명·마무리)은 일반 문장으로, 불릿 금지. (전체 글을 불릿으로 도배하지 마라)\n"
+        "2. ★불릿('· ') 줄은 글 전체에서 최대 10개. 오직 '자격/대상'(5~6줄)·'꼭 알아둘 점'(3~4줄) 두 섹션에서만. 도입부·요약·표 설명·방법·FAQ·마무리는 절대 불릿 쓰지 말고 일반 문장으로. ★전체를 불릿으로 도배하면 글이 거부된다.\n"
+        "   FAQ([FAQ시작]...[FAQ끝])는 반드시 포함(Q/A 3쌍). 빼먹지 마라.\n"
         "3. 정확성 최우선: 모든 수치·조건·기간 2026년 기준, 틀리면 '공식 확인 권장'. 금액·금리·한도·나이·소득 숫자로 명시\n"
         "4. 표는 정확히 1개(한눈에 정리, 3열). 표는 1개만, 더 만들지 마라\n"
         "5. ★본문 1,800자 이상(1,800~2,200) 충분히 상세하게. 각 섹션을 얕게 끝내지 마라: 각 [소제목] 바로 아래 설명 2~3문장 + 자격 5~6줄 + 주의 3~4줄 + 방법 각 단계 1줄 설명 + FAQ 답변 각 2~3줄. 단락은 2~3줄 이내로 끊되 내용은 풍부하게\n"
@@ -170,6 +172,13 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             # 표/FAQ/요약 추출 후 prose 기준. 1,800자 목표 글이면 prose ~1,000자+ 정상.
             if body_len < 1000:
                 logger.warning(f"{cfg['name']}글 본문 짧음 ({body_len}자, prose 1000자+ 목표) — 재생성")
+                continue
+            # 구조 검증: 과불릿 도배(>25)·FAQ 누락·소제목 부족 시 재생성 (Gemini 변동성 대응)
+            bullet_cnt = len(re.findall(r"(?m)^·\s", parsed.get("body", "")))
+            faq_ok = bool(parsed.get("faq_pairs"))
+            sub_cnt = len(parsed.get("subheadings", []))
+            if bullet_cnt > 25 or not faq_ok or sub_cnt < 4:
+                logger.warning(f"{cfg['name']}글 구조 불량(불릿 {bullet_cnt}/FAQ {faq_ok}/소제목 {sub_cnt}) — 재생성")
                 continue
             logger.info(
                 f"{cfg['name']}글 생성 완료: {parsed.get('title')!r} "
