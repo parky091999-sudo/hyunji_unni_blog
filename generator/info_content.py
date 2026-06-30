@@ -189,13 +189,16 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                 refined_raw = _gen_text(api_key, f"아래 초안을 퇴고해줘:\n\n{raw}", _INFO_REFINE_SYSTEM, 8192, 0.75)
                 if refined_raw:
                     refined = _parse_response(refined_raw)
-                    # 퇴고가 구조(소제목·표)를 보존했을 때만 채택 — 마커 누락 시 원본 사용
+                    ref_bullets = len(re.findall(r"(?m)^·\s", refined.get("body", ""))) if refined else 999
+                    # 퇴고가 구조(소제목·표·FAQ) 보존 + 과불릿(>25) 아닐 때만 채택 — 아니면 원본 사용
                     if (refined
                             and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800
                             and len(refined.get("subheadings", [])) >= len(parsed.get("subheadings", []))
-                            and bool(refined.get("table_strs")) >= bool(parsed.get("table_strs"))):
+                            and bool(refined.get("table_strs")) >= bool(parsed.get("table_strs"))
+                            and bool(refined.get("faq_pairs")) >= bool(parsed.get("faq_pairs"))
+                            and ref_bullets <= 25):
                         return refined
-                    logger.info(f"{cfg['name']}글 퇴고가 구조 훼손(소제목 {len(refined.get('subheadings', [])) if refined else 0}<{len(parsed.get('subheadings', []))}) — 원본 사용")
+                    logger.info(f"{cfg['name']}글 퇴고 거부(소제목 {len(refined.get('subheadings', [])) if refined else 0}, 불릿 {ref_bullets}, FAQ {bool(refined.get('faq_pairs')) if refined else False}) — 원본 사용")
             except Exception as e:
                 logger.warning(f"{cfg['name']}글 퇴고 실패(원본 사용): {e}")
             return parsed
