@@ -1046,7 +1046,16 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
     try:
         width, height = 800, 450
         bg = (22, 32, 48)          # 다크 네이비
-        accent = (52, 183, 163) if category == "health" else (212, 175, 55)  # 청록 or 금색
+        # 카테고리별 액센트 색 + 브랜드 텍스트
+        _CARD_STYLE = {
+            "health":     ((52, 183, 163),  "현지언니  H E A L T H"),
+            "gov":        ((212, 175, 55),   "현지언니  정부혜택  가이드"),
+            "금융재테크":  ((46, 204, 113),   "현지언니  생활금융"),
+            "세금절세":    ((230, 126, 34),   "현지언니  세금·절세"),
+            "보험":        ((52, 152, 219),   "현지언니  보험 가이드"),
+            "부동산주거":  ((155, 120, 220),  "현지언니  부동산·주거"),
+        }
+        accent, brand_text = _CARD_STYLE.get(category, ((212, 175, 55), "현지언니  생활정보"))
         img = Image.new("RGB", (width, height), bg)
         draw = ImageDraw.Draw(img)
 
@@ -1056,7 +1065,6 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
 
         # 브랜드 텍스트
         brand_font = _load_card_font(26)
-        brand_text = "현지언니  H E A L T H" if category == "health" else "현지언니  정부혜택  가이드"
         try:
             bw = draw.textbbox((0, 0), brand_text, font=brand_font)[2]
         except AttributeError:
