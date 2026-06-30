@@ -144,8 +144,8 @@ def _append_internal_links(body: str, history: list, blog_category: str) -> tupl
     if not related:
         return body, []
 
-    # 소제목 + 가운데 정렬 URL — 항상 본문 맨 끝에 추가 (마지막 사진 이후)
-    links_text = "\n\n[가운데] 함께 보면 좋은 글\n"
+    # 소제목(회색바) + 가운데 정렬 URL — 항상 본문 맨 끝에 추가 (마지막 사진 이후)
+    links_text = "\n\n함께 보면 좋은 글\n"
     for r in related:
         links_text += f"\n[가운데] {r['post_url']}"
     links_text += "\n"

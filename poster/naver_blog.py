@@ -604,6 +604,15 @@ async def _style_paragraphs(
                 if ok_styled:
                     await page.keyboard.type(tx, delay=random.randint(10, 20))
                     await _delay(300, 500)
+                    # 회색바(버티컬라인) 소제목도 볼드 처리 — 방금 입력한 줄 전체 선택 후 Ctrl+B
+                    if bold:
+                        await page.keyboard.press("Home")
+                        await page.keyboard.down("Shift")
+                        await page.keyboard.press("End")
+                        await page.keyboard.up("Shift")
+                        await _delay(120, 200)
+                        await page.keyboard.press("Control+b")
+                        await _delay(150, 250)
                     await page.keyboard.press("Escape")
                     await _delay(150, 250)
                 

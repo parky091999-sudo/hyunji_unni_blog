@@ -83,12 +83,12 @@ def _append_internal_links(body: str, history: list) -> tuple:
     if not related:
         return body, []
 
-    links_text = "\n\n[가운데] 함께 보면 좋은 글\n"
+    links_text = "\n\n함께 보면 좋은 글\n"
     for r in related:
         links_text += f"\n[가운데] {r['post_url']}"
     links_text += "\n"
 
-    return body + links_text, []
+    return body + links_text, ["함께 보면 좋은 글"]
 
 
 def _center_body_lines(body: str) -> str:
