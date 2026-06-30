@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-06-30",
+    "timestamp": "2026-06-30T14:57:36.332548+09:00",
+    "run_slot": "14",
+    "keyword": "아동수당 신청 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "2026 아동수당 | 매월 10만원 받는 조건과 신청법",
+    "tags": [
+      "아동수당",
+      "정부지원",
+      "육아지원금",
+      "출산혜택",
+      "청년정책",
+      "복지로",
+      "2026아동수당"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224331814031",
+    "images_count": 1,
+    "images_inserted": 1,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-06-30",
     "timestamp": "2026-06-30T12:48:22.449307+09:00",
     "run_slot": "12",
     "keyword": "자녀장려금 신청 조건",
