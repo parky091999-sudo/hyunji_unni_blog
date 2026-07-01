@@ -1,0 +1,104 @@
+name: 주식 포스팅 (공모주·주식분석·ETF)
+
+on:
+  schedule:
+    - cron: "30 7 * * 1-5"   # KST 16:30 (장 마감 후) — 상한가
+    - cron: "0 22 * * 1-6"   # KST 07:00 — ETF (미국장 마감 후)
+    - cron: "0 0 * * 1-5"    # KST 09:00 — 공모주
+  workflow_dispatch:
+    inputs:
+      stock_topic:
+        description: "소분류 (상한가특징주/공모주캘린더/etf포트폴리오/auto)"
+        required: false
+        default: "auto"
+      force_post:
+        description: "강제 실행 (true/false)"
+        required: false
+        default: "false"
+      draft:
+        description: "임시저장 검증 모드 (true/false)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: naver-stock-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 한글 폰트 설치
+        run: sudo apt-get update && sudo apt-get install -y fonts-nanum && sudo fc-cache -f
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: Playwright 브라우저 설치
+        run: playwright install chromium --with-deps
+
+      - name: 랜덤 딜레이 (봇 패턴 방지)
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 600))
+          echo "랜덤 딜레이: ${DELAY}초 (최대 10분)"
+          sleep $DELAY
+
+      - name: 실행 슬롯·소분류 설정
+        run: |
+          HOUR=$(TZ='Asia/Seoul' date '+%H')
+          echo "RUN_SLOT=$HOUR" >> $GITHUB_ENV
+          if [ "${{ github.event.inputs.stock_topic }}" != "" ] && [ "${{ github.event.inputs.stock_topic }}" != "auto" ]; then
+            echo "STOCK_TOPIC=${{ github.event.inputs.stock_topic }}" >> $GITHUB_ENV
+          elif [ "$HOUR" = "16" ]; then
+            echo "STOCK_TOPIC=상한가특징주" >> $GITHUB_ENV
+          elif [ "$HOUR" = "07" ]; then
+            echo "STOCK_TOPIC=etf포트폴리오" >> $GITHUB_ENV
+          elif [ "$HOUR" = "09" ]; then
+            echo "STOCK_TOPIC=공모주캘린더" >> $GITHUB_ENV
+          else
+            echo "STOCK_TOPIC=auto" >> $GITHUB_ENV
+          fi
+
+      - name: 포스팅 실행
+        env:
+          NAVER_ID:       ${{ secrets.NAVER_ID }}
+          NAVER_PW:       ${{ secrets.NAVER_PW }}
+          NAVER_BLOG_ID:  ${{ secrets.NAVER_BLOG_ID }}
+          NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
+          DRAFT:          ${{ github.event.inputs.draft || 'false' }}
+          RUN_SLOT:       ${{ env.RUN_SLOT }}
+          STOCK_TOPIC:    ${{ env.STOCK_TOPIC }}
+        run: python -m scripts.stock_post
+
+      - name: 스크린샷 아티팩트 업로드 (디버그)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-screenshots-${{ github.run_id }}
+          path: data/screenshots/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: 포스팅 이력 커밋
+        if: github.event.inputs.draft != 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/stock_*_history.json
+          git diff --staged --quiet || git commit -m "chore: 주식 인사이트 포스팅 이력 $(date +'%Y-%m-%d')"
+          git pull --rebase --autostash origin main
+          git push

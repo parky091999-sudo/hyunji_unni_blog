@@ -1,5 +1,7 @@
-google-genai
+﻿google-genai
 playwright
 requests
 python-dotenv
 pillow
+yfinance
+beautifulsoup4
