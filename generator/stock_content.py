@@ -81,8 +81,8 @@ def _build_stock_system(cfg: dict) -> str:
         "Q: (질문2)\nA: (답변)\n"
         "Q: (질문3)\nA: (답변)\n"
         "[FAQ끝]\n"
-        "\n(마무리 1~2줄. 투자 판단은 본인 책임, 공식 자료 확인 권장)\n"
-        "이 리뷰가 마음에 들었으면 도움이 돼요 버튼을 눌러주세요\n"
+        "\n(마무리 1~2줄. 투자 판단은 본인 책임, 공식 자료·증권사 앱으로 재확인 권장. "
+        "쿠팡 리뷰·도움이 돼요 버튼 문구 절대 금지)\n"
         "\n[출력 형식]\n"
         "TITLE: {제목 — 날짜·핵심 키워드, 35자 이내}\n"
         "TAGS: {태그6~8개, 쉼표 구분}\n"
@@ -95,7 +95,7 @@ def _build_stock_system(cfg: dict) -> str:
         "- [표시작]~[표끝] 1쌍 (3~4열, 팩트만)\n"
         "- [FAQ시작]~[FAQ끝] 1쌍\n"
         "- [소제목] 5개\n"
-        "- 마지막 줄 '이 리뷰가 마음에 들었으면 도움이 돼요 버튼을 눌러주세요' 필수\n"
+        "- 마무리: 면책·공식 확인 권장만 (공감/리뷰 CTA 금지)\n"
     )
 
 
@@ -142,9 +142,13 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 logger.warning(f"{cfg['name']} 본문 짧음 ({body_len}자) — 재생성")
                 continue
 
-            footer = "이 리뷰가 마음에 들었으면 도움이 돼요 버튼을 눌러주세요"
-            if footer not in parsed.get("body", ""):
-                parsed["body"] = parsed["body"].rstrip() + f"\n\n{footer}"
+            body = parsed.get("body", "")
+            body = re.sub(
+                r"\n*이 리뷰가 마음에 들었으면 도움이 돼요 버튼을 눌러주세요\s*",
+                "\n",
+                body,
+            )
+            parsed["body"] = body.rstrip()
 
             if not parsed.get("table_strs"):
                 logger.warning(f"{cfg['name']} 표 누락 — 재생성")

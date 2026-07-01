@@ -421,9 +421,8 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             raw_stripped = line.strip()
-            # [구분선] 마커: 소제목 앞 구분선 삽입 후 다음 줄로
+            # [구분선] 마커: 소제목은 quotation_vertical(회색바)로 구분 — 가로 구분선은 모바일에서 2줄로 보여 스킵
             if raw_stripped == "[구분선]":
-                await _insert_divider(page)
                 continue
             is_centered = raw_stripped.startswith("[가운데]")
             stripped_line = raw_stripped[len("[가운데]"):].strip() if is_centered else raw_stripped
@@ -1083,7 +1082,11 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
         # 토픽 텍스트: 제목의 | 앞부분 사용, 없으면 keyword
         topic = title.split("|")[0].strip() if title and "|" in title else title.strip()
         display = topic if topic else keyword
-        if len(display) > 20:
+        _STOCK_CARD_CATS = {
+            "주식상한가", "주식분석", "주식공모주", "공모주", "주식etf", "ETF",
+        }
+        # 주식 카드뉴스는 날짜+키워드 제목이 길어 20자 절단 시 잘림 — wrap에 맡김. 기타는 기존 20자 제한.
+        if category not in _STOCK_CARD_CATS and len(display) > 20:
             display = display[:20]
 
         title_font = _load_card_font(58)
@@ -1273,8 +1276,8 @@ async def _insert_divider(page: Page) -> bool:
             except Exception:
                 continue
 
-        # 폴백: box-drawing character로 시각적 구분선 삽입
-        await page.keyboard.type("─" * 28, delay=5)
+        # 폴백: 짧은 텍스트 구분선 (모바일 줄바꿈 방지)
+        await page.keyboard.type("─" * 12, delay=5)
         await page.keyboard.press("Enter")
         await _delay(100, 200)
         logger.info("구분선 삽입(텍스트 폴백)")
@@ -2130,10 +2133,85 @@ async def _save_draft(page: Page) -> str:
     return "DRAFT_NO_SAVE"
 
 
+_STOCK_CATEGORY_PARENT: dict[str, str] = {
+    "ETF": "주식",
+    "주식분석": "주식",
+    "공모주": "주식",
+}
+
+_CATEGORY_OPTION_SELECTORS = [
+    "label[class*='radio_label']",
+    "li[class*='item']",
+    "span[class*='option']",
+    "[class*='category'] label",
+    "[class*='category'] span",
+]
+
+
+def _norm_category_label(text: str) -> str:
+    return re.sub(r"\s+", "", (text or "").strip())
+
+
+def _pick_category_label(available: list[str], category_name: str) -> str | None:
+    """드롭다운 옵션 텍스트 중 category_name에 맞는 항목을 고른다 (정확 → 대소문자 무시 → 부분일치)."""
+    if not category_name or not available:
+        return None
+    target = _norm_category_label(category_name)
+    cleaned = [a.strip() for a in available if a and a.strip()]
+    for label in cleaned:
+        if _norm_category_label(label) == target:
+            return label
+    low = category_name.strip().lower()
+    for label in cleaned:
+        if label.strip().lower() == low:
+            return label
+    for label in cleaned:
+        ln = label.strip()
+        if category_name in ln or ln in category_name:
+            return label
+    return None
+
+
+async def _collect_category_labels(target) -> list[str]:
+    """발행 패널 카테고리 드롭다운에서 보이는 옵션 텍스트 수집."""
+    labels: list[str] = []
+    seen: set[str] = set()
+    for sel in _CATEGORY_OPTION_SELECTORS:
+        try:
+            loc = target.locator(sel)
+            n = await loc.count()
+        except Exception:
+            continue
+        for i in range(min(n, 80)):
+            try:
+                t = (await loc.nth(i).inner_text()).strip()
+            except Exception:
+                continue
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            labels.append(t)
+    return labels
+
+
+async def _click_category_label(target, label_text: str) -> bool:
+    """label_text와 일치(또는 포함)하는 드롭다운 옵션 클릭."""
+    for sel in _CATEGORY_OPTION_SELECTORS:
+        try:
+            opt = target.locator(sel).filter(has_text=re.compile(re.escape(label_text))).first
+            if await opt.count():
+                await opt.scroll_into_view_if_needed(timeout=1500)
+                await opt.click(timeout=2000)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def _select_category(page: Page, category_name: str) -> bool:
     """발행 설정 패널에서 카테고리 선택. 패널은 에디터 프레임 안에 있고,
     드롭다운 버튼=[class*='option_category'] [class*='selectbox_button'],
-    옵션=label[class*='radio_label'] (텍스트=카테고리명). 클래스 해시는 부분매치."""
+    옵션=label[class*='radio_label'] (텍스트=카테고리명). 주식 하위(ETF 등)는 부모 '주식' 확장 후 재시도."""
     if not category_name:
         return False
     target = await _get_editor_frame(page)
@@ -2143,26 +2221,42 @@ async def _select_category(page: Page, category_name: str) -> bool:
         ).first
         await opener.click(timeout=2500)
         await _delay(400, 700)
-        pat = re.compile(rf"^{re.escape(category_name)}$")
-        clicked = False
-        for sel in ["label[class*='radio_label']", "li[class*='item']", "span[class*='option']"]:
-            opt = target.locator(sel).filter(has_text=pat).first
-            if await opt.count():
-                await opt.click(timeout=2000)
-                clicked = True
-                break
-        if not clicked:
-            logger.warning(f"카테고리 옵션 못 찾음(기본값 유지): {category_name}")
-            try:
-                await page.keyboard.press("Escape")
-            except Exception:
-                pass
-            return False
-        await _delay(300, 500)
-        logger.info(f"카테고리 선택: {category_name}")
-        return True
+
+        available = await _collect_category_labels(target)
+        logger.info(f"카테고리 드롭다운 옵션 {len(available)}개: {available[:25]}")
+
+        picked = _pick_category_label(available, category_name)
+        if picked and await _click_category_label(target, picked):
+            await _delay(300, 500)
+            logger.info(f"카테고리 선택: {category_name!r} → {picked!r}")
+            return True
+
+        parent = _STOCK_CATEGORY_PARENT.get(category_name)
+        if parent:
+            parent_label = _pick_category_label(available, parent)
+            if parent_label:
+                logger.info(f"카테고리 부모 확장 시도: {parent_label!r}")
+                await _click_category_label(target, parent_label)
+                await _delay(400, 700)
+                available = await _collect_category_labels(target)
+                logger.info(f"부모 확장 후 옵션 {len(available)}개: {available[:25]}")
+                picked = _pick_category_label(available, category_name)
+                if picked and await _click_category_label(target, picked):
+                    await _delay(300, 500)
+                    logger.info(f"카테고리 선택(부모 확장 후): {category_name!r} → {picked!r}")
+                    return True
+
+        logger.warning(
+            f"카테고리 옵션 못 찾음(기본값 유지): {category_name!r} — "
+            f"사용 가능: {available[:30]}"
+        )
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
     except Exception as e:
-        logger.warning(f"카테고리 선택 실패(무시): {e}")
+        logger.warning(f"카테고리 선택 실패(무시): {category_name!r} — {e}")
         try:
             await page.keyboard.press("Escape")
         except Exception:
