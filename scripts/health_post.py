@@ -91,8 +91,16 @@ def _append_internal_links(body: str, history: list) -> tuple:
     return body + links_text, ["함께 보면 좋은 글"]
 
 
+_BULLET_LINE_RE = re.compile(r"^(?:· |•|◦|▪|‣|[①-⑳]|[❶-❿]|\d+[.)]\s)")
+
+
 def _center_body_lines(body: str) -> str:
-    """모든 텍스트 줄에 [가운데] 추가 (이미지 마커·URL·빈줄 제외)"""
+    """본문 프로즈 줄만 가운데 정렬([가운데] 추가).
+    ※ 구조 마커([표삽입]/[요약삽입]/[FAQ삽입]/[구분선]/[사진N]/[가운데] 등 모든 대괄호 마커)와
+      글머리(· 등)·URL·빈줄에는 붙이지 않는다.
+      마커 줄에 [가운데]가 붙으면 poster의 앵커 매칭(_preceding_text_at)이 '[가운데]'만 남겨
+      표/요약/FAQ가 문서 끝 등 엉뚱한 위치에 삽입되고, '[구분선]' 리터럴 노출·글머리 리스트
+      변환 실패까지 유발한다."""
     lines = body.split("\n")
     result = []
     for line in lines:
@@ -100,10 +108,10 @@ def _center_body_lines(body: str) -> str:
         if not s:
             result.append(line)
             continue
-        if (s.startswith("[가운데]")
-                or re.match(r"\[사진\d+\]", s)
+        if (s.startswith("[")            # 모든 대괄호 마커([표삽입]/[구분선]/[사진N]/[가운데]/…)
                 or s.startswith("http://")
-                or s.startswith("https://")):
+                or s.startswith("https://")
+                or _BULLET_LINE_RE.match(s)):
             result.append(line)
             continue
         result.append("[가운데] " + s)
