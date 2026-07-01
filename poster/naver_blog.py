@@ -2148,12 +2148,21 @@ _CATEGORY_OPTION_SELECTORS = [
 ]
 
 
+def _category_tail(text: str) -> str:
+    """'하위 카테고리\\n공모주' → '공모주' 등 네이버 하위 카테고리 라벨 정규화."""
+    t = (text or "").strip()
+    if "\n" in t:
+        t = t.split("\n")[-1].strip()
+    t = re.sub(r"^하위\s*카테고리\s*", "", t)
+    return t.strip()
+
+
 def _norm_category_label(text: str) -> str:
-    return re.sub(r"\s+", "", (text or "").strip())
+    return re.sub(r"\s+", "", _category_tail(text))
 
 
 def _pick_category_label(available: list[str], category_name: str) -> str | None:
-    """드롭다운 옵션 텍스트 중 category_name에 맞는 항목을 고른다 (정확 → 대소문자 무시 → 부분일치)."""
+    """드롭다운 옵션 텍스트 중 category_name에 맞는 항목을 고른다 (정확 → tail → 부분일치)."""
     if not category_name or not available:
         return None
     target = _norm_category_label(category_name)
@@ -2163,11 +2172,11 @@ def _pick_category_label(available: list[str], category_name: str) -> str | None
             return label
     low = category_name.strip().lower()
     for label in cleaned:
-        if label.strip().lower() == low:
+        if _category_tail(label).lower() == low:
             return label
     for label in cleaned:
-        ln = label.strip()
-        if category_name in ln or ln in category_name:
+        tail = _category_tail(label)
+        if category_name == tail or category_name in tail or tail in category_name:
             return label
     return None
 
@@ -2196,15 +2205,19 @@ async def _collect_category_labels(target) -> list[str]:
 
 async def _click_category_label(target, label_text: str) -> bool:
     """label_text와 일치(또는 포함)하는 드롭다운 옵션 클릭."""
-    for sel in _CATEGORY_OPTION_SELECTORS:
-        try:
-            opt = target.locator(sel).filter(has_text=re.compile(re.escape(label_text))).first
-            if await opt.count():
-                await opt.scroll_into_view_if_needed(timeout=1500)
-                await opt.click(timeout=2000)
-                return True
-        except Exception:
+    tail = _category_tail(label_text)
+    for text_try in (label_text, tail):
+        if not text_try:
             continue
+        for sel in _CATEGORY_OPTION_SELECTORS:
+            try:
+                opt = target.locator(sel).filter(has_text=re.compile(re.escape(text_try))).first
+                if await opt.count():
+                    await opt.scroll_into_view_if_needed(timeout=1500)
+                    await opt.click(timeout=2000)
+                    return True
+            except Exception:
+                continue
     return False
 
 
@@ -2231,7 +2244,11 @@ async def _select_category(page: Page, category_name: str) -> bool:
             logger.info(f"카테고리 선택: {category_name!r} → {picked!r}")
             return True
 
-        parent = _STOCK_CATEGORY_PARENT.get(category_name)
+        # 하위 카테고리(공모주/ETF/주식분석)가 이미 목록에 있으면 부모 '주식' 클릭 금지 — 패널이 닫힘
+        sub_visible = any(
+            _norm_category_label(category_name) == _norm_category_label(a) for a in available
+        )
+        parent = _STOCK_CATEGORY_PARENT.get(category_name) if not sub_visible else None
         if parent:
             parent_label = _pick_category_label(available, parent)
             if parent_label:
