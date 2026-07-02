@@ -207,9 +207,9 @@ def run():
     # ── 3. 이미지: 헤더 카드만 (본문 스톡사진 없음) ──
     images: list[dict] = []
     try:
-        from poster.naver_blog import create_health_header_card
+        from poster.naver_blog import create_info_infographic
         bullets = _extract_summary_bullets(post.get("summary_text", "")) or None
-        header_path = create_health_header_card(
+        header_path = create_info_infographic(
             title=post["title"], keyword=keyword, category=INFO_CAT_ID, bullets=bullets
         )
         if header_path:

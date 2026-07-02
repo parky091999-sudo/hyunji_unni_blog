@@ -611,7 +611,7 @@ def get_trending_bonus(limit: int = 5) -> list[str]:
 def pick_keyword_for_blog_category(blog_category: str) -> dict:
     """
     특정 블로그 카테고리에 적합한 키워드를 선정하여 반환.
-    최근 30일 중복 방지 반영.
+    최근 30일 중복 방지 + DataLab 트렌딩 우선 선택(30대 여성 기준).
     """
     # 블로그 카테고리별 매핑
     mapping = {
@@ -626,26 +626,38 @@ def pick_keyword_for_blog_category(blog_category: str) -> dict:
         "보험": ["보험"],
         "부동산, 주거": ["부동산주거"],
     }
-    
+
     keyword_cats = mapping.get(blog_category, ["청소정리"])
     chosen_cat_id = random.choice(keyword_cats)
     cat_info = CATEGORIES[chosen_cat_id]
-    
+
     month = datetime.now(KST).month
     recent = _get_recent_keywords(days=30)
-    
+
     cat_pool = cat_info["keywords"]
     if chosen_cat_id == "청소정리":
         cat_pool = cat_pool + _SEASON.get(month, [])
-        
+
     fresh = [k for k in cat_pool if k not in recent]
     if not fresh:
         logger.warning(f"카테고리 {cat_info['name']} 키워드 소진 — 전체 풀에서 재사용")
         fresh = cat_pool
-        
-    keyword = random.choice(fresh)
+
+    # DataLab 검색어트렌드 우선 선택 (고CPC 정보성 카테고리만 — API 쿼터 절약)
+    _DATALAB_CATS = {"금융재테크", "세금절세", "보험", "부동산주거", "정부지원혜택"}
+    keyword = None
+    if chosen_cat_id in _DATALAB_CATS and len(fresh) > 1:
+        try:
+            from generator.datalab_trend import pick_trending_keyword
+            keyword = pick_trending_keyword(fresh[:20], top_n=3)
+        except Exception as e:
+            logger.warning(f"DataLab 트렌딩 조회 실패 — 랜덤 선택: {e}")
+
+    if keyword is None:
+        keyword = random.choice(fresh)
+
     logger.info(
-        f"블로그 카테고리 '{blog_category}' -> 키워드 선택: {keyword!r} | "
+        f"블로그 카테고리 '{blog_category}' → 키워드: {keyword!r} | "
         f"키워드 카테고리: {cat_info['name']}"
     )
     return {

@@ -1179,6 +1179,231 @@ def _create_card_news(content: str) -> str | None:
         return None
 
 
+def _make_gradient_bg(width: int, height: int, c_top: tuple, c_bot: tuple) -> "Image.Image":
+    """수직 2색 그라디언트 배경 생성 (PIL 내장, numpy 불필요)."""
+    strip = Image.new("RGB", (1, height))
+    for y in range(height):
+        t = y / max(height - 1, 1)
+        px = tuple(int(c_top[i] * (1 - t) + c_bot[i] * t) for i in range(3))
+        strip.putpixel((0, y), px)
+    return strip.resize((width, height), Image.NEAREST)
+
+
+def _draw_rounded_rect(draw, xy, radius: int, fill, outline=None, outline_width: int = 0):
+    """PIL 8.2+ rounded_rectangle / 구버전 rectangle fallback."""
+    try:
+        draw.rounded_rectangle(xy, radius=radius, fill=fill,
+                               outline=outline, width=outline_width)
+    except AttributeError:
+        draw.rectangle(xy, fill=fill, outline=outline, width=outline_width)
+
+
+def create_info_infographic(
+    title: str,
+    keyword: str = "",
+    category: str = "금융재테크",
+    bullets: list[str] | None = None,
+) -> str | None:
+    """
+    인포그래픽 스타일 정보 카드 생성 (기존 헤더카드 업그레이드 버전).
+    그라디언트 배경 + 뱃지 태그 + 번호 카드 패널 레이아웃.
+    """
+    try:
+        W, H = 900, 500
+
+        _STYLES: dict[str, dict] = {
+            "금융재테크": {
+                "bg_top": (12, 45, 115), "bg_bot": (25, 95, 195),
+                "accent": (255, 210, 50), "card_top": (30, 120, 245),
+                "tag": "현지언니  생활금융",
+            },
+            "세금절세": {
+                "bg_top": (100, 35, 5), "bg_bot": (200, 80, 15),
+                "accent": (255, 230, 80), "card_top": (255, 130, 20),
+                "tag": "현지언니  세금·절세",
+            },
+            "보험": {
+                "bg_top": (5, 60, 90), "bg_bot": (10, 115, 155),
+                "accent": (100, 245, 215), "card_top": (0, 185, 200),
+                "tag": "현지언니  보험 가이드",
+            },
+            "부동산주거": {
+                "bg_top": (35, 12, 85), "bg_bot": (80, 40, 170),
+                "accent": (175, 255, 125), "card_top": (155, 75, 240),
+                "tag": "현지언니  부동산·주거",
+            },
+            "gov": {
+                "bg_top": (10, 45, 100), "bg_bot": (20, 80, 160),
+                "accent": (255, 215, 60), "card_top": (50, 140, 250),
+                "tag": "현지언니  정부지원",
+            },
+            "health": {
+                "bg_top": (5, 70, 35), "bg_bot": (15, 130, 65),
+                "accent": (130, 255, 170), "card_top": (50, 200, 100),
+                "tag": "현지언니  건강·의료",
+            },
+        }
+        style = _STYLES.get(category, _STYLES["금융재테크"])
+        acc = style["accent"]
+        card_top_c = style["card_top"]
+
+        # 명도 기준으로 태그 텍스트 색 결정 (밝은 accent → 어두운 텍스트)
+        brightness = (acc[0] * 299 + acc[1] * 587 + acc[2] * 114) // 1000
+        tag_text_c = (20, 20, 20) if brightness > 128 else (255, 255, 255)
+
+        bg = _make_gradient_bg(W, H, style["bg_top"], style["bg_bot"])
+        draw = ImageDraw.Draw(bg)
+
+        # 상단 액센트 라인
+        draw.rectangle([(0, 0), (W, 6)], fill=acc)
+
+        # 장식 점(◆) 4귀퉁이 — ✦는 CJK 폰트 미지원, ◆(U+25C6) 사용
+        star_font = _load_card_font(16)
+        for sx, sy in [(36, 22), (W - 50, 22), (36, H - 38), (W - 50, H - 38)]:
+            draw.text((sx, sy), "◆", font=star_font, fill=acc)
+
+        # 태그 뱃지 (pill)
+        tag_font = _load_card_font(21)
+        tag_text = style["tag"]
+        try:
+            tag_tw = draw.textbbox((0, 0), tag_text, font=tag_font)[2]
+            tag_th = draw.textbbox((0, 0), tag_text, font=tag_font)[3] - \
+                     draw.textbbox((0, 0), tag_text, font=tag_font)[1]
+        except AttributeError:
+            tag_tw, tag_th = draw.textsize(tag_text, font=tag_font)
+        px_pad, py_pad = 22, 7
+        tag_w = tag_tw + px_pad * 2
+        tag_h = tag_th + py_pad * 2
+        tag_x = (W - tag_w) // 2
+        tag_y = 20
+        _draw_rounded_rect(draw, [(tag_x, tag_y), (tag_x + tag_w, tag_y + tag_h)],
+                           radius=tag_h // 2, fill=acc)
+        draw.text((tag_x + px_pad, tag_y + py_pad), tag_text,
+                  font=tag_font, fill=tag_text_c)
+
+        # 제목
+        display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
+        if len(display) > 22:
+            display = display[:22]
+
+        title_font = _load_card_font(54)
+        t_lines = _wrap_korean_text(display, draw, title_font, W - 120)
+        if len(t_lines) > 2:
+            title_font = _load_card_font(44)
+            t_lines = _wrap_korean_text(display, draw, title_font, W - 120)
+        lh = int(title_font.size * 1.25) if hasattr(title_font, "size") else 68
+
+        title_start_y = tag_y + tag_h + (24 if bullets else max(30, (H // 2 - len(t_lines) * lh // 2) - tag_h - tag_y - 20))
+        y = title_start_y
+        for i, line in enumerate(t_lines):
+            try:
+                lw = draw.textbbox((0, 0), line, font=title_font)[2]
+            except AttributeError:
+                lw, _ = draw.textsize(line, font=title_font)
+            x = (W - lw) // 2
+            # 그림자
+            shadow_c = tuple(max(0, c - 40) for c in style["bg_top"])
+            draw.text((x + 2, y + 2), line, font=title_font, fill=shadow_c)
+            # 첫 줄 accent, 나머지 흰색
+            draw.text((x, y), line, font=title_font,
+                      fill=acc if i == 0 else (240, 248, 255))
+            y += lh
+
+        # 정보 카드 패널 (bullets)
+        if bullets:
+            n = min(len(bullets), 4)
+            blines = [b[:28] for b in bullets[:n]]
+
+            panel_margin = 48
+            panel_gap = 10
+
+            cols = 3 if n == 3 else 2
+            rows = (n + cols - 1) // cols
+            pw = (W - panel_margin * 2 - panel_gap * (cols - 1)) // cols
+
+            panel_area_start = y + 24
+            panel_area_end = H - 46
+            available_h = panel_area_end - panel_area_start
+            raw_row_h = (available_h - panel_gap * (rows - 1)) // rows
+            row_h = min(150, raw_row_h)  # 최대 150px — 과도한 카드 높이 방지
+            total_cards_h = rows * row_h + (rows - 1) * panel_gap
+            # 카드 그룹을 가용 공간 내 수직 중앙 정렬
+            panel_area_y = panel_area_start + (available_h - total_cards_h) // 2
+
+            bullet_font = _load_card_font(20)
+            num_font = _load_card_font(18)
+
+            for i, btext in enumerate(blines):
+                row = i // cols
+                col = i % cols
+                bx = panel_margin + col * (pw + panel_gap)
+                by = panel_area_y + row * (row_h + panel_gap)
+
+                # 패널 배경: 배경 색상보다 약간 밝게
+                card_bg = tuple(min(255, c + 45) for c in style["bg_bot"])
+                _draw_rounded_rect(draw, [(bx, by), (bx + pw, by + row_h)],
+                                   radius=10, fill=card_bg)
+                # 상단 컬러 바
+                _draw_rounded_rect(draw, [(bx, by), (bx + pw, by + 5)],
+                                   radius=3, fill=card_top_c)
+
+                # 번호 원 + 텍스트 (번호 왼쪽, 텍스트 오른쪽, 둘 다 수직 중앙)
+                cr = 14
+                line_h = int(bullet_font.size * 1.3) if hasattr(bullet_font, "size") else 27
+                b_wrapped = _wrap_korean_text(btext, draw, bullet_font, pw - cr * 2 - 52)
+                n_lines = min(len(b_wrapped), 2)
+                # 텍스트+원 묶음을 카드 내 수직 중앙 정렬
+                block_h = max(cr * 2, n_lines * line_h)
+                block_y = by + (row_h - block_h) // 2
+
+                cx_c = bx + 20 + cr
+                cy_c = block_y + block_h // 2
+                draw.ellipse([(cx_c - cr, cy_c - cr), (cx_c + cr, cy_c + cr)], fill=acc)
+                num_str = f"0{i + 1}"
+                try:
+                    nw = draw.textbbox((0, 0), num_str, font=num_font)[2]
+                    n_th = (draw.textbbox((0, 0), num_str, font=num_font)[3]
+                            - draw.textbbox((0, 0), num_str, font=num_font)[1])
+                except AttributeError:
+                    nw, n_th = draw.textsize(num_str, font=num_font)
+                draw.text((cx_c - nw // 2, cy_c - n_th // 2),
+                          num_str, font=num_font, fill=tag_text_c)
+
+                tx = bx + 20 + cr * 2 + 10
+                ty = block_y + (block_h - n_lines * line_h) // 2
+                for bl in b_wrapped[:2]:
+                    draw.text((tx, ty), bl, font=bullet_font, fill=(225, 240, 255))
+                    ty += line_h
+
+        # 하단 서브텍스트 + 액센트 라인
+        sub_font = _load_card_font(19)
+        _SUB_TXT = {
+            "금융재테크": "금융·재테크 총정리",
+            "세금절세": "세금·절세 총정리",
+            "보험": "보험 핵심 정리",
+            "부동산주거": "부동산·주거 총정리",
+            "gov": "정부지원 혜택 총정리",
+            "health": "건강 정보 총정리",
+        }
+        sub_text = _SUB_TXT.get(category, "생활정보 총정리")
+        try:
+            sw = draw.textbbox((0, 0), sub_text, font=sub_font)[2]
+        except AttributeError:
+            sw, _ = draw.textsize(sub_text, font=sub_font)
+        draw.text(((W - sw) // 2, H - 34), sub_text, font=sub_font, fill=(175, 210, 255))
+        draw.rectangle([(0, H - 6), (W, H)], fill=acc)
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.close()
+        bg.save(tmp.name, "PNG")
+        logger.info(f"인포그래픽 생성: {display!r} [{category}] → {tmp.name}")
+        return tmp.name
+
+    except Exception as e:
+        logger.warning(f"인포그래픽 생성 실패: {e}")
+        return None
+
+
 def create_health_header_card(
     title: str, keyword: str = "", category: str = "health",
     bullets: list[str] | None = None,
