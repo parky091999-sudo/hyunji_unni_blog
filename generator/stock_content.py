@@ -324,6 +324,11 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 logger.warning(f"{cfg['name']} 표 누락 — 재생성")
                 continue
 
+            if "[사진1]" not in body:
+                # [사진1]이 없으면 헤더 카드(브랜드 이미지)가 삽입될 앵커가 없어 조용히 누락됨
+                logger.warning(f"{cfg['name']} [사진1] 마커 누락 — 재생성")
+                continue
+
             logger.info(
                 f"{cfg['name']} 생성 완료: {parsed.get('title')!r} "
                 f"(본문 {body_len}자, 표={bool(parsed.get('table_strs'))})"
