@@ -1,6 +1,7 @@
 """
 HTML/CSS 템플릿 + Playwright 스크린샷으로 고품질 인포그래픽 생성.
-PIL 대비 장점: backdrop-filter blur, CSS gradient, box-shadow, 완벽한 한국어 폰트.
+정방형 900×900, 흰색 모던. 벤치마크: 온숨(onsumway) 스타일.
+구조: 배지 → 3단 제목(회색/대형색상/다크) → 키워드바 → 4아이콘카드 → CTA
 """
 import asyncio
 import logging
@@ -9,16 +10,24 @@ from html import escape
 
 logger = logging.getLogger(__name__)
 
-W, H = 900, 500
+S = 900  # 정방형
 
 _STYLES: dict[str, dict] = {
     "금융재테크": {
+        # PIL 폴백용 보존
         "bg":          "linear-gradient(145deg, #071543 0%, #0D2B7E 45%, #1055BE 100%)",
         "accent":      "#FFD232",
         "tag_color":   "#0D1B3E",
         "card_border": "#1E78FF",
         "badge":       "현지언니  생활금융",
         "footer":      "금융·재테크 총정리",
+        # 라이트 스타일
+        "color":     "#1357C0",
+        "bg_light":  "#EEF3FF",
+        "label":     "금융·재테크",
+        "icons":     ["💰", "🏦", "💳", "📈"],
+        "cta":       "지금 바로 확인해보세요!",
+        "sub_below": "핵심 가이드 총정리",
     },
     "세금절세": {
         "bg":          "linear-gradient(145deg, #3D0C00 0%, #7A1500 45%, #C43800 100%)",
@@ -27,6 +36,12 @@ _STYLES: dict[str, dict] = {
         "card_border": "#FF6D00",
         "badge":       "현지언니  세금·절세",
         "footer":      "세금·절세 총정리",
+        "color":     "#C62828",
+        "bg_light":  "#FFF4F2",
+        "label":     "세금·절세",
+        "icons":     ["📋", "💹", "📊", "💡"],
+        "cta":       "놓치지 말고 확인하세요!",
+        "sub_below": "절세 전략 총정리",
     },
     "보험": {
         "bg":          "linear-gradient(145deg, #00222E 0%, #00474F 45%, #006064 100%)",
@@ -35,6 +50,12 @@ _STYLES: dict[str, dict] = {
         "card_border": "#00BFA5",
         "badge":       "현지언니  보험 가이드",
         "footer":      "보험 핵심 정리",
+        "color":     "#00695C",
+        "bg_light":  "#EDFAFA",
+        "label":     "보험 가이드",
+        "icons":     ["🛡️", "💊", "📝", "✅"],
+        "cta":       "보험료 아끼는 방법 확인!",
+        "sub_below": "보험 핵심 총정리",
     },
     "부동산주거": {
         "bg":          "linear-gradient(145deg, #0D0028 0%, #2D0076 45%, #5500CC 100%)",
@@ -43,6 +64,12 @@ _STYLES: dict[str, dict] = {
         "card_border": "#AA00FF",
         "badge":       "현지언니  부동산·주거",
         "footer":      "부동산·주거 총정리",
+        "color":     "#4527A0",
+        "bg_light":  "#F4EEFF",
+        "label":     "부동산·주거",
+        "icons":     ["🏠", "📜", "🔑", "✅"],
+        "cta":       "꼭 알아야 할 핵심 정보!",
+        "sub_below": "부동산 정보 총정리",
     },
     "정부지원혜택": {
         "bg":          "linear-gradient(145deg, #0A1428 0%, #0D2B7E 45%, #1565C0 100%)",
@@ -51,6 +78,12 @@ _STYLES: dict[str, dict] = {
         "card_border": "#2196F3",
         "badge":       "현지언니  정부지원",
         "footer":      "정부지원 혜택 총정리",
+        "color":     "#1357C0",
+        "bg_light":  "#EEF3FF",
+        "label":     "정부지원",
+        "icons":     ["🏛️", "💰", "📋", "✅"],
+        "cta":       "혜택 놓치지 마세요!",
+        "sub_below": "정부지원 혜택 총정리",
     },
     "gov": {
         "bg":          "linear-gradient(145deg, #0A1428 0%, #0D2B7E 45%, #1565C0 100%)",
@@ -59,6 +92,12 @@ _STYLES: dict[str, dict] = {
         "card_border": "#2196F3",
         "badge":       "현지언니  정부지원",
         "footer":      "정부지원 혜택 총정리",
+        "color":     "#1357C0",
+        "bg_light":  "#EEF3FF",
+        "label":     "정부지원",
+        "icons":     ["🏛️", "💰", "📋", "✅"],
+        "cta":       "혜택 놓치지 마세요!",
+        "sub_below": "정부지원 혜택 총정리",
     },
     "health": {
         "bg":          "linear-gradient(145deg, #071A07 0%, #1B5E20 45%, #2E7D32 100%)",
@@ -67,172 +106,206 @@ _STYLES: dict[str, dict] = {
         "card_border": "#4CAF50",
         "badge":       "현지언니  건강·의료",
         "footer":      "건강 정보 총정리",
+        "color":     "#1B5E20",
+        "bg_light":  "#EDFAF5",
+        "label":     "건강·의료",
+        "icons":     ["❤️", "🏥", "💊", "✅"],
+        "cta":       "건강 정보 확인하세요!",
+        "sub_below": "건강 정보 총정리",
     },
 }
 _DEFAULT = _STYLES["금융재테크"]
 
 
-def _build_html(
-    display_title: str,
-    badge: str,
-    footer: str,
-    bullets: list[str] | None,
-    style: dict,
-) -> str:
-    acc        = style["accent"]
-    tag_c      = style["tag_color"]
-    bg         = style["bg"]
-    card_top_c = style["card_border"]
+def _title_fontsize(text: str) -> int:
+    n = len(text)
+    if n <= 4:  return 100
+    if n <= 6:  return 88
+    if n <= 8:  return 76
+    if n <= 11: return 62
+    return 52
 
-    n    = len(bullets) if bullets else 0
-    cols = 3 if n == 3 else 2
-    rows = max(1, (n + cols - 1) // cols) if n else 0
-    # 2행이면 카드 높이 줄여서 여백 확보
-    card_h = 70 if rows > 1 else 88
 
-    # 카드 HTML
+def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> str:
+    color    = style["color"]
+    bg_light = style["bg_light"]
+    label    = style["label"]
+    icons    = style.get("icons", ["💡", "📌", "✅", "🔑"])
+    cta      = style.get("cta", "지금 바로 확인해보세요!")
+    sub_below = style.get("sub_below", "핵심 가이드 총정리")
+
+    n = min(len(bullets) if bullets else 0, 4)
+
+    # 3단 제목 분리: [회색 소자] / [대형 강조색] / [다크 소자]
+    words = display_title.split()
+    if len(words) >= 2:
+        mid = max(1, len(words) // 2)
+        t_small  = " ".join(words[:mid])    # 회색 소자 (상단)
+        t_accent = " ".join(words[mid:])    # 대형 강조색 (중단)
+    else:
+        t_small  = label                    # 카테고리명 fallback
+        t_accent = display_title
+    tf = _title_fontsize(t_accent)
+
+    # 구분바 키워드 (불릿 첫 단어들)
+    if bullets and n > 0:
+        kws = " · ".join(b.split()[0] for b in bullets[:n])
+        divider_text = f"📌 {kws}까지!"
+    else:
+        divider_text = f"📌 {label} 핵심 정보 한눈에 확인!"
+
+    # 하단 아이콘 카드
     cards_html = ""
-    if bullets:
-        for i, b in enumerate(bullets, 1):
+    if n > 0:
+        for i, b in enumerate(bullets[:n], 1):
+            icon  = icons[i - 1] if i <= len(icons) else "💡"
+            short = b[:18] if len(b) > 18 else b
             cards_html += f"""
-        <div class="info-card">
-          <div class="num">{"0" if i < 10 else ""}{i}</div>
-          <div class="card-text">{escape(b)}</div>
-        </div>"""
+      <div class="bcard">
+        <div class="bicon">{icon}</div>
+        <div class="blabel">핵심 0{i}</div>
+        <div class="btext">{escape(short)}</div>
+      </div>"""
 
-    cards_block = f"""
-    <div class="cards" style="grid-template-columns:repeat({cols},1fr);">
-      {cards_html}
-    </div>""" if n > 0 else ""
+    cards_section = f"""
+  <div class="bcards" style="grid-template-columns:repeat({n},1fr);">
+    {cards_html}
+  </div>""" if n > 0 else ""
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap');
 
 *{{margin:0;padding:0;box-sizing:border-box;}}
-body{{width:{W}px;height:{H}px;overflow:hidden;background:transparent;}}
+body{{width:{S}px;height:{S}px;overflow:hidden;}}
 
 .wrap{{
-  width:{W}px;height:{H}px;
-  background:{bg};
-  position:relative;overflow:hidden;
-  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕','NanumGothicBold',sans-serif;
-}}
-
-/* 배경 보케 */
-.wrap::before{{
-  content:'';position:absolute;
-  width:400px;height:400px;border-radius:50%;
-  background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 65%);
-  top:-120px;right:-80px;pointer-events:none;
-}}
-.wrap::after{{
-  content:'';position:absolute;
-  width:260px;height:260px;border-radius:50%;
-  background:radial-gradient(circle,rgba(255,255,255,.04) 0%,transparent 65%);
-  bottom:-80px;left:90px;pointer-events:none;
-}}
-
-/* 상하 액센트 라인 */
-.line-top{{position:absolute;top:0;left:0;right:0;height:5px;background:{acc};}}
-.line-bot{{position:absolute;bottom:0;left:0;right:0;height:5px;background:{acc};}}
-
-/* 귀퉁이 다이아몬드 */
-.corner{{position:absolute;color:{acc};font-size:13px;opacity:.9;line-height:1;}}
-.tl{{top:18px;left:34px;}} .tr{{top:18px;right:34px;}}
-.bl{{bottom:10px;left:34px;}} .br{{bottom:10px;right:34px;}}
-
-/* 배지 */
-.badge{{
-  position:absolute;top:14px;left:50%;transform:translateX(-50%);
-  background:{acc};color:{tag_c};
-  padding:7px 28px;border-radius:999px;
-  font-size:14px;font-weight:700;white-space:nowrap;letter-spacing:.3px;
-  box-shadow:0 3px 12px rgba(0,0,0,.3);
-  z-index:10;
-}}
-
-/* 메인 콘텐츠: 배지 아래~푸터 위를 flexbox로 수직 균등 배분 */
-.main{{
-  position:absolute;
-  top:54px;bottom:30px;left:0;right:0;
+  width:{S}px;height:{S}px;
+  background:{bg_light};
   display:flex;flex-direction:column;
-  align-items:center;
-  justify-content:{'space-evenly' if n > 0 else 'center'};
-  padding:0 46px;
+  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
+  overflow:hidden;
 }}
 
-/* 제목 */
-.title{{
-  text-align:center;
-  color:{acc};font-size:52px;font-weight:900;
-  line-height:1.22;
+/* ── 상단 배지 ── */
+.topbadge{{
+  margin:30px 42px 0;
+  display:inline-flex;align-items:center;gap:9px;
+  background:white;
+  border:2px solid {color};
+  color:#1A1A2E;
+  padding:10px 24px;border-radius:999px;
+  font-size:15px;font-weight:700;
+  align-self:flex-start;
+  box-shadow:0 3px 14px {color}22;
+}}
+.chk{{color:{color};font-size:17px;font-weight:900;}}
+
+/* ── 히어로 (flex 나머지 공간 모두 차지) ── */
+.hero{{
+  flex:1;
+  padding:0 54px;
+  display:flex;flex-direction:column;
+  justify-content:center;
+}}
+
+/* 3단 제목 */
+.ts{{               /* 소자 상단 (회색) */
+  font-size:28px;font-weight:800;
+  color:#8492A6;
+  letter-spacing:-0.3px;
+  margin-bottom:2px;
+}}
+.ta{{               /* 대자 강조색 */
+  font-size:{tf}px;font-weight:900;
+  color:{color};
+  line-height:1.05;
+  letter-spacing:-2px;
   word-break:keep-all;
-  text-shadow:2px 3px 14px rgba(0,0,0,.55);
-  width:100%;
+  margin-bottom:8px;
+}}
+.tb{{               /* 소자 하단 (다크) */
+  font-size:30px;font-weight:800;
+  color:#1A1A2E;
+  letter-spacing:-0.5px;
 }}
 
-/* 카드 그리드 */
-.cards{{
-  width:100%;
-  display:grid;gap:10px;
+/* ── 키워드 구분바 ── */
+.divrow{{
+  margin:0 42px;
+  padding:14px 26px;
+  background:white;
+  border-left:7px solid {color};
+  border-radius:0 14px 14px 0;
+  font-size:15px;font-weight:600;color:#555;
+  flex-shrink:0;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);
+  line-height:1.5;
 }}
 
-.info-card{{
-  background:rgba(255,255,255,.10);
-  backdrop-filter:blur(18px);
-  -webkit-backdrop-filter:blur(18px);
-  border:1px solid rgba(255,255,255,.18);
-  border-top:4px solid {card_top_c};
-  border-radius:13px;
-  padding:0 20px;
-  height:{card_h}px;
-  display:flex;align-items:center;gap:14px;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.2),
-    0 6px 28px rgba(0,0,0,.25);
+/* ── 하단 아이콘 카드 ── */
+.bcards{{
+  display:grid;
+  flex-shrink:0;
+  margin-top:14px;
+  border-top:1.5px solid #D8E2F0;
 }}
-
-.num{{
-  min-width:30px;height:30px;border-radius:50%;
-  background:{acc};color:{tag_c};
-  display:flex;align-items:center;justify-content:center;
-  font-size:13px;font-weight:800;flex-shrink:0;
-  box-shadow:0 2px 8px rgba(0,0,0,.2);
-}}
-
-.card-text{{
-  color:rgba(238,248,255,.95);
-  font-size:17px;font-weight:600;
-  line-height:1.4;word-break:keep-all;
-}}
-
-/* 푸터 */
-.footer{{
-  position:absolute;bottom:11px;left:0;right:0;
+.bcard{{
+  padding:18px 10px 16px;
+  display:flex;flex-direction:column;
+  align-items:center;gap:7px;
+  background:white;
+  border-right:1.5px solid #D8E2F0;
   text-align:center;
-  color:rgba(200,225,255,.65);
-  font-size:14px;font-weight:500;letter-spacing:.5px;
 }}
+.bcard:last-child{{border-right:none;}}
+.bicon{{
+  width:52px;height:52px;border-radius:50%;
+  background:{color}14;
+  border:2px solid {color}33;
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;
+}}
+.blabel{{font-size:11px;font-weight:800;color:{color};letter-spacing:.5px;}}
+.btext{{font-size:13px;font-weight:700;color:#1A1A2E;line-height:1.4;word-break:keep-all;}}
+
+/* ── CTA 푸터 ── */
+.cta{{
+  background:{color};
+  padding:18px 46px;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;
+}}
+.ctat{{color:white;font-size:18px;font-weight:800;}}
+.ctab{{color:white;font-size:15px;font-weight:900;opacity:.85;letter-spacing:1px;}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="line-top"></div>
-  <div class="line-bot"></div>
-  <span class="corner tl">◆</span>
-  <span class="corner tr">◆</span>
-  <span class="corner bl">◆</span>
-  <span class="corner br">◆</span>
-  <div class="badge">{escape(badge)}</div>
-  <div class="main">
-    <div class="title">{escape(display_title)}</div>
-    {cards_block}
+
+  <div class="topbadge">
+    <span class="chk">✓</span>
+    현지언니 · {escape(label)}
   </div>
-  <div class="footer">{escape(footer)}</div>
+
+  <div class="hero">
+    <div class="ts">{escape(t_small)}</div>
+    <div class="ta">{escape(t_accent)}</div>
+    <div class="tb">{escape(sub_below)}</div>
+  </div>
+
+  <div class="divrow">{divider_text}</div>
+
+  {cards_section}
+
+  <div class="cta">
+    <div class="ctat">{escape(cta)}</div>
+    <div class="ctab">현지언니 ✦</div>
+  </div>
+
 </div>
 </body>
 </html>"""
@@ -247,14 +320,14 @@ async def _pw_screenshot(html: str) -> bytes:
         )
         try:
             ctx = await browser.new_context(
-                viewport={"width": W, "height": H},
-                device_scale_factor=2,  # 레티나 품질
+                viewport={"width": S, "height": S},
+                device_scale_factor=2,
             )
             page = await ctx.new_page()
             await page.set_content(html, wait_until="networkidle", timeout=18000)
-            await page.wait_for_timeout(400)  # 폰트 렌더 안정화
+            await page.wait_for_timeout(400)
             data = await page.screenshot(
-                clip={"x": 0, "y": 0, "width": W, "height": H},
+                clip={"x": 0, "y": 0, "width": S, "height": S},
                 type="png",
             )
             return data
@@ -269,17 +342,16 @@ def create_infographic_via_html(
     bullets: list[str] | None = None,
 ) -> str | None:
     """
-    HTML/CSS + Playwright 스크린샷 인포그래픽. 실패 시 None 반환.
-    호출자가 PIL 폴백을 처리해야 함.
+    HTML/CSS + Playwright 정방형 인포그래픽. 실패 시 None 반환.
     """
     style = _STYLES.get(category, _DEFAULT)
 
     display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
-    if len(display) > 22:
-        display = display[:22]
+    if len(display) > 28:
+        display = display[:28]
 
-    clean_bullets = [b[:28] for b in (bullets or [])[:4]] or None
-    html = _build_html(display, style["badge"], style["footer"], clean_bullets, style)
+    clean_bullets = [b[:20] for b in (bullets or [])[:4]] or None
+    html = _build_html(display, clean_bullets, style)
 
     try:
         screenshot = asyncio.run(_pw_screenshot(html))
