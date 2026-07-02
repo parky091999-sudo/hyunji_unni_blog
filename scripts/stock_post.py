@@ -173,11 +173,6 @@ def run():
         logger.error(f"[{topic_name}] 원고 생성 실패 — 종료")
         sys.exit(1)
 
-    if post.get("body"):
-        cleaned = re.sub(r"^\s*\[사진([2-9]|\d{2,})\]\s*$\n?", "", post["body"], flags=re.MULTILINE)
-        if cleaned != post["body"]:
-            post["body"] = cleaned
-
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:500] + "...\n===== 끝 =====")
 
@@ -197,6 +192,37 @@ def run():
             logger.info(f"주식 헤더 카드 생성: {header_path}")
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
+
+    if STOCK_TOPIC == "etf포트폴리오":
+        try:
+            from generator.stock_chart import generate_comparison_chart
+
+            tickers = ["SCHD", "JEPQ", "QLD", "TQQQ"]
+            chart_path = generate_comparison_chart(
+                tickers,
+                labels={t: t for t in tickers},
+                period="3mo",
+                title="ETF 4종목 최근 3개월 성과 비교 (시작일=100 기준)",
+            )
+            if chart_path:
+                images.append({
+                    "local_path": chart_path, "url": "",
+                    "alt_text": "ETF 4종목 3개월 성과 비교 차트",
+                    "label": "3개월 성과 비교",
+                })
+                logger.info(f"ETF 비교 차트 생성: {chart_path}")
+        except Exception as e:
+            logger.warning(f"비교 차트 생성 실패 (무시): {e}")
+
+    # 실제로 준비된 이미지 수보다 큰 [사진N] 마커는 게시 불가하므로 제거
+    img_count = len(images)
+    if post.get("body"):
+        def _strip_excess_marker(m: "re.Match[str]") -> str:
+            return "" if int(m.group(1)) > img_count else m.group(0)
+
+        cleaned = re.sub(r"^\s*\[사진(\d+)\]\s*$\n?", _strip_excess_marker, post["body"], flags=re.MULTILINE)
+        if cleaned != post["body"]:
+            post["body"] = cleaned
 
     post["body"], extra_subs = _append_internal_links(post["body"], history)
     post["subheadings"] = post.get("subheadings", []) + extra_subs

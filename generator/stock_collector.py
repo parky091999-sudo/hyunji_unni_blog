@@ -59,18 +59,40 @@ class StockDataCollector:
         for ticker in target_tickers:
             try:
                 stock = yf.Ticker(ticker)
-                hist = stock.history(period="5d")
+                # 6개월치를 한 번에 받아 당일 등락률과 실제 과거 수익률(1·3개월)·최대낙폭을 함께 계산
+                hist = stock.history(period="6mo")
                 if hist.empty or len(hist) < 2:
                     logger.warning(f"{ticker}: 데이터 부족")
                     continue
-                current_price = float(hist["Close"].iloc[-1])
-                prev_price = float(hist["Close"].iloc[-2])
+                closes = hist["Close"]
+                current_price = float(closes.iloc[-1])
+                prev_price = float(closes.iloc[-2])
                 change_pct = ((current_price - prev_price) / prev_price) * 100
                 row = {
                     "현재가(USD)": round(current_price, 2),
                     "전일대비 등락률(%)": round(change_pct, 2),
                     "거래량": int(hist["Volume"].iloc[-1]),
                 }
+
+                # 실제 과거 가격 기반 수익률·최대낙폭 (거래일 기준 근사치, 21일≈1개월/63일≈3개월)
+                def _trailing_return(days_back: int) -> float | None:
+                    if len(closes) <= days_back:
+                        return None
+                    old = float(closes.iloc[-(days_back + 1)])
+                    if old <= 0:
+                        return None
+                    return round((current_price - old) / old * 100, 2)
+
+                r1m = _trailing_return(21)
+                if r1m is not None:
+                    row["1개월수익률(%)"] = r1m
+                r3m = _trailing_return(63)
+                if r3m is not None:
+                    row["3개월수익률(%)"] = r3m
+                if len(closes) >= 20:
+                    roll_max = closes.cummax()
+                    drawdown = (closes - roll_max) / roll_max * 100
+                    row["6개월최대낙폭(%)"] = round(float(drawdown.min()), 2)
 
                 # 배당률·총보수 (best-effort — 실패 필드는 생략)
                 info = {}
