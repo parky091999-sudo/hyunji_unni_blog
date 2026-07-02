@@ -550,9 +550,9 @@ async def _apply_font_all(page: Page, font_dn: str = "nanummaruburi") -> bool:
         return False
 
 
-async def _apply_bullet_list_to_caret(page: Page, target: Page) -> bool:
-    """현재 커서가 위치한 단락에 네이티브 글머리표(•) 리스트 적용.
-    [data-name='list'] 드롭다운 열고 → [data-value='bullet'] 클릭. (네이티브 리스트=자동 내어쓰기)"""
+async def _apply_bullet_list_to_caret(page: Page, target: Page, list_type: str = "bullet") -> bool:
+    """현재 커서가 위치한 단락에 네이티브 리스트 적용(list_type='bullet' 글머리표 · 'decimal' 번호매기기).
+    [data-name='list'] 드롭다운 열고 → [data-value=list_type] 클릭. (네이티브 리스트=자동 내어쓰기)"""
     opened = False
     for sel in [".se-property-toolbar-drop-down-button[data-name='list']",
                 ".se-contents-toolbar-drop-down-button[data-name='list']",
@@ -569,7 +569,7 @@ async def _apply_bullet_list_to_caret(page: Page, target: Page) -> bool:
         return False
     await _delay(180, 320)
     try:
-        btn = target.locator("[data-name='list'][data-value='bullet']").first
+        btn = target.locator(f"[data-name='list'][data-value='{list_type}']").first
         if await btn.count():
             await btn.click(timeout=1500)
             await _delay(180, 320)
@@ -584,9 +584,14 @@ async def _apply_bullet_list_to_caret(page: Page, target: Page) -> bool:
     return False
 
 
+_CIRCLED_NUMS = "①②③④⑤⑥⑦⑧⑨⑩"
+
+
 async def _convert_bullets_to_list(page: Page) -> int:
-    """본문에서 '· '/'• ' 로 시작하는 단락을 네이티브 글머리표 리스트로 변환.
-    글머리 리터럴(· ) 제거 후 list 적용 → 모바일 줄바꿈 시 둘째 줄이 첫 글자에 맞춰 내어쓰기됨."""
+    """본문에서 '· '/'• ' 로 시작하는 단락(글머리표)과 '① ' 등으로 시작하는 단락(번호매기기)을
+    각각 네이티브 리스트로 변환. 글머리 리터럴 제거 후 list 적용 → 모바일 줄바꿈 시 둘째 줄이
+    첫 글자에 맞춰 내어쓰기됨. 한 글에서 불릿·번호 스타일이 뒤섞이지 않도록(소제목마다 다른
+    글머리기호로 보이는 문제) 종류별로 알맞은 네이티브 리스트로 통일한다."""
     target = await _get_editor_frame(page)
     converted = 0
     fails = 0
@@ -599,6 +604,7 @@ async def _convert_bullets_to_list(page: Page) -> int:
         except Exception:
             break
         found = -1
+        list_type = "bullet"
         for k in range(n):
             try:
                 t = (await paras.nth(k).inner_text()).strip()
@@ -606,13 +612,18 @@ async def _convert_bullets_to_list(page: Page) -> int:
                 continue
             if t.startswith("· ") or t.startswith("• "):
                 found = k
+                list_type = "bullet"
+                break
+            if t and t[0] in _CIRCLED_NUMS and len(t) > 1 and t[1] == " ":
+                found = k
+                list_type = "decimal"
                 break
         if found < 0:
             break
         try:
             await paras.nth(found).click(timeout=4000)
             await _delay(120, 200)
-            # 글머리 리터럴 '· ' (2글자) 선택 후 삭제
+            # 글머리 리터럴('· '/'• '/'① ' 등, 모두 2글자) 선택 후 삭제
             await page.keyboard.press("Home")
             await page.keyboard.down("Shift")
             await page.keyboard.press("ArrowRight")
@@ -620,8 +631,8 @@ async def _convert_bullets_to_list(page: Page) -> int:
             await page.keyboard.up("Shift")
             await page.keyboard.press("Delete")
             await _delay(100, 180)
-            if not await _apply_bullet_list_to_caret(page, target):
-                # 적용 실패 — '·'는 이미 제거돼 재검색 안 되므로 다음 단락 계속 처리(중단 X)
+            if not await _apply_bullet_list_to_caret(page, target, list_type=list_type):
+                # 적용 실패 — 리터럴은 이미 제거돼 재검색 안 되므로 다음 단락 계속 처리(중단 X)
                 fails += 1
                 if fails >= 8:
                     logger.info("글머리표 변환 연속 실패 다수 — 중단")
@@ -629,12 +640,85 @@ async def _convert_bullets_to_list(page: Page) -> int:
                 continue
             converted += 1
         except Exception as e:
-            # 클릭 실패 등 — '·'가 남아 재매칭 무한루프 위험 → 중단
+            # 클릭 실패 등 — 리터럴이 남아 재매칭 무한루프 위험 → 중단
             logger.info(f"글머리표 변환 단락 스킵(중단): {e}")
             break
     if converted:
-        logger.info(f"글머리표(•) 리스트 변환 {converted}개 — 내어쓰기 적용")
+        logger.info(f"글머리/번호 네이티브 리스트 변환 {converted}개 — 내어쓰기 적용")
     return converted
+
+
+
+# '**'는 generator._parse_response가 이미 마크다운 제거 단계에서 벗겨내므로
+# (다른 카테고리의 기존 AI-티 제거 규칙과 충돌 방지) 살아남는 별도 마커를 쓴다.
+_EMPHASIS_RE = re.compile(r"\[\[(.+?)\]\]")
+
+
+async def _apply_inline_emphasis(page: Page) -> int:
+    """본문 단락 안의 '[[키워드]]' 마커를 찾아 마커 문자를 제거하고 그 자리의
+    텍스트에 볼드를 적용한다(문장 전체가 아니라 특정 키워드만 강조).
+    한 단락에 마커가 여러 개면 하나씩 처리 후 단락을 다시 읽어 위치 어긋남을 방지한다."""
+    target = await _get_editor_frame(page)
+    applied = 0
+    guard = 0
+    while guard < 100:
+        guard += 1
+        try:
+            paras = target.locator(".se-section-text .se-text-paragraph")
+            n = await paras.count()
+        except Exception:
+            break
+        found = -1
+        m = None
+        for i in range(n):
+            try:
+                t = await paras.nth(i).inner_text()
+            except Exception:
+                continue
+            mm = _EMPHASIS_RE.search(t)
+            if mm:
+                found = i
+                m = mm
+                break
+        if found < 0 or m is None:
+            break
+        start = m.start()
+        kw_len = len(m.group(1))
+        try:
+            await paras.nth(found).click(timeout=4000)
+            await _delay(100, 180)
+            await page.keyboard.press("Home")
+            for _ in range(start):
+                await page.keyboard.press("ArrowRight")
+            # 여는 '[[' (2글자) 선택 후 삭제
+            await page.keyboard.down("Shift")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.up("Shift")
+            await page.keyboard.press("Delete")
+            await _delay(80, 140)
+            # 키워드 선택 후 볼드 적용
+            await page.keyboard.down("Shift")
+            for _ in range(kw_len):
+                await page.keyboard.press("ArrowRight")
+            await page.keyboard.up("Shift")
+            await page.keyboard.press("Control+b")
+            await _delay(100, 160)
+            # 선택을 오른쪽 끝으로 접은 뒤 닫는 ']]' (2글자) 선택 후 삭제
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.down("Shift")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.press("ArrowRight")
+            await page.keyboard.up("Shift")
+            await page.keyboard.press("Delete")
+            applied += 1
+            await _delay(100, 180)
+        except Exception as e:
+            logger.info(f"인라인 강조 적용 실패(중단): {e}")
+            break
+    if applied:
+        logger.info(f"인라인 강조(볼드) 적용 {applied}개")
+    return applied
 
 
 async def _center_oglink_cards(page: Page) -> int:
@@ -786,23 +870,44 @@ def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
     return anchors
 
 
+def _text_w(draw: ImageDraw.ImageDraw, s: str, font: ImageFont.FreeTypeFont) -> int:
+    try:
+        bbox = draw.textbbox((0, 0), s, font=font)
+        return bbox[2] - bbox[0]
+    except AttributeError:
+        w, _ = draw.textsize(s, font=font)
+        return w
+
+
 def _wrap_korean_text(text: str, draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
-    """한글 텍스트를 글자 단위로 측정하여 지정된 너비 이내로 줄바꿈 처리합니다."""
-    lines = []
+    """텍스트를 지정된 너비 이내로 줄바꿈 처리합니다.
+    공백으로 구분된 '단어' 단위를 우선 유지해 SCHD·ETF 같은 영문 티커/약어가
+    중간에 끊기지 않게 하고, 공백 없이 긴 한글 덩어리만 글자 단위로 쪼갭니다."""
+    lines: list[str] = []
     current_line = ""
-    for char in text:
-        test_line = current_line + char
-        try:
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            w = bbox[2] - bbox[0]
-        except AttributeError:
-            w, _ = draw.textsize(test_line, font=font)
-        if w <= max_width:
-            current_line = test_line
+    for word in text.split(" "):
+        if not word:
+            continue
+        candidate = f"{current_line} {word}".strip() if current_line else word
+        if _text_w(draw, candidate, font) <= max_width:
+            current_line = candidate
+            continue
+        # 현재 줄에 이미 내용이 있으면 줄바꿈하고 새 단어부터 다시 시도
+        if current_line:
+            lines.append(current_line)
+            current_line = ""
+        # 단어 자체가 한 줄 너비를 넘으면(긴 한글 덩어리 등) 글자 단위로 쪼갠다
+        if _text_w(draw, word, font) > max_width:
+            for char in word:
+                test_line = current_line + char
+                if _text_w(draw, test_line, font) <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = char
         else:
-            if current_line:
-                lines.append(current_line)
-            current_line = char
+            current_line = word
     if current_line:
         lines.append(current_line)
     return lines
@@ -1079,9 +1184,12 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
         # 구분선
         draw.line([(width // 2 - 80, 100), (width // 2 + 80, 100)], fill=(70, 90, 115), width=1)
 
-        # 토픽 텍스트: 제목의 | 앞부분 사용, 없으면 keyword
-        topic = title.split("|")[0].strip() if title and "|" in title else title.strip()
-        display = topic if topic else keyword
+        # 토픽 텍스트: keyword(짧고 간결한 훅) 우선 사용. keyword가 없을 때만
+        # 제목에서 뽑아 쓴다(제목의 | 앞부분, 없으면 전체 제목).
+        # ※과거엔 title 파생 텍스트가 항상 우선이라 keyword 인자가 사실상 무시돼
+        #   헤더카드가 게시글 제목과 완전히 동일하게 나오던 버그가 있었음(2026-07-02).
+        topic = title.split("|")[0].strip() if title and "|" in title else (title or "").strip()
+        display = keyword.strip() if keyword and keyword.strip() else topic
         _STOCK_CARD_CATS = {
             "주식상한가", "주식분석", "주식공모주", "공모주", "주식etf", "ETF",
         }
@@ -2603,6 +2711,12 @@ async def _post(
             await _style_paragraphs(write_page, subheadings or [], size_label="19", bold=True, label="소제목", style_type="quotation_vertical")
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
+
+        # ── '**키워드**' 마커 → 인라인 볼드(문단 구조 바뀌기 전에 먼저 처리) ──
+        try:
+            await _apply_inline_emphasis(write_page)
+        except Exception as e:
+            logger.warning(f"인라인 강조 적용 예외(계속): {e}")
 
         # ── 글머리(·) 줄 → 네이티브 글머리표 리스트(자동 내어쓰기) ──
         try:
