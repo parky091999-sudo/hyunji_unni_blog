@@ -3,6 +3,7 @@
 LLM 할루시네이션 방지: 공신력 있는 API·크롤링으로 당일 수치만 확보.
 """
 import logging
+import re
 from datetime import datetime
 
 import requests
@@ -14,10 +15,43 @@ logger = logging.getLogger("stock_collector")
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 
+# ETF 성격 프로필(고정 팩트 — 운용사 공시 기반 상식). 구체 수치가 아닌 '전략 성격'만.
+_ETF_PROFILE: dict[str, dict] = {
+    "SCHD": {
+        "이름": "Schwab 미국 배당주 ETF",
+        "성격": "배당성장 코어",
+        "전략": "다우존스 미국배당100 지수 추종(패시브), 10년 이상 배당 우량주",
+        "지급주기": "분기 배당",
+        "포지션": "포트폴리오 중심을 잡는 안정형",
+    },
+    "JEPQ": {
+        "이름": "JPMorgan 나스닥 프리미엄인컴 ETF",
+        "성격": "고배당 월인컴",
+        "전략": "나스닥100 보유 + 커버드콜(옵션 프리미엄)으로 월분배 추구(액티브)",
+        "지급주기": "월 배당",
+        "포지션": "현금흐름형. 강세장 상단수익 제한·분배금 변동 큼",
+    },
+    "QLD": {
+        "이름": "ProShares 나스닥100 2배 ETF",
+        "성격": "2배 레버리지",
+        "전략": "나스닥100 일간 수익률의 2배 추종",
+        "지급주기": "배당 거의 없음",
+        "포지션": "공격형. 횡보장 복리감소(변동성 끌림) 주의",
+    },
+    "TQQQ": {
+        "이름": "ProShares 나스닥100 3배 ETF",
+        "성격": "3배 레버리지",
+        "전략": "나스닥100 일간 수익률의 3배 추종",
+        "지급주기": "배당 없음",
+        "포지션": "초공격형. 장기보유 시 복리감소 심함, 단기·소액 한정",
+    },
+}
+
+
 class StockDataCollector:
     @staticmethod
     def get_core_etf_data() -> dict:
-        """미국 핵심 ETF(TQQQ, QLD, JEPQ, SCHD) 주가·등락률."""
+        """미국 핵심 ETF(TQQQ, QLD, JEPQ, SCHD) 주가·등락률 + 배당률·총보수·52주위치·전략 프로필."""
         target_tickers = ["TQQQ", "QLD", "JEPQ", "SCHD"]
         etf_data: dict = {}
         logger.info("미국 코어 ETF 데이터 수집 시작")
@@ -32,11 +66,37 @@ class StockDataCollector:
                 current_price = float(hist["Close"].iloc[-1])
                 prev_price = float(hist["Close"].iloc[-2])
                 change_pct = ((current_price - prev_price) / prev_price) * 100
-                etf_data[ticker] = {
+                row = {
                     "현재가(USD)": round(current_price, 2),
                     "전일대비 등락률(%)": round(change_pct, 2),
                     "거래량": int(hist["Volume"].iloc[-1]),
                 }
+
+                # 배당률·총보수·52주 위치 (best-effort — 실패 필드는 생략)
+                info = {}
+                try:
+                    info = stock.info or {}
+                except Exception as e:
+                    logger.warning(f"{ticker} info 조회 실패(무시): {e}")
+
+                dy = info.get("yield") or info.get("trailingAnnualDividendYield")
+                if isinstance(dy, (int, float)) and dy > 0:
+                    row["배당수익률(%)"] = round(dy * 100, 2)
+                exp = info.get("netExpenseRatio") or info.get("annualReportExpenseRatio")
+                if isinstance(exp, (int, float)) and exp > 0:
+                    # yfinance는 0.06% 를 0.0006 또는 0.06으로 주는 경우가 있어 정규화
+                    row["총보수(%)"] = round(exp * 100, 2) if exp < 1 else round(exp, 2)
+                hi = info.get("fiftyTwoWeekHigh")
+                lo = info.get("fiftyTwoWeekLow")
+                if isinstance(hi, (int, float)) and isinstance(lo, (int, float)) and hi > lo:
+                    pos = (current_price - lo) / (hi - lo) * 100
+                    row["52주위치(%)"] = round(max(0, min(100, pos)), 1)
+
+                prof = _ETF_PROFILE.get(ticker)
+                if prof:
+                    row.update(prof)
+
+                etf_data[ticker] = row
             except Exception as e:
                 logger.warning(f"{ticker} 데이터 수집 실패: {e}")
 
@@ -128,16 +188,26 @@ class StockDataCollector:
                 if not name:
                     continue
                 market = StockDataCollector._ipo_field(td, ".item_name .type")
+                gongmoga = StockDataCollector._ipo_labeled_field(td, "area_price")
                 entry = {
                     "종목명": name,
                     "시장": market,
-                    "공모가": StockDataCollector._ipo_labeled_field(td, "area_price"),
+                    "공모가": gongmoga,
                     "업종": StockDataCollector._ipo_labeled_field(td, "area_type"),
                     "주간사": StockDataCollector._ipo_labeled_field(td, "area_sup"),
                     "경쟁률": StockDataCollector._ipo_labeled_field(td, "area_competition"),
                     "청약일": StockDataCollector._ipo_labeled_field(td, "area_private"),
                     "상장일": StockDataCollector._ipo_labeled_field(td, "area_list"),
                 }
+                # 확정 공모가(단일 숫자)면 10주 청약 증거금(공모가×50%×10주) 계산해 첨부
+                nums = re.findall(r"[\d,]+", gongmoga or "")
+                if len(nums) == 1:
+                    try:
+                        price = int(nums[0].replace(",", ""))
+                        if price > 0:
+                            entry["10주청약증거금(원)"] = f"{int(price * 0.5 * 10):,}"
+                    except ValueError:
+                        pass
                 ipo_list.append(entry)
         except Exception as e:
             logger.error(f"공모주 크롤링 에러: {e}")
