@@ -2139,6 +2139,10 @@ _STOCK_CATEGORY_PARENT: dict[str, str] = {
     "공모주": "주식",
 }
 
+# 부모 카테고리명이 자식명의 부분문자열('주식' ⊂ '주식분석')이라
+# 부분일치 fallback이 부모를 자식으로 오매칭하는 것을 막기 위한 집합
+_STOCK_PARENTS: set[str] = set(_STOCK_CATEGORY_PARENT.values())
+
 _CATEGORY_OPTION_SELECTORS = [
     "label[class*='radio_label']",
     "li[class*='item']",
@@ -2176,6 +2180,9 @@ def _pick_category_label(available: list[str], category_name: str) -> str | None
             return label
     for label in cleaned:
         tail = _category_tail(label)
+        # 부모('주식')가 자식('주식분석') 요청에 부분매칭되면 오발행 → 정확 일치일 때만 허용
+        if tail in _STOCK_PARENTS and _norm_category_label(tail) != target:
+            continue
         if category_name == tail or category_name in tail or tail in category_name:
             return label
     return None

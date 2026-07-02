@@ -160,8 +160,10 @@ def run():
 
     fact_data = StockDataCollector.collect(STOCK_TOPIC)
     if not fact_data:
-        logger.error(f"[{topic_name}] 팩트 데이터 수집 실패 — 종료")
-        sys.exit(1)
+        # 상한가 0건인 날·휴장 등 데이터가 없을 수 있음 → 빨간 실패 대신 조용히 건너뜀.
+        # (force/draft로 강제 실행한 경우엔 원인 확인을 위해 실패로 종료)
+        logger.warning(f"[{topic_name}] 팩트 데이터 없음 — 이번 슬롯 건너뜀 (skip)")
+        sys.exit(1 if (force or draft) else 0)
     logger.info(f"팩트 데이터 수집 완료: {type(fact_data).__name__}")
 
     from generator.stock_content import generate_stock_post
