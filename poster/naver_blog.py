@@ -1189,6 +1189,81 @@ def _make_gradient_bg(width: int, height: int, c_top: tuple, c_bot: tuple) -> "I
     return strip.resize((width, height), Image.NEAREST)
 
 
+def _generate_ai_background(category: str, width: int, height: int) -> "Image.Image | None":
+    """
+    Imagen 4 Fast로 순수 그라디언트 배경 텍스처만 생성 (카드/텍스트 없음).
+    실패하면 None 반환 → 호출자가 PIL 폴백 사용.
+    """
+    # hex 코드 금지 — Imagen이 hex 문자열을 텍스트로 렌더링하는 버그 방지
+    _BG_PROMPTS = {
+        "금융재테크": (
+            "Abstract smooth two-tone gradient background. Very dark navy at the top blending "
+            "smoothly into vivid royal blue at the bottom. Soft bokeh light glow in upper-right. "
+            "Completely blank canvas — zero text, zero letters, zero numbers, zero symbols, "
+            "zero shapes, zero people, zero icons. Pure color gradient texture only."
+        ),
+        "세금절세": (
+            "Abstract smooth gradient background. Very dark warm brown at the top fading into "
+            "deep amber orange at the bottom. Faint warm golden glow center-right. "
+            "Completely blank — no text, no numbers, no symbols, no shapes, no people."
+        ),
+        "보험": (
+            "Abstract smooth gradient background. Very dark teal at the top blending to "
+            "deep cyan at the bottom. Cool light haze upper-right. "
+            "Completely blank — no text, no numbers, no symbols, no shapes."
+        ),
+        "부동산주거": (
+            "Abstract smooth gradient background. Very dark indigo at the top blending to "
+            "rich medium purple at the bottom. Subtle violet glow. "
+            "Completely blank — no text, no numbers, no symbols, no shapes, no people."
+        ),
+        "gov": (
+            "Abstract smooth gradient background. Deep dark navy at the top fading to "
+            "cobalt blue at the bottom. Completely blank — no text, no symbols, no shapes."
+        ),
+        "health": (
+            "Abstract smooth gradient background. Very dark forest green at the top fading to "
+            "deep emerald at the bottom. Completely blank — no text, no symbols, no shapes."
+        ),
+    }
+    prompt = _BG_PROMPTS.get(category, _BG_PROMPTS["금융재테크"])
+    try:
+        import io
+        import io, os
+        from google import genai
+        from google.genai import types as gtypes
+        # config 모듈 우선, 없으면 dotenv 로드 후 env var
+        try:
+            from config import GOOGLE_API_KEY as api_key
+        except ImportError:
+            try:
+                from dotenv import load_dotenv; load_dotenv()
+            except ImportError:
+                pass
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+        if not api_key:
+            return None
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_images(
+            model="imagen-4.0-fast-generate-001",
+            prompt=prompt,
+            config=gtypes.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9",
+                output_mime_type="image/png",
+            ),
+        )
+        img_bytes = resp.generated_images[0].image.image_bytes
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+        img = img.resize((width, height), PILImage.LANCZOS)
+        logger.info(f"AI 배경 생성 완료 [{category}] {width}×{height}")
+        return img
+    except Exception as e:
+        logger.warning(f"AI 배경 생성 실패 — PIL 폴백: {e}")
+        return None
+
+
 def _draw_rounded_rect(draw, xy, radius: int, fill, outline=None, outline_width: int = 0):
     """PIL 8.2+ rounded_rectangle / 구버전 rectangle fallback."""
     try:
@@ -1251,7 +1326,16 @@ def create_info_infographic(
         brightness = (acc[0] * 299 + acc[1] * 587 + acc[2] * 114) // 1000
         tag_text_c = (20, 20, 20) if brightness > 128 else (255, 255, 255)
 
-        bg = _make_gradient_bg(W, H, style["bg_top"], style["bg_bot"])
+        # 배경: AI 생성 시도 → 실패 시 PIL 그라디언트 폴백
+        ai_bg = _generate_ai_background(category, W, H)
+        bg = ai_bg if ai_bg is not None else _make_gradient_bg(W, H, style["bg_top"], style["bg_bot"])
+        bg = bg.convert("RGBA")
+
+        # AI 배경 노이즈 차단용 반투명 다크 오버레이 (AI가 텍스트/숫자를 그렸어도 묻힘)
+        if ai_bg is not None:
+            noise_mask = Image.new("RGBA", (W, H), (*style["bg_top"], 160))
+            bg = Image.alpha_composite(bg, noise_mask)
+
         draw = ImageDraw.Draw(bg)
 
         # 상단 액센트 라인
@@ -1339,13 +1423,25 @@ def create_info_infographic(
                 bx = panel_margin + col * (pw + panel_gap)
                 by = panel_area_y + row * (row_h + panel_gap)
 
-                # 패널 배경: 배경 색상보다 약간 밝게
-                card_bg = tuple(min(255, c + 45) for c in style["bg_bot"])
-                _draw_rounded_rect(draw, [(bx, by), (bx + pw, by + row_h)],
-                                   radius=10, fill=card_bg)
-                # 상단 컬러 바
-                _draw_rounded_rect(draw, [(bx, by), (bx + pw, by + 5)],
-                                   radius=3, fill=card_top_c)
+                # 프로스티드 글라스 카드 (반투명 흰색 오버레이)
+                glass = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                g_draw = ImageDraw.Draw(glass)
+                _draw_rounded_rect(g_draw, [(bx, by), (bx + pw, by + row_h)],
+                                   radius=14, fill=(255, 255, 255, 55))
+                # 카드 테두리: 반투명 흰색 1px
+                _draw_rounded_rect(g_draw, [(bx, by), (bx + pw, by + row_h)],
+                                   radius=14, fill=None,
+                                   outline=(255, 255, 255, 100), outline_width=1)
+                bg = Image.alpha_composite(bg, glass)
+                draw = ImageDraw.Draw(bg)
+                # 상단 액센트 바 (카드 상단 얇은 컬러 라인)
+                bar_h = 4
+                bar_overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                b_draw = ImageDraw.Draw(bar_overlay)
+                _draw_rounded_rect(b_draw, [(bx + 2, by), (bx + pw - 2, by + bar_h)],
+                                   radius=7, fill=(*card_top_c, 220))
+                bg = Image.alpha_composite(bg, bar_overlay)
+                draw = ImageDraw.Draw(bg)
 
                 # 번호 원 + 텍스트 (번호 왼쪽, 텍스트 오른쪽, 둘 다 수직 중앙)
                 cr = 14
@@ -1395,7 +1491,7 @@ def create_info_infographic(
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
-        bg.save(tmp.name, "PNG")
+        bg.convert("RGB").save(tmp.name, "PNG")  # RGBA → RGB (PNG 저장)
         logger.info(f"인포그래픽 생성: {display!r} [{category}] → {tmp.name}")
         return tmp.name
 
