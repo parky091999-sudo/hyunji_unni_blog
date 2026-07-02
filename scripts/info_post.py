@@ -206,17 +206,34 @@ def run():
 
     # ── 3. 이미지: 헤더 카드만 (본문 스톡사진 없음) ──
     images: list[dict] = []
+    bullets = _extract_summary_bullets(post.get("summary_text", "")) or None
+    header_path = None
+
+    # HTML/CSS + Playwright 우선, 실패시 PIL 폴백
     try:
-        from poster.naver_blog import create_info_infographic
-        bullets = _extract_summary_bullets(post.get("summary_text", "")) or None
-        header_path = create_info_infographic(
+        from poster.infographic_html import create_infographic_via_html
+        header_path = create_infographic_via_html(
             title=post["title"], keyword=keyword, category=INFO_CAT_ID, bullets=bullets
         )
         if header_path:
-            images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
-            logger.info(f"{BLOG_CATEGORY} 헤더 카드 생성 완료 (불릿 {len(bullets) if bullets else 0}개): {header_path}")
+            logger.info(f"HTML 인포그래픽 생성 완료: {header_path}")
     except Exception as e:
-        logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
+        logger.warning(f"HTML 인포그래픽 실패 — PIL 폴백: {e}")
+
+    if not header_path:
+        try:
+            from poster.naver_blog import create_info_infographic
+            header_path = create_info_infographic(
+                title=post["title"], keyword=keyword, category=INFO_CAT_ID, bullets=bullets
+            )
+            if header_path:
+                logger.info(f"PIL 인포그래픽 생성 완료: {header_path}")
+        except Exception as e:
+            logger.warning(f"PIL 헤더 카드 생성 실패 (무시): {e}")
+
+    if header_path:
+        images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
+        logger.info(f"{BLOG_CATEGORY} 헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
     logger.info(f"{BLOG_CATEGORY} 글: 본문 스톡사진 생략 (헤더 카드만)")
 
     # 내부 링크 연계
