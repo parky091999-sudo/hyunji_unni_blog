@@ -657,11 +657,13 @@ _EMPHASIS_RE = re.compile(r"\[\[(.+?)\]\]")
 async def _apply_inline_emphasis(page: Page) -> int:
     """본문 단락 안의 '[[키워드]]' 마커를 찾아 마커 문자를 제거하고 그 자리의
     텍스트에 볼드를 적용한다(문장 전체가 아니라 특정 키워드만 강조).
-    한 단락에 마커가 여러 개면 하나씩 처리 후 단락을 다시 읽어 위치 어긋남을 방지한다."""
+    한 단락에 마커가 여러 개면 하나씩 처리 후 단락을 다시 읽어 위치 어긋남을 방지한다.
+    프롬프트는 글 전체 3~5개로 제한하지만, 모델이 지시를 넘겨 과다 생성해도
+    실행 시간이 과도하게 늘어나지 않도록 안전 상한을 낮게 둔다."""
     target = await _get_editor_frame(page)
     applied = 0
     guard = 0
-    while guard < 100:
+    while guard < 20:
         guard += 1
         try:
             paras = target.locator(".se-section-text .se-text-paragraph")
