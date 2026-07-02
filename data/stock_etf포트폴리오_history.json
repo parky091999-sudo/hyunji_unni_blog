@@ -1,6 +1,33 @@
 [
   {
     "date": "2026-07-02",
+    "timestamp": "2026-07-02T15:34:51.690557+09:00",
+    "run_slot": "15",
+    "stock_topic": "etf포트폴리오",
+    "topic_name": "핵심 ETF 포트폴리오",
+    "blog_category": "ETF",
+    "title": "2026년 07월 02일, SCHD·JEPQ·QLD·TQQQ, 오늘 등락과 투자 포인트",
+    "tags": [
+      "ETF",
+      "미국주식",
+      "배당주",
+      "레버리지",
+      "SCHD",
+      "JEPQ",
+      "QLD",
+      "TQQQ",
+      "투자전략"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224334254978",
+    "images_count": 2,
+    "images_inserted": 2,
+    "has_table": true,
+    "has_faq": true,
+    "stock_name": null
+  },
+  {
+    "date": "2026-07-02",
     "timestamp": "2026-07-02T15:06:13.179709+09:00",
     "run_slot": "14",
     "stock_topic": "etf포트폴리오",
