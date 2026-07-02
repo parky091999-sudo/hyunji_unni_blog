@@ -339,6 +339,8 @@ async def _close_help_panel(page: Page):
 
 async def _fill_title(page: Page, title: str):
     """제목 입력 — 메인 페이지와 iframe 모두 탐색. 입력 후 Tab으로 본문 포커스 이동"""
+    # [[...]] 강조 마커가 제목에 들어오면 텍스트로 노출되므로 제거
+    title = re.sub(r"\[\[(.+?)\]\]", r"\1", title)
     target = await _get_editor_frame(page)
 
     title_sels = [
@@ -721,6 +723,34 @@ async def _apply_inline_emphasis(page: Page) -> int:
     if applied:
         logger.info(f"인라인 강조(볼드) 적용 {applied}개")
     return applied
+
+
+async def _cleanup_emphasis_markers(page: Page) -> int:
+    """_apply_inline_emphasis 처리 후 남은 [[...]] 마커를 JS로 일괄 제거.
+    마커 안 텍스트는 유지하고 [[ ]] 기호만 삭제. 볼드 적용은 포기하되 텍스트 노출은 방지."""
+    target = await _get_editor_frame(page)
+    try:
+        removed = await target.evaluate("""() => {
+            let count = 0;
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+            let node;
+            while ((node = walker.nextNode())) nodes.push(node);
+            for (const n of nodes) {
+                if (n.nodeValue && n.nodeValue.includes('[[')) {
+                    const before = n.nodeValue;
+                    n.nodeValue = n.nodeValue.replace(/\\[\\[(.+?)\\]\\]/g, '$1');
+                    if (n.nodeValue !== before) count++;
+                }
+            }
+            return count;
+        }""")
+        if removed:
+            logger.info(f"잔여 [[...]] 마커 JS 일괄 제거: {removed}개 텍스트 노드")
+        return removed or 0
+    except Exception as e:
+        logger.info(f"잔여 마커 제거 스킵: {e}")
+        return 0
 
 
 async def _center_oglink_cards(page: Page) -> int:
@@ -2714,11 +2744,16 @@ async def _post(
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
 
-        # ── '**키워드**' 마커 → 인라인 볼드(문단 구조 바뀌기 전에 먼저 처리) ──
+        # ── '[[키워드]]' 마커 → 인라인 볼드(문단 구조 바뀌기 전에 먼저 처리) ──
         try:
             await _apply_inline_emphasis(write_page)
         except Exception as e:
             logger.warning(f"인라인 강조 적용 예외(계속): {e}")
+        # 볼드 적용 실패한 잔여 마커 일괄 제거 (텍스트 노출 방지)
+        try:
+            await _cleanup_emphasis_markers(write_page)
+        except Exception as e:
+            logger.warning(f"잔여 마커 제거 예외(계속): {e}")
 
         # ── 글머리(·) 줄 → 네이티브 글머리표 리스트(자동 내어쓰기) ──
         try:
