@@ -140,16 +140,38 @@ class StockDataCollector:
                 volume = cols[7].get_text(strip=True)
                 if volume:
                     entry["거래량"] = volume
+            a = cols[3].find("a")
+            code = StockDataCollector._code_from_href(a.get("href")) if a else None
+            if code:
+                entry["_code"] = code
             rows.append(entry)
         return rows
 
     @staticmethod
+    def _code_from_href(href: str | None) -> str | None:
+        if not href:
+            return None
+        m = re.search(r"code=(\d{6})", href)
+        return m.group(1) if m else None
+
+    @staticmethod
     def get_today_upper_limit() -> list[dict]:
         """국내 증시 당일 상한가 종목 (네이버 금융)."""
-        url = "https://finance.naver.com/sise/sise_upper.naver"
-        upper_limits: list[dict] = []
-        logger.info("국내 상한가 특징주 크롤링 시작")
+        return StockDataCollector._fetch_limit_table(
+            "https://finance.naver.com/sise/sise_upper.naver", "상한가"
+        )
 
+    @staticmethod
+    def get_today_lower_limit() -> list[dict]:
+        """국내 증시 당일 하한가 종목 (네이버 금융)."""
+        return StockDataCollector._fetch_limit_table(
+            "https://finance.naver.com/sise/sise_lower.naver", "하한가"
+        )
+
+    @staticmethod
+    def _fetch_limit_table(url: str, label: str) -> list[dict]:
+        rows: list[dict] = []
+        logger.info(f"국내 {label} 종목 크롤링 시작")
         try:
             response = requests.get(url, headers=_HEADERS, timeout=15)
             response.raise_for_status()
@@ -158,16 +180,114 @@ class StockDataCollector:
             if not tables:
                 legacy = soup.find("table", {"class": "type_2"})
                 tables = [legacy] if legacy else []
-
             for table in tables:
-                upper_limits.extend(StockDataCollector._parse_upper_limit_table(table))
-
-            if not upper_limits:
-                logger.warning("상한가 테이블 미발견 또는 데이터 없음")
+                rows.extend(StockDataCollector._parse_upper_limit_table(table))
+            if not rows:
+                logger.warning(f"{label} 테이블 미발견 또는 데이터 없음")
         except Exception as e:
-            logger.error(f"상한가 크롤링 에러: {e}")
+            logger.error(f"{label} 크롤링 에러: {e}")
+        return rows
 
-        return upper_limits
+    @staticmethod
+    def get_kr_popular() -> list[dict]:
+        """네이버 실시간 인기검색 종목 (검색량 기준, 종목코드 포함)."""
+        url = "https://finance.naver.com/sise/lastsearch2.naver"
+        results: list[dict] = []
+        logger.info("네이버 인기검색 종목 크롤링 시작")
+        try:
+            response = requests.get(url, headers=_HEADERS, timeout=15)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+            table = soup.find("table", {"class": "type_5"})
+            if not table:
+                logger.warning("인기검색 테이블 미발견")
+                return results
+            for row in table.find_all("tr"):
+                cols = row.find_all("td")
+                if len(cols) < 12:
+                    continue
+                name = cols[1].get_text(strip=True)
+                if not name or name == "종목명":
+                    continue
+                a = cols[1].find("a")
+                code = StockDataCollector._code_from_href(a.get("href")) if a else None
+                entry = {
+                    "종목명": name,
+                    "검색비율(%)": cols[2].get_text(strip=True),
+                    "현재가": cols[3].get_text(strip=True),
+                    "등락률": cols[5].get_text(strip=True),
+                    "거래량": cols[6].get_text(strip=True),
+                    "PER": cols[10].get_text(strip=True),
+                    "PBR": cols[11].get_text(strip=True),
+                }
+                if code:
+                    entry["_code"] = code
+                results.append(entry)
+        except Exception as e:
+            logger.error(f"인기검색 종목 크롤링 에러: {e}")
+        return results[:10]
+
+    @staticmethod
+    def get_kr_stock_detail(code: str) -> dict:
+        """네이버 종목 상세: PER/EPS/PBR/BPS/배당수익률·투자의견/목표주가·52주고저·동일업종PER·최근뉴스."""
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        detail: dict = {}
+        try:
+            response = requests.get(url, headers=_HEADERS, timeout=15)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            t_opinion = soup.find("table", {"summary": "투자의견 정보"})
+            if t_opinion:
+                ems = t_opinion.find_all("em")
+                if len(ems) >= 4:
+                    grade = ems[0].next_sibling
+                    grade_text = grade.strip() if isinstance(grade, str) else ""
+                    score = ems[0].get_text(strip=True)
+                    if score:
+                        detail["투자의견(컨센서스)"] = f"{score} {grade_text}".strip()
+                    if ems[1].get_text(strip=True):
+                        detail["목표주가(컨센서스)"] = ems[1].get_text(strip=True)
+                    if ems[2].get_text(strip=True):
+                        detail["52주최고"] = ems[2].get_text(strip=True)
+                    if ems[3].get_text(strip=True):
+                        detail["52주최저"] = ems[3].get_text(strip=True)
+
+            t_per = soup.find("table", {"summary": "PER/EPS 정보"})
+            if t_per:
+                ems = t_per.find_all("em")
+                labels = ["PER", "EPS", "추정PER(컨센서스)", "추정EPS(컨센서스)", "PBR", "BPS", "배당수익률(%)"]
+                for lbl, em in zip(labels, ems):
+                    v = em.get_text(strip=True)
+                    if v:
+                        detail[lbl] = v
+
+            t_sector = soup.find("table", {"summary": "동일업종 PER 정보"})
+            if t_sector:
+                ems = t_sector.find_all("em")
+                if ems and ems[0].get_text(strip=True):
+                    detail["동일업종PER"] = ems[0].get_text(strip=True)
+                pct = t_sector.find(string=lambda s: s and "%" in s)
+                if pct:
+                    detail["동일업종등락률"] = pct.strip()
+
+            news: list[dict] = []
+            seen_titles: set[str] = set()
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "news_read.naver" in href and f"code={code}" in href:
+                    title = a.get_text(strip=True)
+                    if title and title not in seen_titles:
+                        seen_titles.add(title)
+                        link = href if href.startswith("http") else f"https://finance.naver.com{href}"
+                        news.append({"제목": title, "링크": link})
+                if len(news) >= 3:
+                    break
+            if news:
+                detail["최근뉴스"] = news
+        except Exception as e:
+            logger.error(f"{code} 종목 상세 크롤링 에러: {e}")
+        return detail
 
     @staticmethod
     def _ipo_field(td, selector: str) -> str:
@@ -240,12 +360,146 @@ class StockDataCollector:
             logger.warning("공모주 일정 데이터 없음")
         return ipo_list[:15]
 
+    # 미국 대형·인기 종목 워치리스트 (검색 유입이 잦은 종목 위주) — 이 중 당일 등락폭이 큰 종목을 선정
+    _US_WATCHLIST = [
+        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AMD", "NFLX", "AVGO",
+        "PLTR", "COIN", "MSTR", "SMCI", "JPM", "V", "UNH", "XOM", "WMT", "BRK-B",
+    ]
+
+    @staticmethod
+    def get_us_movers() -> list[dict]:
+        """워치리스트 내 미국 종목의 당일 등락률·펀더멘털·애널리스트 컨센서스(실데이터)."""
+        results: list[dict] = []
+        logger.info("미국 종목 워치리스트 등락률 수집 시작")
+        for ticker in StockDataCollector._US_WATCHLIST:
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="6mo")
+                if hist.empty or len(hist) < 2:
+                    continue
+                closes = hist["Close"]
+                current = float(closes.iloc[-1])
+                prev = float(closes.iloc[-2])
+                chg = (current - prev) / prev * 100
+
+                info = {}
+                try:
+                    info = stock.info or {}
+                except Exception:
+                    pass
+
+                entry = {
+                    "종목명": info.get("shortName") or ticker,
+                    "티커": ticker,
+                    "현재가(USD)": round(current, 2),
+                    "등락률(%)": round(chg, 2),
+                    "거래량": int(hist["Volume"].iloc[-1]),
+                }
+                pe = info.get("trailingPE")
+                if isinstance(pe, (int, float)):
+                    entry["PER"] = round(pe, 2)
+                pb = info.get("priceToBook")
+                if isinstance(pb, (int, float)):
+                    entry["PBR"] = round(pb, 2)
+                mc = info.get("marketCap")
+                if isinstance(mc, (int, float)) and mc > 0:
+                    entry["시가총액(USD)"] = mc
+                hi = info.get("fiftyTwoWeekHigh")
+                lo = info.get("fiftyTwoWeekLow")
+                if isinstance(hi, (int, float)):
+                    entry["52주최고(USD)"] = hi
+                if isinstance(lo, (int, float)):
+                    entry["52주최저(USD)"] = lo
+                sector = info.get("sector")
+                if sector:
+                    entry["섹터"] = sector
+                # 애널리스트 컨센서스(실데이터) — 목표주가·투자의견
+                tgt = info.get("targetMeanPrice")
+                if isinstance(tgt, (int, float)) and tgt > 0:
+                    entry["목표주가평균(USD, 컨센서스)"] = round(tgt, 2)
+                tgt_hi = info.get("targetHighPrice")
+                tgt_lo = info.get("targetLowPrice")
+                if isinstance(tgt_hi, (int, float)):
+                    entry["목표주가상단(USD)"] = round(tgt_hi, 2)
+                if isinstance(tgt_lo, (int, float)):
+                    entry["목표주가하단(USD)"] = round(tgt_lo, 2)
+                rec = info.get("recommendationKey")
+                if rec and rec != "none":
+                    entry["투자의견(컨센서스)"] = rec
+                n_analysts = info.get("numberOfAnalystOpinions")
+                if isinstance(n_analysts, (int, float)) and n_analysts > 0:
+                    entry["애널리스트수"] = int(n_analysts)
+
+                results.append(entry)
+            except Exception as e:
+                logger.warning(f"{ticker} 수집 실패: {e}")
+
+        results.sort(key=lambda r: abs(r.get("등락률(%)", 0)), reverse=True)
+        return results
+
+    @staticmethod
+    def pick_featured_stock(recent_names: set[str] | None = None, history_len: int = 0) -> dict | None:
+        """검색량 상위 / 급등락 상위(국내·미국)를 순환하며 오늘의 심층분석 대상 1종목을 선정."""
+        recent_names = recent_names or set()
+        mode = history_len % 3
+        candidates: list[dict] = []
+        market = "국내"
+
+        if mode == 0:
+            candidates = StockDataCollector.get_kr_popular()
+            for c in candidates:
+                c["선정사유"] = f"네이버 실시간 인기검색 상위(검색비율 {c.get('검색비율(%)', '-')})"
+        elif mode == 1:
+            market = "미국"
+            candidates = StockDataCollector.get_us_movers()
+            for c in candidates:
+                c["선정사유"] = "관심 종목군 내 당일 등락률 상위"
+        else:
+            ups = StockDataCollector.get_today_upper_limit()
+            downs = StockDataCollector.get_today_lower_limit()
+            for c in ups:
+                c["선정사유"] = "코스피·코스닥 상한가"
+            for c in downs:
+                c["선정사유"] = "코스피·코스닥 하한가"
+            candidates = ups + downs
+
+        if not candidates:
+            logger.warning(f"모드 {mode}({market}) 후보 없음 — 대체 소스로 폴백")
+            candidates = StockDataCollector.get_kr_popular()
+            for c in candidates:
+                c["선정사유"] = f"네이버 실시간 인기검색 상위(검색비율 {c.get('검색비율(%)', '-')})"
+            market = "국내"
+        if not candidates:
+            return None
+
+        picked = None
+        for c in candidates:
+            if c.get("종목명") not in recent_names:
+                picked = c
+                break
+        if picked is None:
+            picked = candidates[0]
+
+        picked = dict(picked)
+        picked["시장"] = market
+
+        # 국내 종목이면 상세 페이지(펀더멘털·투자의견·목표주가·최근뉴스)로 보강
+        # _code는 차트 생성(yfinance 티커 조립)용으로 남겨두고, LLM 프롬프트 빌드 시에만 제외한다.
+        code = picked.get("_code")
+        if market == "국내" and code:
+            try:
+                detail = StockDataCollector.get_kr_stock_detail(code)
+                picked.update(detail)
+            except Exception as e:
+                logger.warning(f"{picked.get('종목명')} 상세 보강 실패(무시): {e}")
+
+        return picked
+
     @staticmethod
     def collect(topic_id: str) -> dict | list | None:
         """topic_id별 팩트 데이터 수집."""
         collectors = {
             "etf포트폴리오": StockDataCollector.get_core_etf_data,
-            "상한가특징주": StockDataCollector.get_today_upper_limit,
             "공모주캘린더": StockDataCollector.get_ipo_calendar,
         }
         fn = collectors.get(topic_id)

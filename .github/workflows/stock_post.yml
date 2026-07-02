@@ -2,13 +2,13 @@ name: 주식 포스팅 (공모주·주식분석·ETF)
 
 on:
   schedule:
-    - cron: "30 7 * * 1-5"   # KST 16:30 (장 마감 후) — 상한가
+    - cron: "30 7 * * 1-5"   # KST 16:30 (장 마감 후) — 종목분석(개별 종목 심층분석)
     - cron: "0 22 * * 1-6"   # KST 07:00 — ETF (미국장 마감 후)
     - cron: "0 0 * * 1-5"    # KST 09:00 — 공모주
   workflow_dispatch:
     inputs:
       stock_topic:
-        description: "소분류 (상한가특징주/공모주캘린더/etf포트폴리오/auto)"
+        description: "소분류 (종목분석/공모주캘린더/etf포트폴리오/auto)"
         required: false
         default: "auto"
       force_post:
@@ -64,7 +64,7 @@ jobs:
           TOPIC="${{ github.event.inputs.stock_topic }}"
           if [ -z "$TOPIC" ] || [ "$TOPIC" = "auto" ]; then
             case "${{ github.event.schedule }}" in
-              "30 7 * * 1-5") TOPIC="상한가특징주" ;;   # KST 16:30 장 마감 후
+              "30 7 * * 1-5") TOPIC="종목분석" ;;       # KST 16:30 장 마감 후
               "0 22 * * 1-6") TOPIC="etf포트폴리오" ;;  # KST 07:00 미장 마감 후
               "0 0 * * 1-5")  TOPIC="공모주캘린더" ;;   # KST 09:00
               *)              TOPIC="auto" ;;

@@ -35,13 +35,13 @@ from generator.stock_content import STOCK_TOPICS
 KST = timezone(timedelta(hours=9))
 
 STOCK_TOPIC_MAP = {
-    "상한가특징주": "상한가특징주",
+    "종목분석": "종목분석",
     "공모주캘린더": "공모주캘린더",
     "etf포트폴리오": "etf포트폴리오",
 }
 
 _CARD_CATEGORY = {
-    "상한가특징주": "주식분석",
+    "종목분석": "주식분석",
     "공모주캘린더": "공모주",
     "etf포트폴리오": "주식etf",
 }
@@ -158,7 +158,11 @@ def run():
 
     from generator.stock_collector import StockDataCollector
 
-    fact_data = StockDataCollector.collect(STOCK_TOPIC)
+    if STOCK_TOPIC == "종목분석":
+        recent_names = {h.get("stock_name") for h in history[:20] if h.get("stock_name")}
+        fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+    else:
+        fact_data = StockDataCollector.collect(STOCK_TOPIC)
     if not fact_data:
         # 상한가 0건인 날·휴장 등 데이터가 없을 수 있음 → 빨간 실패 대신 조용히 건너뜀.
         # (force/draft로 강제 실행한 경우엔 원인 확인을 위해 실패로 종료)
@@ -182,6 +186,8 @@ def run():
 
     images: list[dict] = []
     keyword = topic_name
+    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict) and fact_data.get("종목명"):
+        keyword = f"{fact_data['종목명']} 분석"
     try:
         from poster.naver_blog import create_health_header_card
 
@@ -213,6 +219,30 @@ def run():
                 logger.info(f"ETF 비교 차트 생성: {chart_path}")
         except Exception as e:
             logger.warning(f"비교 차트 생성 실패 (무시): {e}")
+
+    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict):
+        try:
+            from generator.stock_chart import generate_price_chart
+
+            stock_name = fact_data.get("종목명", "")
+            chart_path = None
+            if fact_data.get("시장") == "미국" and fact_data.get("티커"):
+                chart_path = generate_price_chart(fact_data["티커"], label=stock_name, period="6mo")
+            elif fact_data.get("시장") == "국내" and fact_data.get("_code"):
+                code = fact_data["_code"]
+                for suffix in (".KS", ".KQ"):
+                    chart_path = generate_price_chart(f"{code}{suffix}", label=stock_name, period="6mo")
+                    if chart_path:
+                        break
+            if chart_path:
+                images.append({
+                    "local_path": chart_path, "url": "",
+                    "alt_text": f"{stock_name} 6개월 가격 추이 차트",
+                    "label": f"{stock_name} 가격 추이",
+                })
+                logger.info(f"종목 가격 차트 생성: {chart_path}")
+        except Exception as e:
+            logger.warning(f"종목 가격 차트 생성 실패 (무시): {e}")
 
     # 실제로 준비된 이미지 수보다 큰 [사진N] 마커는 게시 불가하므로 제거
     img_count = len(images)
@@ -275,6 +305,7 @@ def run():
         "images_inserted": result.get("images_inserted", 0) if result else 0,
         "has_table": bool(post.get("table_str")),
         "has_faq": bool(post.get("faq_str")),
+        "stock_name": fact_data.get("종목명") if isinstance(fact_data, dict) else None,
     }
 
     history = _load_history()
