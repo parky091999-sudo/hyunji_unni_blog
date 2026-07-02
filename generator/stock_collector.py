@@ -111,7 +111,12 @@ class StockDataCollector:
             change = cols[6].get_text(strip=True) if len(cols) > 6 else (
                 cols[2].get_text(strip=True) if len(cols) > 2 else ""
             )
-            rows.append({"종목명": stock_name, "현재가": price, "등락률": change})
+            entry = {"종목명": stock_name, "현재가": price, "등락률": change}
+            if len(cols) > 7:
+                volume = cols[7].get_text(strip=True)
+                if volume:
+                    entry["거래량"] = volume
+            rows.append(entry)
         return rows
 
     @staticmethod
