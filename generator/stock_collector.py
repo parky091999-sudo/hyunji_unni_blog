@@ -51,7 +51,7 @@ _ETF_PROFILE: dict[str, dict] = {
 class StockDataCollector:
     @staticmethod
     def get_core_etf_data() -> dict:
-        """미국 핵심 ETF(TQQQ, QLD, JEPQ, SCHD) 주가·등락률 + 배당률·총보수·52주위치·전략 프로필."""
+        """미국 핵심 ETF(TQQQ, QLD, JEPQ, SCHD) 주가·등락률 + 배당률·총보수·전략 프로필."""
         target_tickers = ["TQQQ", "QLD", "JEPQ", "SCHD"]
         etf_data: dict = {}
         logger.info("미국 코어 ETF 데이터 수집 시작")
@@ -72,7 +72,7 @@ class StockDataCollector:
                     "거래량": int(hist["Volume"].iloc[-1]),
                 }
 
-                # 배당률·총보수·52주 위치 (best-effort — 실패 필드는 생략)
+                # 배당률·총보수 (best-effort — 실패 필드는 생략)
                 info = {}
                 try:
                     info = stock.info or {}
@@ -86,11 +86,6 @@ class StockDataCollector:
                 if isinstance(exp, (int, float)) and exp > 0:
                     # yfinance는 0.06% 를 0.0006 또는 0.06으로 주는 경우가 있어 정규화
                     row["총보수(%)"] = round(exp * 100, 2) if exp < 1 else round(exp, 2)
-                hi = info.get("fiftyTwoWeekHigh")
-                lo = info.get("fiftyTwoWeekLow")
-                if isinstance(hi, (int, float)) and isinstance(lo, (int, float)) and hi > lo:
-                    pos = (current_price - lo) / (hi - lo) * 100
-                    row["52주위치(%)"] = round(max(0, min(100, pos)), 1)
 
                 prof = _ETF_PROFILE.get(ticker)
                 if prof:
