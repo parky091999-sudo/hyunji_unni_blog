@@ -83,9 +83,11 @@ class StockDataCollector:
                 if isinstance(dy, (int, float)) and dy > 0:
                     row["배당수익률(%)"] = round(dy * 100, 2)
                 exp = info.get("netExpenseRatio") or info.get("annualReportExpenseRatio")
-                if isinstance(exp, (int, float)) and exp > 0:
-                    # yfinance는 0.06% 를 0.0006 또는 0.06으로 주는 경우가 있어 정규화
-                    row["총보수(%)"] = round(exp * 100, 2) if exp < 1 else round(exp, 2)
+                # 실측 확인: yfinance가 이 필드를 '퍼센트 숫자 그대로'(0.06=0.06%) 반환함.
+                # 과거에 ×100 정규화를 넣었다가 SCHD 0.06%→6.0%, QLD/TQQQ→95%/82%로
+                # 100배 부풀려지는 실데이터 오류가 실제 발행 초안에서 발견되어 제거.
+                if isinstance(exp, (int, float)) and 0 < exp <= 5:
+                    row["총보수(%)"] = round(exp, 2)
 
                 prof = _ETF_PROFILE.get(ticker)
                 if prof:
