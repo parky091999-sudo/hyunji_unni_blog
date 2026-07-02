@@ -687,7 +687,7 @@ async def _apply_inline_emphasis(page: Page) -> int:
         start = m.start()
         kw_len = len(m.group(1))
         try:
-            await paras.nth(found).click(timeout=4000)
+            await paras.nth(found).click(timeout=7000)
             await _delay(100, 180)
             await page.keyboard.press("Home")
             for _ in range(start):
