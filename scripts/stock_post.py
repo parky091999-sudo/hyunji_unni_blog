@@ -244,14 +244,25 @@ def run():
         except Exception as e:
             logger.warning(f"종목 가격 차트 생성 실패 (무시): {e}")
 
-    # 실제로 준비된 이미지 수보다 큰 [사진N] 마커는 게시 불가하므로 제거
+    # 실제로 준비된 이미지 수보다 큰 [사진N] 마커는 게시 불가하므로 제거,
+    # 같은 번호가 중복 출현하면(줄 단독이 아닌 문장 안 삽입 포함) 첫 등장만 남기고 제거.
+    # (중복 마커가 남으면 같은 이미지 인덱스에 앵커가 2개 잡혀, 그중 하나가
+    #  본문 내 동일 텍스트가 표 안에도 있는 경우 커서가 표로 잘못 들어가 삽입이
+    #  통째로 실패하는 사례가 실제 라이브 발행에서 확인됨)
     img_count = len(images)
     if post.get("body"):
-        def _strip_excess_marker(m: "re.Match[str]") -> str:
-            return "" if int(m.group(1)) > img_count else m.group(0)
+        seen_markers: set[str] = set()
 
-        cleaned = re.sub(r"^\s*\[사진(\d+)\]\s*$\n?", _strip_excess_marker, post["body"], flags=re.MULTILINE)
+        def _strip_marker(m: "re.Match[str]") -> str:
+            n = m.group(1)
+            if int(n) > img_count or n in seen_markers:
+                return ""
+            seen_markers.add(n)
+            return m.group(0)
+
+        cleaned = re.sub(r"\[사진(\d+)\]", _strip_marker, post["body"])
         if cleaned != post["body"]:
+            logger.info("중복/초과 [사진N] 마커 정리됨")
             post["body"] = cleaned
 
     post["body"], extra_subs = _append_internal_links(post["body"], history)
