@@ -114,6 +114,23 @@ def _is_real_post_url(url) -> bool:
     return bool(re.search(r"/\d{9,}", url))
 
 
+def _extract_summary_bullets(summary_text: str, max_count: int = 4) -> list[str]:
+    """summary_text에서 불릿 항목 추출 (인포그래픽 헤더 카드용)."""
+    bullets = []
+    for line in summary_text.splitlines():
+        line = line.strip()
+        for prefix in ("· ", "• ", "- ", "* ", "✓ ", "√ ", "▶ ", "> "):
+            if line.startswith(prefix):
+                line = line[len(prefix):].strip()
+                break
+        # 5~35자 길이의 의미있는 항목만 사용
+        if 5 <= len(line) <= 35:
+            bullets.append(line)
+        if len(bullets) >= max_count:
+            break
+    return bullets
+
+
 def _append_internal_links(body: str, history: list) -> tuple:
     """같은 카테고리 최근 글 1~2개를 본문 끝에 회색바 소제목 + 가운데정렬 링크카드로 추가"""
     related = [h for h in history if h.get("status") == "posted" and h.get("post_url") and h.get("title")][:2]
@@ -181,10 +198,13 @@ def run():
     images: list[dict] = []
     try:
         from poster.naver_blog import create_health_header_card
-        header_path = create_health_header_card(title=post["title"], keyword=keyword, category=INFO_CAT_ID)
+        bullets = _extract_summary_bullets(post.get("summary_text", "")) or None
+        header_path = create_health_header_card(
+            title=post["title"], keyword=keyword, category=INFO_CAT_ID, bullets=bullets
+        )
         if header_path:
             images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
-            logger.info(f"{BLOG_CATEGORY} 헤더 카드 생성 완료: {header_path}")
+            logger.info(f"{BLOG_CATEGORY} 헤더 카드 생성 완료 (불릿 {len(bullets) if bullets else 0}개): {header_path}")
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
     logger.info(f"{BLOG_CATEGORY} 글: 본문 스톡사진 생략 (헤더 카드만)")

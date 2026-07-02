@@ -423,9 +423,13 @@ async def _type_in_editor(page: Page, text: str):
         lines = para.split("\n")
         for j, line in enumerate(lines):
             raw_stripped = line.strip()
-            # [구분선] 마커: 소제목은 quotation_vertical(회색바)로 구분 — 가로 구분선은 모바일에서 2줄로 보여 스킵
+            # [구분선] 마커 및 텍스트 구분선 패턴 스킵
+            # SE ONE이 '---' 입력을 자동으로 수평선(<hr>)으로 변환하므로, 텍스트 형태의
+            # 구분선을 타이핑하면 소제목 회색바(quotation_vertical)와 겹쳐 이중 구분선이 생김.
             if raw_stripped == "[구분선]":
                 continue
+            if re.match(r'^[-─═=]{3,}\s*$', raw_stripped):
+                continue  # --- / ─── 등 텍스트 구분선 패턴 → SE ONE 자동변환 방지
             is_centered = raw_stripped.startswith("[가운데]")
             stripped_line = raw_stripped[len("[가운데]"):].strip() if is_centered else raw_stripped
             if stripped_line:
@@ -1175,10 +1179,12 @@ def _create_card_news(content: str) -> str | None:
         return None
 
 
-def create_health_header_card(title: str, keyword: str = "", category: str = "health") -> str | None:
+def create_health_header_card(
+    title: str, keyword: str = "", category: str = "health",
+    bullets: list[str] | None = None,
+) -> str | None:
     """다크 브랜드 헤더 카드 이미지 생성.
-    category='health': 현지언니 HEALTH (청록), category='gov': 현지언니 정부혜택 (금색).
-    다크 네이비 배경, 상단 현지언니 브랜딩, 중앙 대형 토픽 텍스트."""
+    bullets 있으면 제목을 상단으로 올리고 ✓ 체크리스트 항목을 인포그래픽으로 표시."""
     try:
         width, height = 800, 450
         bg = (22, 32, 48)          # 다크 네이비
@@ -1229,23 +1235,54 @@ def create_health_header_card(title: str, keyword: str = "", category: str = "he
         if category not in _STOCK_CARD_CATS and len(display) > 20:
             display = display[:20]
 
-        title_font = _load_card_font(58)
-        t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
-        if len(t_lines) > 2:
-            title_font = _load_card_font(46)
+        if bullets:
+            # 인포그래픽 레이아웃: 제목을 위쪽 고정, 아래에 ✓ 체크리스트
+            title_font = _load_card_font(42)
             t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
-
-        lh = int(title_font.size * 1.3) if hasattr(title_font, "size") else 70
-        total_h = len(t_lines) * lh
-        y = (height - total_h) // 2 + 15
-
-        for line in t_lines:
+            if len(t_lines) > 2:
+                title_font = _load_card_font(36)
+                t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
+            lh = int(title_font.size * 1.3) if hasattr(title_font, "size") else 55
+            y = 110
+            for line in t_lines:
+                try:
+                    lw = draw.textbbox((0, 0), line, font=title_font)[2]
+                except AttributeError:
+                    lw, _ = draw.textsize(line, font=title_font)
+                draw.text(((width - lw) // 2, y), line, font=title_font, fill=(255, 255, 255))
+                y += lh
+            # 체크리스트 항목
+            bullet_font = _load_card_font(22)
+            bullet_y = y + 24
+            blines = [b[:30] for b in bullets[:4]]  # 30자 절단
             try:
-                lw = draw.textbbox((0, 0), line, font=title_font)[2]
+                check_w = draw.textbbox((0, 0), "✓  ", font=bullet_font)[2]
+                max_tw = max((draw.textbbox((0, 0), b, font=bullet_font)[2] for b in blines), default=0)
             except AttributeError:
-                lw, _ = draw.textsize(line, font=title_font)
-            draw.text(((width - lw) // 2, y), line, font=title_font, fill=(255, 255, 255))
-            y += lh
+                check_w, _ = draw.textsize("✓  ", font=bullet_font)
+                max_tw = max((draw.textsize(b, font=bullet_font)[0] for b in blines), default=0)
+            bx = max(40, (width - check_w - max_tw) // 2)
+            for b in blines:
+                draw.text((bx, bullet_y), "✓", font=bullet_font, fill=accent)
+                draw.text((bx + check_w, bullet_y), b, font=bullet_font, fill=(200, 218, 240))
+                bullet_y += 32
+        else:
+            # 기존 중앙 배치 레이아웃
+            title_font = _load_card_font(58)
+            t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
+            if len(t_lines) > 2:
+                title_font = _load_card_font(46)
+                t_lines = _wrap_korean_text(display, draw, title_font, width - 120)
+            lh = int(title_font.size * 1.3) if hasattr(title_font, "size") else 70
+            total_h = len(t_lines) * lh
+            y = (height - total_h) // 2 + 15
+            for line in t_lines:
+                try:
+                    lw = draw.textbbox((0, 0), line, font=title_font)[2]
+                except AttributeError:
+                    lw, _ = draw.textsize(line, font=title_font)
+                draw.text(((width - lw) // 2, y), line, font=title_font, fill=(255, 255, 255))
+                y += lh
 
         # 하단 서브텍스트
         sub_font = _load_card_font(22)
@@ -1416,12 +1453,10 @@ async def _insert_divider(page: Page) -> bool:
             except Exception:
                 continue
 
-        # 폴백: 짧은 텍스트 구분선 (모바일 줄바꿈 방지)
-        await page.keyboard.type("─" * 12, delay=5)
-        await page.keyboard.press("Enter")
-        await _delay(100, 200)
-        logger.info("구분선 삽입(텍스트 폴백)")
-        return True
+        # 툴바 삽입 실패 시 텍스트 폴백 없이 스킵
+        # 텍스트 '─'×N 은 SE ONE이 수평선으로 인식 안 하거나 모바일에서 깨짐
+        logger.info("구분선 툴바 버튼 없음 — 소제목 회색바로 구분선 대체(삽입 생략)")
+        return False
     except Exception as e:
         logger.warning(f"구분선 삽입 실패: {e}")
         return False
