@@ -115,15 +115,25 @@ def _is_real_post_url(url) -> bool:
 
 
 def _extract_summary_bullets(summary_text: str, max_count: int = 4) -> list[str]:
-    """summary_text에서 불릿 항목 추출 (인포그래픽 헤더 카드용)."""
+    """summary_text에서 불릿 항목 추출 (인포그래픽 헤더 카드용).
+    LLM이 ✔/· 등 다양한 마커로 출력하므로 모두 처리.
+    prefix가 없는 일반 줄은 수집하지 않음(오탐 방지).
+    """
+    PREFIXES = ("✔ ", "✔", "· ", "• ", "- ", "* ", "✓ ", "√ ", "▶ ", "> ")
     bullets = []
     for line in summary_text.splitlines():
         line = line.strip()
-        for prefix in ("· ", "• ", "- ", "* ", "✓ ", "√ ", "▶ ", "> "):
+        matched = False
+        for prefix in PREFIXES:
             if line.startswith(prefix):
                 line = line[len(prefix):].strip()
+                matched = True
                 break
-        # 5~35자 길이의 의미있는 항목만 사용
+        if not matched:
+            continue
+        # 플레이스홀더 제거, 5~35자 의미있는 항목만
+        if "(" in line and ")" in line:
+            continue
         if 5 <= len(line) <= 35:
             bullets.append(line)
         if len(bullets) >= max_count:
