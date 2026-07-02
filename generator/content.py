@@ -192,25 +192,33 @@ _GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
 def _gen_text(
     api_key: str, contents: str, system_instruction: str,
     max_output_tokens: int, temperature: float,
+    use_search: bool = False,
 ) -> str:
-    """Gemini 생성 + 모델 폴백. 한 모델이 503/오류/빈응답이면 다음 모델로. 모두 실패 시 예외."""
+    """Gemini 생성 + 모델 폴백. 한 모델이 503/오류/빈응답이면 다음 모델로. 모두 실패 시 예외.
+    use_search=True: Google Search Grounding 활성화 — 실시간 최신 정보를 검색 후 생성."""
     client = genai.Client(api_key=api_key)
     last_err: Exception | None = None
+    tools = [gtypes.Tool(google_search=gtypes.GoogleSearch())] if use_search else None
     for i, model in enumerate(_GEMINI_MODELS):
         try:
+            config_kwargs: dict = dict(
+                system_instruction=system_instruction,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+            )
+            if tools:
+                config_kwargs["tools"] = tools
             resp = client.models.generate_content(
                 model=model,
                 contents=contents,
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    max_output_tokens=max_output_tokens,
-                    temperature=temperature,
-                ),
+                config=gtypes.GenerateContentConfig(**config_kwargs),
             )
             text = (resp.text or "").strip()
             if text:
                 if i > 0:
                     logger.info(f"[폴백모델] {model} 로 생성 성공")
+                if use_search:
+                    logger.info(f"[Search Grounding] {model} 실시간 검색 활성화됨")
                 return text
             last_err = RuntimeError(f"{model} 빈 응답")
             logger.warning(f"{model} 빈 응답 → 다음 모델")

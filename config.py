@@ -16,6 +16,12 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # Pexels (이미지)
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
+# 팩트 수집 API (없어도 동작 — 있으면 최신 정보 보강)
+NAVER_CLIENT_ID     = os.getenv("NAVER_CLIENT_ID", "")      # 네이버 뉴스 검색 API
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")  # 네이버 뉴스 검색 API
+FSS_API_KEY         = os.getenv("FSS_API_KEY", "")          # 금융감독원 금융상품 공시 API
+PUBLIC_DATA_KEY     = os.getenv("PUBLIC_DATA_KEY", "")      # 공공데이터포털 통합키
+
 # Dirs
 ROOT_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(ROOT_DIR, "data")
