@@ -1,9 +1,10 @@
 name: 건강&다이어트 포스팅
 
 on:
-  # 리런치(2026-06-30): 고CPC 정보성 재개. 1일 1회.
-  schedule:
-    - cron: "0 3 * * *"   # KST 12:00
+  # ⏸️ 자동발행 일시정지 (2026-07-03, 건강 카테고리 비공개 전환 — 고단가 카테고리 위주 재편).
+  # 재개 시 schedule 주석 해제 + 카테고리 공개설정도 함께 확인할 것.
+  # schedule:
+  #   - cron: "0 3 * * *"   # KST 12:00
   workflow_dispatch:
     inputs:
       force_post:
