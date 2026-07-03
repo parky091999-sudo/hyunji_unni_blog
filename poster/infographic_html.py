@@ -224,12 +224,24 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
 body{{width:{W}px;height:{H}px;overflow:hidden;}}
 
 .wrap{{
+  position:relative;
   width:{W}px;height:{H}px;
   background:{bg_light};
   border:16px solid {color};
   display:flex;flex-direction:column;
   font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
   overflow:hidden;
+}}
+
+/* 브랜드 워터마크 — 크롭 안전영역(가운데 정사각형) 바깥에 둬 썸네일 가독성엔 영향 없이
+   전체보기에서만 "현지언니" 브랜드를 각인시킨다(배지 삭제로 사라진 브랜딩 최소 복원). */
+.brand{{
+  position:absolute;
+  left:38px;top:30px;
+  font-size:22px;font-weight:800;
+  color:{color};
+  opacity:.5;
+  letter-spacing:.3px;
 }}
 
 /* ── 히어로: 가운데 정렬 1줄 제목 (위아래 여백 최소) ── */
@@ -297,6 +309,7 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
 </head>
 <body>
 <div class="wrap">
+  <div class="brand">현지언니</div>
 
   <div class="hero">
     <div class="herobg">{icons[0] if icons else "💡"}</div>

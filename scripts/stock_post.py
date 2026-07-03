@@ -7,6 +7,7 @@ GitHub Actions: STOCK_TOPIC=etf포트폴리오 python -m scripts.stock_post
 import json
 import logging
 import os
+import random
 import re
 import sys
 from datetime import datetime, timezone, timedelta
@@ -45,6 +46,24 @@ _CARD_CATEGORY = {
     "공모주캘린더": "공모주",
     "etf포트폴리오": "주식etf",
 }
+
+_INDIVIDUAL_ETF_TYPES = ("kr_individual", "us_individual", "kr_overseas_individual")
+
+
+def _card_hook_keyword(keyword: str, fact_data, stock_topic: str) -> str:
+    """헤더 카드 표시 문구를 절반 확률로 호기심형 질문으로 바꿔보는 실험(카드 전용, 실제
+    게시글 제목·alt텍스트는 건드리지 않음). 단일종목/ETF 분석처럼 "사도 될까?"가 실제로
+    본문이 답하는 질문일 때만 적용 — 비교·절세계좌 글에는 어울리지 않아 제외."""
+    if stock_topic == "종목분석":
+        is_individual = True
+    elif stock_topic == "etf포트폴리오" and isinstance(fact_data, dict):
+        is_individual = fact_data.get("_etf_content_type") in _INDIVIDUAL_ETF_TYPES
+    else:
+        is_individual = False
+    if not is_individual or random.random() >= 0.5:
+        return keyword
+    base = keyword.replace(" 분석", "").strip()
+    return f"{base} 지금 사도 될까?"
 
 
 def _pick_least_recent_topic() -> str:
@@ -197,6 +216,7 @@ def run():
         keyword = f"{fact_data['종목명']} 분석"
 
     card_cat = _CARD_CATEGORY.get(STOCK_TOPIC, "주식etf")
+    card_keyword = _card_hook_keyword(keyword, fact_data, STOCK_TOPIC)
     from generator.content import extract_summary_bullets
     bullets = extract_summary_bullets(post.get("summary_text", "")) or None
     header_path = None
@@ -205,7 +225,7 @@ def run():
         from poster.infographic_html import create_infographic_via_html
 
         header_path = create_infographic_via_html(
-            title=post["title"], keyword=keyword, category=card_cat, bullets=bullets
+            title=post["title"], keyword=card_keyword, category=card_cat, bullets=bullets
         )
         if header_path:
             logger.info(f"HTML 인포그래픽 생성 완료: {header_path}")
@@ -217,7 +237,7 @@ def run():
             from poster.naver_blog import create_health_header_card
 
             header_path = create_health_header_card(
-                title=post["title"], keyword=keyword, category=card_cat, bullets=bullets
+                title=post["title"], keyword=card_keyword, category=card_cat, bullets=bullets
             )
         except Exception as e:
             logger.warning(f"PIL 헤더 카드 생성 실패 (무시): {e}")
