@@ -1,7 +1,7 @@
 """
 HTML/CSS 템플릿 + Playwright 스크린샷으로 고품질 인포그래픽 생성.
-정방형 900×900, 흰색 모던. 벤치마크: 온숨(onsumway) 스타일.
-구조: 배지 → 3단 제목(회색/대형색상/다크) → 키워드바 → 4아이콘카드 → CTA
+가로로 긴 캔버스(1600×900), 중앙 900×900이 썸네일 크롭 영역 — 제목은 항상 그 안에.
+구조: 컬러 테두리 프레임 → 가운데 정렬 1줄 제목 → 키워드바 → 핵심 통계 카드 3~4개(아이콘/라벨 없이 텍스트만).
 """
 import asyncio
 import logging
@@ -10,7 +10,8 @@ from html import escape
 
 logger = logging.getLogger(__name__)
 
-S = 900  # 정방형
+W = 1600  # 캔버스 폭(가로로 김)
+H = 900   # 캔버스 높이 — 썸네일 크롭은 가운데 900×900(x: (W-H)/2 ~ (W+H)/2)
 
 _STYLES: dict[str, dict] = {
     "금융재테크": {
@@ -160,15 +161,16 @@ _DEFAULT = _STYLES["금융재테크"]
 
 
 def _title_fontsize(text: str) -> int:
-    # 작은 썸네일(카테고리 목록 등)로 축소돼도 제목이 읽혀야 함 — 기존 크기가
-    # 900px 원본 기준으로는 괜찮아 보여도 150px 안팎 썸네일에선 잘 안 읽힌다는
-    # 실사용 피드백으로 전 구간 큰 폭 상향.
+    # 제목을 3줄→1줄로 합치면서 실측 폭 기준으로 재조정. 썸네일 크롭 영역(가운데 900px
+    # 폭)을 절대 벗어나면 안 되므로 여유를 두고 계산(한글 위주 텍스트가 더 넓게 잡힘).
     n = len(text)
     if n <= 4:  return 150
-    if n <= 6:  return 128
+    if n <= 6:  return 130
     if n <= 8:  return 108
-    if n <= 11: return 90
-    return 74
+    if n <= 10: return 92
+    if n <= 13: return 74
+    if n <= 18: return 58
+    return 46
 
 
 def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> str:
@@ -176,21 +178,9 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
     bg_light = style["bg_light"]
     label    = style["label"]
     icons    = style.get("icons", ["💡", "📌", "✅", "🔑"])
-    cta      = style.get("cta", "지금 바로 확인해보세요!")
-    sub_below = style.get("sub_below", "핵심 가이드 총정리")
 
     n = min(len(bullets) if bullets else 0, 4)
-
-    # 3단 제목 분리: [회색 소자] / [대형 강조색] / [다크 소자]
-    words = display_title.split()
-    if len(words) >= 2:
-        mid = max(1, len(words) // 2)
-        t_small  = " ".join(words[:mid])    # 회색 소자 (상단)
-        t_accent = " ".join(words[mid:])    # 대형 강조색 (중단)
-    else:
-        t_small  = label                    # 카테고리명 fallback
-        t_accent = display_title
-    tf = _title_fontsize(t_accent)
+    tf = _title_fontsize(display_title)
 
     # 구분바 키워드 (불릿 첫 단어들)
     if bullets and n > 0:
@@ -199,27 +189,22 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
     else:
         divider_text = f"📌 {label} 핵심 정보 한눈에 확인!"
 
-    # 하단 아이콘 카드 — 카드 폭에 여유가 있어(2줄 래핑 가능) 18자 컷은 과도했음.
-    # 26자까지 허용하고, 정말 넘치면 단어 경계에서 자르고 말줄임표를 붙인다(숫자·단위가
-    # 중간에 잘려 의미가 바뀌는 것 방지: 예 "15%"→"15").
-    def _short_bullet(b: str, limit: int = 26) -> str:
+    # 하단 카드 — 아이콘·"핵심 0N" 라벨 없이 텍스트만 크게 채운다.
+    def _short_bullet(b: str, limit: int = 30) -> str:
         if len(b) <= limit:
             return b
         cut = b[:limit]
         sp = cut.rfind(" ")
-        if sp >= limit - 8:  # 너무 앞쪽이면 단어경계 포기하고 그냥 자름
+        if sp >= limit - 8:
             cut = cut[:sp]
         return cut.rstrip() + "…"
 
     cards_html = ""
     if n > 0:
-        for i, b in enumerate(bullets[:n], 1):
-            icon  = icons[i - 1] if i <= len(icons) else "💡"
+        for b in bullets[:n]:
             short = _short_bullet(b)
             cards_html += f"""
       <div class="bcard">
-        <div class="bicon">{icon}</div>
-        <div class="blabel">핵심 0{i}</div>
         <div class="btext">{escape(short)}</div>
       </div>"""
 
@@ -236,68 +221,43 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap');
 
 *{{margin:0;padding:0;box-sizing:border-box;}}
-body{{width:{S}px;height:{S}px;overflow:hidden;}}
+body{{width:{W}px;height:{H}px;overflow:hidden;}}
 
 .wrap{{
-  width:{S}px;height:{S}px;
+  width:{W}px;height:{H}px;
   background:{bg_light};
+  border:16px solid {color};
   display:flex;flex-direction:column;
   font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
   overflow:hidden;
 }}
 
-/* ── 상단 배지 ── */
-.topbadge{{
-  margin:22px 42px 0;
-  display:inline-flex;align-items:center;gap:9px;
-  background:white;
-  border:2px solid {color};
-  color:#1A1A2E;
-  padding:8px 20px;border-radius:999px;
-  font-size:14px;font-weight:700;
-  align-self:flex-start;
-  box-shadow:0 3px 14px {color}22;
-}}
-.chk{{color:{color};font-size:17px;font-weight:900;}}
-
-/* ── 히어로 (flex 나머지 공간 모두 차지) ── */
+/* ── 히어로: 가운데 정렬 1줄 제목 (위아래 여백 최소) ── */
 .hero{{
   flex:1;
   position:relative;
-  padding:0 54px;
-  display:flex;flex-direction:column;
-  justify-content:center;
+  padding:0 40px;
+  display:flex;align-items:center;justify-content:center;
   overflow:hidden;
 }}
-/* 짧은 제목만 있을 때 남는 공간이 휑해 보이지 않도록 배경에 큰 아이콘을 흐리게 배치 */
+/* 남는 공간이 휑해 보이지 않도록 배경에 큰 아이콘을 흐리게 배치.
+   썸네일 크롭 영역(가운데 정사각형) 바깥쪽에 위치해 축소본엔 안 나옴 — 전체보기 전용 장식. */
 .herobg{{
   position:absolute;
-  right:-40px;top:50%;transform:translateY(-50%);
-  font-size:340px;line-height:1;
+  right:60px;top:50%;transform:translateY(-50%);
+  font-size:300px;line-height:1;
   opacity:.10;
   pointer-events:none;
   user-select:none;
 }}
-
-/* 3단 제목 — 작은 썸네일로 축소돼도 알아볼 수 있도록 전체적으로 크게 */
-.ts{{               /* 소자 상단 (회색) */
-  font-size:34px;font-weight:800;
-  color:#8492A6;
-  letter-spacing:-0.3px;
-  margin-bottom:4px;
-}}
-.ta{{               /* 대자 강조색 */
+.title{{
   font-size:{tf}px;font-weight:900;
   color:{color};
-  line-height:1.05;
-  letter-spacing:-2px;
+  line-height:1;
+  letter-spacing:-1.5px;
+  text-align:center;
   word-break:keep-all;
-  margin-bottom:10px;
-}}
-.tb{{               /* 소자 하단 (다크) */
-  font-size:38px;font-weight:800;
-  color:#1A1A2E;
-  letter-spacing:-0.5px;
+  white-space:nowrap;
 }}
 
 /* ── 키워드 구분바 ── */
@@ -307,72 +267,45 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
   background:white;
   border-left:7px solid {color};
   border-radius:0 14px 14px 0;
-  font-size:15px;font-weight:600;color:#555;
+  font-size:16px;font-weight:600;color:#555;
   flex-shrink:0;
   box-shadow:0 2px 10px rgba(0,0,0,.06);
   line-height:1.5;
 }}
 
-/* ── 하단 아이콘 카드 ── */
+/* ── 하단 통계 카드 (아이콘·라벨 없이 텍스트가 칸을 꽉 채움) ── */
 .bcards{{
   display:grid;
   flex-shrink:0;
-  margin-top:14px;
-  border-top:1.5px solid #D8E2F0;
+  margin:16px 42px 26px;
+  gap:14px;
 }}
 .bcard{{
-  padding:18px 10px 16px;
-  display:flex;flex-direction:column;
-  align-items:center;gap:7px;
+  padding:20px 14px;
+  min-height:110px;
+  display:flex;align-items:center;justify-content:center;
   background:white;
-  border-right:1.5px solid #D8E2F0;
+  border-radius:14px;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);
   text-align:center;
 }}
-.bcard:last-child{{border-right:none;}}
-.bicon{{
-  width:52px;height:52px;border-radius:50%;
-  background:{color}14;
-  border:2px solid {color}33;
-  display:flex;align-items:center;justify-content:center;
-  font-size:22px;
+.btext{{
+  font-size:26px;font-weight:800;color:{color};
+  line-height:1.3;word-break:keep-all;
 }}
-.blabel{{font-size:11px;font-weight:800;color:{color};letter-spacing:.5px;}}
-.btext{{font-size:13px;font-weight:700;color:#1A1A2E;line-height:1.4;word-break:keep-all;}}
-
-/* ── CTA 푸터 ── */
-.cta{{
-  background:{color};
-  padding:14px 46px;
-  display:flex;align-items:center;justify-content:space-between;
-  flex-shrink:0;
-}}
-.ctat{{color:white;font-size:18px;font-weight:800;}}
-.ctab{{color:white;font-size:15px;font-weight:900;opacity:.85;letter-spacing:1px;}}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="topbadge">
-    <span class="chk">✓</span>
-    현지언니 · {escape(label)}
-  </div>
-
   <div class="hero">
     <div class="herobg">{icons[0] if icons else "💡"}</div>
-    <div class="ts">{escape(t_small)}</div>
-    <div class="ta">{escape(t_accent)}</div>
-    <div class="tb">{escape(sub_below)}</div>
+    <div class="title">{escape(display_title)}</div>
   </div>
 
   <div class="divrow">{divider_text}</div>
 
   {cards_section}
-
-  <div class="cta">
-    <div class="ctat">{escape(cta)}</div>
-    <div class="ctab">현지언니 ✦</div>
-  </div>
 
 </div>
 </body>
@@ -388,14 +321,14 @@ async def _pw_screenshot(html: str) -> bytes:
         )
         try:
             ctx = await browser.new_context(
-                viewport={"width": S, "height": S},
+                viewport={"width": W, "height": H},
                 device_scale_factor=2,
             )
             page = await ctx.new_page()
             await page.set_content(html, wait_until="networkidle", timeout=18000)
             await page.wait_for_timeout(400)
             data = await page.screenshot(
-                clip={"x": 0, "y": 0, "width": S, "height": S},
+                clip={"x": 0, "y": 0, "width": W, "height": H},
                 type="png",
             )
             return data
@@ -410,13 +343,18 @@ def create_infographic_via_html(
     bullets: list[str] | None = None,
 ) -> str | None:
     """
-    HTML/CSS + Playwright 정방형 인포그래픽. 실패 시 None 반환.
+    HTML/CSS + Playwright 인포그래픽(1600×900, 가운데 900×900이 썸네일 크롭 영역).
+    실패 시 None 반환.
     """
     style = _STYLES.get(category, _DEFAULT)
 
     display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
-    if len(display) > 28:
-        display = display[:28]
+    if len(display) > 22:
+        cut = display[:22]
+        sp = cut.rfind(" ")
+        if sp >= 10:
+            cut = cut[:sp]
+        display = cut.rstrip() + "…"
 
     # 자르기는 _build_html의 _short_bullet(단어경계+말줄임표)이 담당하므로 여기선 개수만 제한
     clean_bullets = (bullets or [])[:4] or None
