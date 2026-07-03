@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-07-03",
+    "timestamp": "2026-07-03T21:16:30.296282+09:00",
+    "run_slot": "21",
+    "keyword": "주택청약 소득공제 조건",
+    "info_category": "세금절세",
+    "blog_category": "세금, 절세",
+    "title": "주택청약 소득공제 | 120만원 환급받는 조건 총정리",
+    "tags": [
+      "주택청약소득공제",
+      "연말정산",
+      "절세",
+      "청년주택드림청약통장",
+      "총급여7000만원",
+      "무주택세대주",
+      "소득공제"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224335694893",
+    "images_count": 1,
+    "images_inserted": 1,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-07-03",
     "timestamp": "2026-07-03T13:42:07.095126+09:00",
     "run_slot": "13",
     "keyword": "의료비 세액공제 한도",
