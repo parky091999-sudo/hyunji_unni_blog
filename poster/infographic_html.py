@@ -160,12 +160,15 @@ _DEFAULT = _STYLES["금융재테크"]
 
 
 def _title_fontsize(text: str) -> int:
+    # 작은 썸네일(카테고리 목록 등)로 축소돼도 제목이 읽혀야 함 — 기존 크기가
+    # 900px 원본 기준으로는 괜찮아 보여도 150px 안팎 썸네일에선 잘 안 읽힌다는
+    # 실사용 피드백으로 전 구간 큰 폭 상향.
     n = len(text)
-    if n <= 4:  return 100
-    if n <= 6:  return 88
-    if n <= 8:  return 76
-    if n <= 11: return 62
-    return 52
+    if n <= 4:  return 150
+    if n <= 6:  return 128
+    if n <= 8:  return 108
+    if n <= 11: return 90
+    return 74
 
 
 def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> str:
@@ -245,13 +248,13 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
 
 /* ── 상단 배지 ── */
 .topbadge{{
-  margin:30px 42px 0;
+  margin:22px 42px 0;
   display:inline-flex;align-items:center;gap:9px;
   background:white;
   border:2px solid {color};
   color:#1A1A2E;
-  padding:10px 24px;border-radius:999px;
-  font-size:15px;font-weight:700;
+  padding:8px 20px;border-radius:999px;
+  font-size:14px;font-weight:700;
   align-self:flex-start;
   box-shadow:0 3px 14px {color}22;
 }}
@@ -276,12 +279,12 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
   user-select:none;
 }}
 
-/* 3단 제목 */
+/* 3단 제목 — 작은 썸네일로 축소돼도 알아볼 수 있도록 전체적으로 크게 */
 .ts{{               /* 소자 상단 (회색) */
-  font-size:28px;font-weight:800;
+  font-size:34px;font-weight:800;
   color:#8492A6;
   letter-spacing:-0.3px;
-  margin-bottom:2px;
+  margin-bottom:4px;
 }}
 .ta{{               /* 대자 강조색 */
   font-size:{tf}px;font-weight:900;
@@ -289,10 +292,10 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
   line-height:1.05;
   letter-spacing:-2px;
   word-break:keep-all;
-  margin-bottom:8px;
+  margin-bottom:10px;
 }}
 .tb{{               /* 소자 하단 (다크) */
-  font-size:30px;font-weight:800;
+  font-size:38px;font-weight:800;
   color:#1A1A2E;
   letter-spacing:-0.5px;
 }}
@@ -339,7 +342,7 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
 /* ── CTA 푸터 ── */
 .cta{{
   background:{color};
-  padding:18px 46px;
+  padding:14px 46px;
   display:flex;align-items:center;justify-content:space-between;
   flex-shrink:0;
 }}
