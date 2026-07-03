@@ -627,7 +627,20 @@ async def _convert_bullets_to_list(page: Page) -> int:
         if found < 0:
             break
         try:
-            await paras.nth(found).click(timeout=4000)
+            # ★기본 .click()은 바운딩박스 중앙을 클릭한다 — 긴 불릿은 모바일 폭 기준
+            # 2줄+로 줄바꿈되는데, 중앙 클릭이 둘째 줄에 떨어지면 Home이 문단의 진짜
+            # 시작이 아니라 '그 줄의 시작'으로 가서 전혀 엉뚱한 위치의 글자 2개가 삭제된다
+            # (실라이브에서 다수 확인된 본문 유실 사고의 근본원인). _move_cursor_after_text가
+            # 이미지 앵커에서 쓰는 것과 동일하게 좌측 상단 근처를 클릭해 항상 첫 줄에 떨어지게 한다.
+            para = paras.nth(found)
+            try:
+                box = await para.bounding_box()
+                if box and box["width"] > 6 and box["height"] > 6:
+                    await para.click(position={"x": 3, "y": 3})
+                else:
+                    await para.click(timeout=4000)
+            except Exception:
+                await para.click(timeout=4000)
             await _delay(120, 200)
             # 글머리 리터럴('· '/'• '/'① ' 등, 모두 2글자) 선택 후 삭제
             await page.keyboard.press("Home")
