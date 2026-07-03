@@ -14,113 +14,10 @@ logger = logging.getLogger("stock_collector")
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-
-# ETF 성격 프로필(고정 팩트 — 운용사 공시 기반 상식). 구체 수치가 아닌 '전략 성격'만.
-_ETF_PROFILE: dict[str, dict] = {
-    "SCHD": {
-        "이름": "Schwab 미국 배당주 ETF",
-        "성격": "배당성장 코어",
-        "전략": "다우존스 미국배당100 지수 추종(패시브), 10년 이상 배당 우량주",
-        "지급주기": "분기 배당",
-        "포지션": "포트폴리오 중심을 잡는 안정형",
-    },
-    "JEPQ": {
-        "이름": "JPMorgan 나스닥 프리미엄인컴 ETF",
-        "성격": "고배당 월인컴",
-        "전략": "나스닥100 보유 + 커버드콜(옵션 프리미엄)으로 월분배 추구(액티브)",
-        "지급주기": "월 배당",
-        "포지션": "현금흐름형. 강세장 상단수익 제한·분배금 변동 큼",
-    },
-    "QLD": {
-        "이름": "ProShares 나스닥100 2배 ETF",
-        "성격": "2배 레버리지",
-        "전략": "나스닥100 일간 수익률의 2배 추종",
-        "지급주기": "배당 거의 없음",
-        "포지션": "공격형. 횡보장 복리감소(변동성 끌림) 주의",
-    },
-    "TQQQ": {
-        "이름": "ProShares 나스닥100 3배 ETF",
-        "성격": "3배 레버리지",
-        "전략": "나스닥100 일간 수익률의 3배 추종",
-        "지급주기": "배당 없음",
-        "포지션": "초공격형. 장기보유 시 복리감소 심함, 단기·소액 한정",
-    },
-}
+# ETF 관련 수집(국내/미국/국내상장 해외·절세계좌)은 generator/etf_collector.py로 이전됨.
 
 
 class StockDataCollector:
-    @staticmethod
-    def get_core_etf_data() -> dict:
-        """미국 핵심 ETF(TQQQ, QLD, JEPQ, SCHD) 주가·등락률 + 배당률·총보수·전략 프로필."""
-        target_tickers = ["TQQQ", "QLD", "JEPQ", "SCHD"]
-        etf_data: dict = {}
-        logger.info("미국 코어 ETF 데이터 수집 시작")
-
-        for ticker in target_tickers:
-            try:
-                stock = yf.Ticker(ticker)
-                # 6개월치를 한 번에 받아 당일 등락률과 실제 과거 수익률(1·3개월)·최대낙폭을 함께 계산
-                hist = stock.history(period="6mo")
-                if hist.empty or len(hist) < 2:
-                    logger.warning(f"{ticker}: 데이터 부족")
-                    continue
-                closes = hist["Close"]
-                current_price = float(closes.iloc[-1])
-                prev_price = float(closes.iloc[-2])
-                change_pct = ((current_price - prev_price) / prev_price) * 100
-                row = {
-                    "현재가(USD)": round(current_price, 2),
-                    "전일대비 등락률(%)": round(change_pct, 2),
-                    "거래량": int(hist["Volume"].iloc[-1]),
-                }
-
-                # 실제 과거 가격 기반 수익률·최대낙폭 (거래일 기준 근사치, 21일≈1개월/63일≈3개월)
-                def _trailing_return(days_back: int) -> float | None:
-                    if len(closes) <= days_back:
-                        return None
-                    old = float(closes.iloc[-(days_back + 1)])
-                    if old <= 0:
-                        return None
-                    return round((current_price - old) / old * 100, 2)
-
-                r1m = _trailing_return(21)
-                if r1m is not None:
-                    row["1개월수익률(%)"] = r1m
-                r3m = _trailing_return(63)
-                if r3m is not None:
-                    row["3개월수익률(%)"] = r3m
-                if len(closes) >= 20:
-                    roll_max = closes.cummax()
-                    drawdown = (closes - roll_max) / roll_max * 100
-                    row["6개월최대낙폭(%)"] = round(float(drawdown.min()), 2)
-
-                # 배당률·총보수 (best-effort — 실패 필드는 생략)
-                info = {}
-                try:
-                    info = stock.info or {}
-                except Exception as e:
-                    logger.warning(f"{ticker} info 조회 실패(무시): {e}")
-
-                dy = info.get("yield") or info.get("trailingAnnualDividendYield")
-                if isinstance(dy, (int, float)) and dy > 0:
-                    row["배당수익률(%)"] = round(dy * 100, 2)
-                exp = info.get("netExpenseRatio") or info.get("annualReportExpenseRatio")
-                # 실측 확인: yfinance가 이 필드를 '퍼센트 숫자 그대로'(0.06=0.06%) 반환함.
-                # 과거에 ×100 정규화를 넣었다가 SCHD 0.06%→6.0%, QLD/TQQQ→95%/82%로
-                # 100배 부풀려지는 실데이터 오류가 실제 발행 초안에서 발견되어 제거.
-                if isinstance(exp, (int, float)) and 0 < exp <= 5:
-                    row["총보수(%)"] = round(exp, 2)
-
-                prof = _ETF_PROFILE.get(ticker)
-                if prof:
-                    row.update(prof)
-
-                etf_data[ticker] = row
-            except Exception as e:
-                logger.warning(f"{ticker} 데이터 수집 실패: {e}")
-
-        return etf_data
-
     @staticmethod
     def _parse_upper_limit_table(table) -> list[dict]:
         rows: list[dict] = []
@@ -499,7 +396,6 @@ class StockDataCollector:
     def collect(topic_id: str) -> dict | list | None:
         """topic_id별 팩트 데이터 수집."""
         collectors = {
-            "etf포트폴리오": StockDataCollector.get_core_etf_data,
             "공모주캘린더": StockDataCollector.get_ipo_calendar,
         }
         fn = collectors.get(topic_id)

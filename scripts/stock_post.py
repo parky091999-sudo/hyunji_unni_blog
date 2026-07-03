@@ -161,6 +161,11 @@ def run():
     if STOCK_TOPIC == "종목분석":
         recent_names = {h.get("stock_name") for h in history[:20] if h.get("stock_name")}
         fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+    elif STOCK_TOPIC == "etf포트폴리오":
+        from generator.etf_collector import EtfDataCollector
+
+        force_content_type = os.environ.get("ETF_CONTENT_TYPE", "").strip()
+        fact_data = EtfDataCollector.pick_etf_topic(history=history, force_content_type=force_content_type or None)
     else:
         fact_data = StockDataCollector.collect(STOCK_TOPIC)
     if not fact_data:
@@ -186,7 +191,9 @@ def run():
 
     images: list[dict] = []
     keyword = topic_name
-    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict) and fact_data.get("종목명"):
+    if isinstance(fact_data, dict) and fact_data.get("_header_keyword"):
+        keyword = fact_data["_header_keyword"]
+    elif STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict) and fact_data.get("종목명"):
         keyword = f"{fact_data['종목명']} 분석"
     try:
         from poster.naver_blog import create_health_header_card
@@ -199,26 +206,30 @@ def run():
     except Exception as e:
         logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
 
-    if STOCK_TOPIC == "etf포트폴리오":
+    if STOCK_TOPIC == "etf포트폴리오" and isinstance(fact_data, dict):
         try:
-            from generator.stock_chart import generate_comparison_chart
+            chart_mode = fact_data.get("_chart_mode")
+            tickers = fact_data.get("_chart_tickers") or []
+            labels = fact_data.get("_chart_labels") or {}
+            title = fact_data.get("_chart_title") or ""
+            chart_path = None
+            if chart_mode == "single" and tickers:
+                from generator.stock_chart import generate_price_chart
 
-            tickers = ["SCHD", "JEPQ", "QLD", "TQQQ"]
-            chart_path = generate_comparison_chart(
-                tickers,
-                labels={t: t for t in tickers},
-                period="3mo",
-                title="ETF 4종목 최근 3개월 성과 비교 (시작일=100 기준)",
-            )
+                chart_path = generate_price_chart(tickers[0], label=labels.get(tickers[0], tickers[0]), period="6mo")
+            elif chart_mode == "compare" and len(tickers) >= 2:
+                from generator.stock_chart import generate_comparison_chart
+
+                chart_path = generate_comparison_chart(tickers, labels=labels, period="3mo", title=title)
             if chart_path:
                 images.append({
                     "local_path": chart_path, "url": "",
-                    "alt_text": "ETF 4종목 3개월 성과 비교 차트",
-                    "label": "3개월 성과 비교",
+                    "alt_text": title or "ETF 차트",
+                    "label": title or "차트",
                 })
-                logger.info(f"ETF 비교 차트 생성: {chart_path}")
+                logger.info(f"ETF 차트 생성: {chart_path}")
         except Exception as e:
-            logger.warning(f"비교 차트 생성 실패 (무시): {e}")
+            logger.warning(f"ETF 차트 생성 실패 (무시): {e}")
 
     if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict):
         try:
@@ -317,6 +328,8 @@ def run():
         "has_table": bool(post.get("table_str")),
         "has_faq": bool(post.get("faq_str")),
         "stock_name": fact_data.get("종목명") if isinstance(fact_data, dict) else None,
+        "etf_content_type": fact_data.get("_etf_content_type") if isinstance(fact_data, dict) else None,
+        "etf_subject": fact_data.get("_etf_subject") if isinstance(fact_data, dict) else None,
     }
 
     history = _load_history()

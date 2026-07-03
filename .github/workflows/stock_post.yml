@@ -11,6 +11,19 @@ on:
         description: "소분류 (종목분석/공모주캘린더/etf포트폴리오/auto)"
         required: false
         default: "auto"
+      etf_content_type:
+        description: "ETF 콘텐츠 타입 강제 지정 (stock_topic=etf포트폴리오일 때만, auto면 자동순환)"
+        required: false
+        type: choice
+        options:
+          - auto
+          - kr_individual
+          - us_individual
+          - kr_overseas_individual
+          - sector_compare_kr
+          - sector_compare_us
+          - tax_account
+        default: auto
       force_post:
         description: "강제 실행 (true/false)"
         required: false
@@ -84,6 +97,7 @@ jobs:
           DRAFT:          ${{ github.event.inputs.draft || 'false' }}
           RUN_SLOT:       ${{ env.RUN_SLOT }}
           STOCK_TOPIC:    ${{ env.STOCK_TOPIC }}
+          ETF_CONTENT_TYPE: ${{ github.event.inputs.etf_content_type == 'auto' && '' || github.event.inputs.etf_content_type }}
         run: python -m scripts.stock_post
 
       - name: 스크린샷 아티팩트 업로드 (디버그)
