@@ -195,16 +195,36 @@ def run():
         keyword = fact_data["_header_keyword"]
     elif STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict) and fact_data.get("종목명"):
         keyword = f"{fact_data['종목명']} 분석"
-    try:
-        from poster.naver_blog import create_health_header_card
 
-        card_cat = _CARD_CATEGORY.get(STOCK_TOPIC, "주식etf")
-        header_path = create_health_header_card(title=post["title"], keyword=keyword, category=card_cat)
+    card_cat = _CARD_CATEGORY.get(STOCK_TOPIC, "주식etf")
+    from generator.content import extract_summary_bullets
+    bullets = extract_summary_bullets(post.get("summary_text", "")) or None
+    header_path = None
+    # HTML/CSS 인포그래픽 우선(gov/info와 동일 시스템), 실패 시 기존 PIL 카드 폴백
+    try:
+        from poster.infographic_html import create_infographic_via_html
+
+        header_path = create_infographic_via_html(
+            title=post["title"], keyword=keyword, category=card_cat, bullets=bullets
+        )
         if header_path:
-            images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
-            logger.info(f"주식 헤더 카드 생성: {header_path}")
+            logger.info(f"HTML 인포그래픽 생성 완료: {header_path}")
     except Exception as e:
-        logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
+        logger.warning(f"HTML 인포그래픽 실패 — PIL 폴백: {e}")
+
+    if not header_path:
+        try:
+            from poster.naver_blog import create_health_header_card
+
+            header_path = create_health_header_card(
+                title=post["title"], keyword=keyword, category=card_cat, bullets=bullets
+            )
+        except Exception as e:
+            logger.warning(f"PIL 헤더 카드 생성 실패 (무시): {e}")
+
+    if header_path:
+        images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
+        logger.info(f"주식 헤더 카드 생성: {header_path}")
 
     if STOCK_TOPIC == "etf포트폴리오" and isinstance(fact_data, dict):
         try:

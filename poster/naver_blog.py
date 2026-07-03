@@ -1338,6 +1338,21 @@ def create_info_infographic(
                 "accent": (130, 255, 170), "card_top": (50, 200, 100),
                 "tag": "현지언니  건강·의료",
             },
+            "주식분석": {
+                "bg_top": (60, 15, 12), "bg_bot": (150, 40, 25),
+                "accent": (255, 177, 153), "card_top": (231, 76, 60),
+                "tag": "현지언니  주식 인사이트",
+            },
+            "공모주": {
+                "bg_top": (35, 10, 60), "bg_bot": (95, 35, 150),
+                "accent": (224, 179, 255), "card_top": (142, 68, 173),
+                "tag": "현지언니  주식 인사이트",
+            },
+            "주식etf": {
+                "bg_top": (8, 30, 60), "bg_bot": (20, 75, 130),
+                "accent": (168, 219, 255), "card_top": (41, 128, 185),
+                "tag": "현지언니  주식 인사이트",
+            },
         }
         style = _STYLES.get(category, _STYLES["금융재테크"])
         acc = style["accent"]
