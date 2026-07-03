@@ -1050,3 +1050,28 @@ def generate_gov_post(
                 time.sleep(wait)
 
     return None
+
+
+def extract_summary_bullets(summary_text: str, max_count: int = 4) -> list[str]:
+    """summary_text에서 불릿 항목 추출 (인포그래픽 헤더 카드용).
+    LLM이 ✔/· 등 다양한 마커로 출력하므로 모두 처리. prefix가 없는 일반 줄은 수집하지 않음(오탐 방지).
+    gov/info 등 [요약시작]...[요약끝] 블록을 쓰는 카테고리 스크립트가 공용으로 사용."""
+    PREFIXES = ("✔ ", "✔", "· ", "• ", "- ", "* ", "✓ ", "√ ", "▶ ", "> ")
+    bullets = []
+    for line in summary_text.splitlines():
+        line = line.strip()
+        matched = False
+        for prefix in PREFIXES:
+            if line.startswith(prefix):
+                line = line[len(prefix):].strip()
+                matched = True
+                break
+        if not matched:
+            continue
+        # 괄호 부연설명은 카드가 좁아 잘려 보이므로 제거하되, 괄호 앞 본문은 살린다
+        line = re.sub(r"\s*\([^)]*\)\s*", " ", line).strip()
+        if 5 <= len(line) <= 35:
+            bullets.append(line)
+        if len(bullets) >= max_count:
+            break
+    return bullets

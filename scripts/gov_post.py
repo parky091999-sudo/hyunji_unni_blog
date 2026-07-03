@@ -153,15 +153,35 @@ def run():
     image_keywords = post.get("image_keywords", [])
     image_labels = post.get("image_labels", [])
 
-    # 브랜드 헤더 카드 (images[0] = [사진1])
+    # 브랜드 헤더 카드 (images[0] = [사진1]) — HTML/CSS 인포그래픽 우선, 실패 시 PIL 폴백
+    # (info_post.py의 4개 정보성 카테고리와 동일한 카드 시스템 — 정부지원도 정보성 글이라 통일)
+    from generator.content import extract_summary_bullets
+    bullets = extract_summary_bullets(post.get("summary_text", "")) or None
+    header_path = None
     try:
-        from poster.naver_blog import create_health_header_card
-        header_path = create_health_header_card(title=post["title"], keyword=keyword, category="gov")
+        from poster.infographic_html import create_infographic_via_html
+        header_path = create_infographic_via_html(
+            title=post["title"], keyword=keyword, category="gov", bullets=bullets
+        )
         if header_path:
-            images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
-            logger.info(f"정부지원 헤더 카드 생성 완료: {header_path}")
+            logger.info(f"HTML 인포그래픽 생성 완료: {header_path}")
     except Exception as e:
-        logger.warning(f"헤더 카드 생성 실패 (무시): {e}")
+        logger.warning(f"HTML 인포그래픽 실패 — PIL 폴백: {e}")
+
+    if not header_path:
+        try:
+            from poster.naver_blog import create_info_infographic
+            header_path = create_info_infographic(
+                title=post["title"], keyword=keyword, category="gov", bullets=bullets
+            )
+            if header_path:
+                logger.info(f"PIL 인포그래픽 생성 완료: {header_path}")
+        except Exception as e:
+            logger.warning(f"PIL 헤더 카드 생성 실패 (무시): {e}")
+
+    if header_path:
+        images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
+        logger.info(f"정부지원 헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
 
     # 정부지원 글은 헤더 카드만 사용 — Pexels 스톡사진 미수집(주제와 무관한 엉뚱한 사진 방지, 2026-06-30 사용자 요청).
     # 정보 전달이 핵심인 카테고리라 본문 사진 없이 표·요약블록·불릿으로 구성.

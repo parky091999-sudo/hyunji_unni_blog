@@ -114,31 +114,6 @@ def _is_real_post_url(url) -> bool:
     return bool(re.search(r"/\d{9,}", url))
 
 
-def _extract_summary_bullets(summary_text: str, max_count: int = 4) -> list[str]:
-    """summary_text에서 불릿 항목 추출 (인포그래픽 헤더 카드용).
-    LLM이 ✔/· 등 다양한 마커로 출력하므로 모두 처리.
-    prefix가 없는 일반 줄은 수집하지 않음(오탐 방지).
-    """
-    PREFIXES = ("✔ ", "✔", "· ", "• ", "- ", "* ", "✓ ", "√ ", "▶ ", "> ")
-    bullets = []
-    for line in summary_text.splitlines():
-        line = line.strip()
-        matched = False
-        for prefix in PREFIXES:
-            if line.startswith(prefix):
-                line = line[len(prefix):].strip()
-                matched = True
-                break
-        if not matched:
-            continue
-        # 괄호 부연설명은 카드가 좁아 잘려 보이므로 제거하되, 괄호 앞 본문은 살린다
-        # (전체가 괄호뿐인 플레이스홀더는 제거 후 길이 필터에서 자연히 걸러짐)
-        line = re.sub(r"\s*\([^)]*\)\s*", " ", line).strip()
-        if 5 <= len(line) <= 35:
-            bullets.append(line)
-        if len(bullets) >= max_count:
-            break
-    return bullets
 
 
 def _append_internal_links(body: str, history: list) -> tuple:
@@ -206,7 +181,8 @@ def run():
 
     # ── 3. 이미지: 헤더 카드만 (본문 스톡사진 없음) ──
     images: list[dict] = []
-    bullets = _extract_summary_bullets(post.get("summary_text", "")) or None
+    from generator.content import extract_summary_bullets
+    bullets = extract_summary_bullets(post.get("summary_text", "")) or None
     header_path = None
 
     # HTML/CSS + Playwright 우선, 실패시 PIL 폴백
