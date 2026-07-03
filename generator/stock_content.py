@@ -36,6 +36,15 @@ def _today_str() -> str:
     return datetime.now(KST).strftime("%Y년 %m월 %d일")
 
 
+def _strip_internal_fields(obj):
+    """"_"로 시작하는 내부용 키(차트 티커, datetime 등)를 모든 중첩 depth에서 제거."""
+    if isinstance(obj, dict):
+        return {k: _strip_internal_fields(v) for k, v in obj.items() if not k.startswith("_")}
+    if isinstance(obj, list):
+        return [_strip_internal_fields(v) for v in obj]
+    return obj
+
+
 _COMMON_RULES = (
     "너는 시장 데이터를 전문가 수준으로 해석하되, 주식 초보도 편하게 읽을 수 있게 쉽게 풀어 설명하는 "
     "투자 정보 블로거 '현지언니'다.\n"
@@ -95,6 +104,10 @@ def _struct_etf_individual(cfg: dict, market_label: str) -> str:
         "ETF명·기초지수·운용사·상장일·구성종목·선정사유는 표에 넣지 마라(다른 섹션에서 다룸). "
         "없는 지표는 행 자체를 만들지 마라. 셀 내 문장 금지 — 핵심 단어·숫자만)\n"
         "[표시작]\n항목 | 수치 | 한줄 해석\n(팩트 데이터에 있는 지표만, 3열 유지)\n[표끝]\n"
+        "\n(★[표끝] 바로 다음, [사진2] 마커 앞에 반드시 완전한 문장 1개를 새 줄로 넣어라 — "
+        "예: '이 ETF의 최근 실제 가격 흐름을 차트로 살펴보면 다음과 같습니다.' 처럼 표의 숫자를 "
+        "그대로 반복하지 않는, 10단어 이상의 온전한 전환 문장이어야 한다. 이 문장이 없으면 "
+        "차트 이미지의 삽입 위치를 찾지 못해 이미지가 통째로 누락된다.)\n"
         "\n[사진2]\n"
         "(★위 [사진2]는 이 ETF의 최근 6개월 가격 추이 차트(20일 이동평균선 포함)다. "
         "바로 다음 문장에서 차트를 짧게 언급하며 최근 추세가 상승·하락·횡보 중 어디에 가까운지 "
@@ -409,17 +422,10 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
 
     etf_content_type = fact_data.get("_etf_content_type") if isinstance(fact_data, dict) else None
     system = _build_stock_system(topic_id, cfg, etf_content_type)
-    # "_"로 시작하는 내부용 필드(예: 차트 생성용 종목코드·콘텐츠타입)는 LLM 프롬프트에서 제외
-    if isinstance(fact_data, dict):
-        llm_fact_data = {k: v for k, v in fact_data.items() if not k.startswith("_")}
-    elif isinstance(fact_data, list):
-        llm_fact_data = [
-            {k: v for k, v in item.items() if not k.startswith("_")} if isinstance(item, dict) else item
-            for item in fact_data
-        ]
-    else:
-        llm_fact_data = fact_data
-    facts_json = json.dumps(llm_fact_data, ensure_ascii=False, indent=2)
+    # "_"로 시작하는 내부용 필드(예: 차트 생성용 종목코드·콘텐츠타입·datetime)는 LLM 프롬프트에서 제외.
+    # 중첩 dict(예: ETF 비교 데이터의 개별 종목 상세) 안에도 내부 필드가 있을 수 있어 재귀 처리.
+    llm_fact_data = _strip_internal_fields(fact_data)
+    facts_json = json.dumps(llm_fact_data, ensure_ascii=False, indent=2, default=str)
     category_hint = ""
     if topic_id == "종목분석":
         category_hint = (

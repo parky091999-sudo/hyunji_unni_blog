@@ -236,6 +236,17 @@ graph TD
 - **링크카드 가운데정렬 — 구현 (2026-06-30)**: 관련글 og카드(.se-oglink) 좌측정렬 문제 → poster `_center_oglink_cards`(카드 선택→[data-name='align-drop-down-with-justify']→[data-value='center']). ※카드 있는 글로 실발행 재검증 권장.
 - **글머리기호 내어쓰기(hanging indent) — ✅구현·검증 (2026-06-30)**: 본문 `· `/`• ` 시작 단락을 **네이티브 글머리표(•) 리스트로 변환** → `list-style-position: outside`라 모바일 줄바꿈 시 둘째 줄이 첫 글자에 맞춰 자동 내어쓰기됨. 셀렉터(로컬 probe `scripts/_probe_list.py`): `[data-name='list']` 드롭다운 → `[data-name='list'][data-value='bullet']`(/decimal/reset). poster `_convert_bullets_to_list`(리터럴 `· ` 제거 후 적용), 소제목 스타일 직후·표삽입 전 best-effort. **draft 검증: 14개 변환 성공.** ※①②③ 순번 줄은 변환 대상 아님(추후 필요 시).
 - **소제목 번호제거 + 회색바 볼드 + 함께보면좋은글 소제목화 — ✅구현·검증 (2026-06-30)**: §5 소제목 규칙 참고. draft 검증 완료(소제목 6/7 볼드, FAQ 소제목 번호 없음).
+- **ETF 카테고리 콘텐츠 다양화 — ✅구현, DRAFT 검증 진행중 (2026-07-03)**: 기존엔 `etf포트폴리오` 소분류가 항상 SCHD/JEPQ/QLD/TQQQ 4종목 고정 비교글만 생성(`get_core_etf_data` 하드코딩) — 사용자가 "같은 글만 계속 올라온다"고 지적. `generator/etf_collector.py` 신설, 6개 콘텐츠 타입을 least-recently-used로 순환:
+  - `kr_individual`: 국내 ETF 개별분석(시총상위/거래량상위/비교적최근상장 3단 내부순환)
+  - `us_individual`: 미국 ETF 개별분석(배당·성장·레버리지·채권 4테마 워치리스트 16종)
+  - `kr_overseas_individual`: 국내상장 해외ETF 개별분석(TIGER/KODEX 미국지수 등)
+  - `sector_compare_kr` / `sector_compare_us`: 섹터·테마 그룹 비교(국내 6그룹, 미국 4그룹, 국내상장 해외는 브랜드비교 그룹 별도 보유)
+  - `tax_account`: ISA/연금저축펀드/퇴직연금DC 절세계좌 테마 — 특정상품 "세제혜택 공식인증" 단정 금지, 성격 설명 톤 유지
+  - 데이터원: 국내는 네이버금융 ETF 전종목 API(`etfItemList.nhn`, **EUC-KR 인코딩 주의** — HTML 상세페이지는 UTF-8이라 이 API만 다름) + 상세페이지(기초지수/펀드보수/NAV/괴리율/기간수익률/구성종목상위), 미국은 yfinance. 로컬 스모크테스트로 KR 파싱 전량 검증됨(실데이터 정상).
+  - `stock_content.py`에 개별/비교/절세계좌 3종 프롬프트 구조 추가 — 절세계좌는 [표시작]~[표끝] 필수 요구사항 때문에 예시상품군 표를 반드시 포함.
+  - `신규상장` 서브모드: 코드값 내림차순 상위 12개를 상세페이지로 실검증하는 방식인데, **실측상 최상위 코드도 상장 후 1.5~2년 지난 경우가 흔함**(신규발행 속도<코드소진 속도) — 임계값을 450일→800일로 완화. 라벨도 "최근 신규 상장"→"비교적 최근 상장(상장일은 표 참고)"으로 조정해 과장 방지.
+  - workflow_dispatch에 `etf_content_type` 수동 지정 입력 추가(검증·필요시 수동 트리거용).
+  - 🔜 6개 콘텐츠 타입 전체 DRAFT 검증 결과 확인 필요(미국 데이터 경로는 로컬 프록시 SSL 문제로 미검증, GH Actions에서 확인 중).
 
 ---
 

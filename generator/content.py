@@ -382,6 +382,9 @@ def _parse_response(raw: str) -> dict | None:
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)
             body = re.sub(r"[✅💡🛒📌👉🧹🥄💰📦]\s*", "", body)
+            # 모델이 커스텀 [소제목] 마커 대신 마크다운 ATX 헤더(#~######)를 쓰는 경우 대비 —
+            # 그대로 두면 "### 텍스트"가 스타일 적용 없이 본문에 리터럴 노출됨(실라이브 확인).
+            body = re.sub(r"^#{1,6}\s+", "[소제목] ", body, flags=re.MULTILINE)
             # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤
             # 마커를 [구분선]\n으로 교체 → poster가 소제목 앞에 가로 구분선 자동 삽입
             result["subheadings"] = [

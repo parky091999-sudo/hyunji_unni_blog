@@ -696,11 +696,16 @@ async def _apply_inline_emphasis(page: Page) -> int:
             await paras.nth(found).click(timeout=7000)
             await _delay(100, 180)
             await page.keyboard.press("Home")
+            # ★각 ArrowRight 사이 소폭 지연 필수 — 무지연 연타 시 SE ONE 에디터가 일부 키 입력을
+            # 놓쳐 커서가 의도한 위치보다 짧게 이동하고, 그 결과 뒤이은 Shift+Delete가 엉뚱한
+            # 위치의 실제 본문 텍스트를 삭제하는 사고가 실라이브 발행에서 확인됨(텍스트 유실).
             for _ in range(start):
                 await page.keyboard.press("ArrowRight")
+                await _delay(15, 30)
             # 여는 '[[' (2글자) 선택 후 삭제
             await page.keyboard.down("Shift")
             await page.keyboard.press("ArrowRight")
+            await _delay(15, 30)
             await page.keyboard.press("ArrowRight")
             await page.keyboard.up("Shift")
             await page.keyboard.press("Delete")
@@ -709,13 +714,16 @@ async def _apply_inline_emphasis(page: Page) -> int:
             await page.keyboard.down("Shift")
             for _ in range(kw_len):
                 await page.keyboard.press("ArrowRight")
+                await _delay(15, 30)
             await page.keyboard.up("Shift")
             await page.keyboard.press("Control+b")
             await _delay(100, 160)
             # 선택을 오른쪽 끝으로 접은 뒤 닫는 ']]' (2글자) 선택 후 삭제
             await page.keyboard.press("ArrowRight")
+            await _delay(15, 30)
             await page.keyboard.down("Shift")
             await page.keyboard.press("ArrowRight")
+            await _delay(15, 30)
             await page.keyboard.press("ArrowRight")
             await page.keyboard.up("Shift")
             await page.keyboard.press("Delete")
@@ -1613,7 +1621,7 @@ def create_health_header_card(
             "보험": "보험 핵심 정리", "부동산주거": "부동산·주거 총정리",
             "주식상한가": "상한가 & 특징주", "주식분석": "주식 분석",
             "주식공모주": "공모주 캘린더", "공모주": "공모주 캘린더",
-            "주식etf": "핵심 ETF 포트폴리오", "ETF": "핵심 ETF 포트폴리오",
+            "주식etf": "ETF 인사이트", "ETF": "ETF 인사이트",
         }
         sub_text = _SUB_TEXT.get(category, "생활정보 총정리")
         try:
