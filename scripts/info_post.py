@@ -131,9 +131,9 @@ def _extract_summary_bullets(summary_text: str, max_count: int = 4) -> list[str]
                 break
         if not matched:
             continue
-        # 플레이스홀더 제거, 5~35자 의미있는 항목만
-        if "(" in line and ")" in line:
-            continue
+        # 괄호 부연설명은 카드가 좁아 잘려 보이므로 제거하되, 괄호 앞 본문은 살린다
+        # (전체가 괄호뿐인 플레이스홀더는 제거 후 길이 필터에서 자연히 걸러짐)
+        line = re.sub(r"\s*\([^)]*\)\s*", " ", line).strip()
         if 5 <= len(line) <= 35:
             bullets.append(line)
         if len(bullets) >= max_count:

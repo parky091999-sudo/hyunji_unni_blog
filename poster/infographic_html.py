@@ -154,12 +154,23 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
     else:
         divider_text = f"📌 {label} 핵심 정보 한눈에 확인!"
 
-    # 하단 아이콘 카드
+    # 하단 아이콘 카드 — 카드 폭에 여유가 있어(2줄 래핑 가능) 18자 컷은 과도했음.
+    # 26자까지 허용하고, 정말 넘치면 단어 경계에서 자르고 말줄임표를 붙인다(숫자·단위가
+    # 중간에 잘려 의미가 바뀌는 것 방지: 예 "15%"→"15").
+    def _short_bullet(b: str, limit: int = 26) -> str:
+        if len(b) <= limit:
+            return b
+        cut = b[:limit]
+        sp = cut.rfind(" ")
+        if sp >= limit - 8:  # 너무 앞쪽이면 단어경계 포기하고 그냥 자름
+            cut = cut[:sp]
+        return cut.rstrip() + "…"
+
     cards_html = ""
     if n > 0:
         for i, b in enumerate(bullets[:n], 1):
             icon  = icons[i - 1] if i <= len(icons) else "💡"
-            short = b[:18] if len(b) > 18 else b
+            short = _short_bullet(b)
             cards_html += f"""
       <div class="bcard">
         <div class="bicon">{icon}</div>
@@ -207,9 +218,20 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
 /* ── 히어로 (flex 나머지 공간 모두 차지) ── */
 .hero{{
   flex:1;
+  position:relative;
   padding:0 54px;
   display:flex;flex-direction:column;
   justify-content:center;
+  overflow:hidden;
+}}
+/* 짧은 제목만 있을 때 남는 공간이 휑해 보이지 않도록 배경에 큰 아이콘을 흐리게 배치 */
+.herobg{{
+  position:absolute;
+  right:-40px;top:50%;transform:translateY(-50%);
+  font-size:340px;line-height:1;
+  opacity:.10;
+  pointer-events:none;
+  user-select:none;
 }}
 
 /* 3단 제목 */
@@ -292,6 +314,7 @@ body{{width:{S}px;height:{S}px;overflow:hidden;}}
   </div>
 
   <div class="hero">
+    <div class="herobg">{icons[0] if icons else "💡"}</div>
     <div class="ts">{escape(t_small)}</div>
     <div class="ta">{escape(t_accent)}</div>
     <div class="tb">{escape(sub_below)}</div>
@@ -350,7 +373,8 @@ def create_infographic_via_html(
     if len(display) > 28:
         display = display[:28]
 
-    clean_bullets = [b[:20] for b in (bullets or [])[:4]] or None
+    # 자르기는 _build_html의 _short_bullet(단어경계+말줄임표)이 담당하므로 여기선 개수만 제한
+    clean_bullets = (bullets or [])[:4] or None
     html = _build_html(display, clean_bullets, style)
 
     try:
