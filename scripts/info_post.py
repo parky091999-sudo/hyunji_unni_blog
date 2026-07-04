@@ -143,9 +143,10 @@ def run():
 
     force = os.environ.get("FORCE_POST", "false").lower() == "true"
     draft = os.environ.get("DRAFT", "false").lower() == "true"
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
 
     history = _load_history()
-    if _already_posted_this_run(history, run_slot) and not force and not draft:
+    if _already_posted_this_run(history, run_slot) and not force and not draft and not dry_run:
         logger.info(f"오늘 슬롯 {run_slot}에 이미 {BLOG_CATEGORY} 포스팅 완료 — 건너뜀")
         return
 
@@ -178,6 +179,10 @@ def run():
 
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:500] + "...\n===== 끝 =====")
+
+    if dry_run:
+        logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
+        return
 
     # ── 3. 이미지: 헤더 카드만 (본문 스톡사진 없음) ──
     images: list[dict] = []
