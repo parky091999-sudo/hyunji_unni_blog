@@ -1,5 +1,33 @@
 [
   {
+    "date": "2026-07-05",
+    "timestamp": "2026-07-05T08:09:49.951316+09:00",
+    "run_slot": "08",
+    "stock_topic": "etf포트폴리오",
+    "topic_name": "ETF 인사이트",
+    "blog_category": "ETF",
+    "title": "2026년 7월 5일, SCHD: 미국 배당성장 ETF 핵심 분석",
+    "tags": [
+      "SCHD",
+      "미국ETF",
+      "배당주",
+      "배당성장",
+      "슈왑",
+      "인컴형",
+      "투자전략",
+      "현지언니"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224336756402",
+    "images_count": 2,
+    "images_inserted": 2,
+    "has_table": true,
+    "has_faq": true,
+    "stock_name": null,
+    "etf_content_type": "us_individual",
+    "etf_subject": "SCHD"
+  },
+  {
     "date": "2026-07-04",
     "timestamp": "2026-07-04T08:15:08.731025+09:00",
     "run_slot": "08",
