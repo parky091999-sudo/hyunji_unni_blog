@@ -1,7 +1,14 @@
 """
 HTML/CSS 템플릿 + Playwright 스크린샷으로 고품질 인포그래픽 생성.
 가로로 긴 캔버스(1600×900), 중앙 900×900이 썸네일 크롭 영역 — 제목은 항상 그 안에.
-구조: 컬러 테두리 프레임 → 가운데 정렬 1줄 제목 → 키워드바 → 핵심 통계 카드 3~4개(아이콘/라벨 없이 텍스트만).
+
+썸네일 가독성 최우선 재설계(2026-07-04, 실물 피드백):
+- 다크 그라디언트 배경 + 흰색 초대형 제목(최대 2줄, 라인당 실측 폭 기준 90~165px)
+  → 150px 축소 썸네일에서도 제목이 읽히는 것이 목표.
+- 크롭 영역(가운데 900×900) 안에는 핵심 키워드·작은 브랜드·카테고리 칩만.
+  차트 막대 장식은 저투명도 배경 요소로 깔림(텍스트가 항상 위).
+- 불릿(핵심 요약)은 크롭 바깥 오른쪽 날개에만 작게 표시 — 전체보기 전용.
+- 카테고리별 강조색 시스템(빨강/보라/파랑 등)은 유지.
 """
 import asyncio
 import logging
@@ -160,37 +167,78 @@ _STYLES: dict[str, dict] = {
 _DEFAULT = _STYLES["금융재테크"]
 
 
-def _title_fontsize(text: str) -> int:
-    # 제목을 3줄→1줄로 합치면서 실측 폭 기준으로 재조정. 썸네일 크롭 영역(가운데 900px
-    # 폭)을 절대 벗어나면 안 되므로 여유를 두고 계산(한글 위주 텍스트가 더 넓게 잡힘).
-    n = len(text)
-    if n <= 4:  return 150
-    if n <= 6:  return 130
-    if n <= 8:  return 108
-    if n <= 10: return 92
-    if n <= 13: return 74
-    if n <= 18: return 58
-    return 46
+# 크롭 영역(900px) 안에서 제목이 쓸 수 있는 실제 폭. 좌우 24px 여유.
+_TITLE_SAFE_PX = 850
+
+
+def _char_units(text: str) -> float:
+    """Noto Sans KR 기준 대략적인 문자 폭(em 단위) 추정. 한글/CJK≈1.0em, 영문/숫자는 더 좁음."""
+    u = 0.0
+    for ch in text:
+        o = ord(ch)
+        if 0xAC00 <= o <= 0xD7A3 or 0x3130 <= o <= 0x318F or 0x4E00 <= o <= 0x9FFF or ch in "…％":
+            u += 1.0
+        elif ch == " ":
+            u += 0.30
+        elif ch.isdigit():
+            u += 0.62
+        elif ch.isupper():
+            u += 0.74
+        else:
+            u += 0.55
+    return max(u, 0.5)
+
+
+def _layout_title(text: str) -> tuple[list[str], int]:
+    """
+    제목을 1~2줄로 배치하고 폰트 크기(px)를 결정.
+    목표: 크롭 폭의 80%+ 를 채우는 초대형 폰트(90px+), 150px 축소에서도 판독 가능.
+    """
+    one_line_font = _TITLE_SAFE_PX / _char_units(text)
+    words = text.split()
+
+    # 한 줄로도 충분히 크면 한 줄 유지
+    if one_line_font >= 104 or len(words) <= 1:
+        if len(words) <= 1 and one_line_font < 88 and len(text) > 8:
+            # 공백 없는 긴 덩어리 → 글자 단위로 반 나눔
+            mid = len(text) // 2
+            lines = [text[:mid], text[mid:]]
+        else:
+            lines = [text]
+    else:
+        # 두 줄 분할: 양쪽 줄 폭이 가장 균형 잡히는 공백 위치 선택
+        best_lines, best_max = [text], _char_units(text)
+        for i in range(1, len(words)):
+            l1, l2 = " ".join(words[:i]), " ".join(words[i:])
+            m = max(_char_units(l1), _char_units(l2))
+            if m < best_max:
+                best_max, best_lines = m, [l1, l2]
+        lines = best_lines
+
+    max_units = max(_char_units(ln) for ln in lines)
+    font = int(_TITLE_SAFE_PX / max_units)
+    font = max(72, min(font, 170))  # 하한 72는 안전장치 — 키워드 절단 로직상 실제론 85px+
+    return lines, font
 
 
 def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> str:
-    color    = style["color"]
-    bg_light = style["bg_light"]
-    label    = style["label"]
-    icons    = style.get("icons", ["💡", "📌", "✅", "🔑"])
+    bg_dark   = style["bg"]          # 구 PIL 카드의 다크 그라디언트 재활용
+    accent    = style["accent"]
+    tag_color = style["tag_color"]
+    label     = style["label"]
+    icons     = style.get("icons", ["💡", "📌", "✅", "🔑"])
 
-    n = min(len(bullets) if bullets else 0, 4)
-    tf = _title_fontsize(display_title)
+    lines, tf = _layout_title(display_title)
+    title_html = "<br>".join(escape(ln) for ln in lines)
 
-    # 구분바 키워드 (불릿 첫 단어들)
-    if bullets and n > 0:
-        kws = " · ".join(b.split()[0] for b in bullets[:n])
-        divider_text = f"📌 {kws}까지!"
-    else:
-        divider_text = f"📌 {label} 핵심 정보 한눈에 확인!"
+    # ── 배경 장식: 저투명도 차트 막대(카테고리 색) — 텍스트 뒤에 깔리는 분위기 요소 ──
+    bar_heights = [22, 34, 28, 46, 38, 58, 50, 72, 62, 84, 74, 92, 82, 96]
+    bars_html = "".join(
+        f'<div class="bar" style="height:{h}%;"></div>' for h in bar_heights
+    )
 
-    # 하단 카드 — 아이콘·"핵심 0N" 라벨 없이 텍스트만 크게 채운다.
-    def _short_bullet(b: str, limit: int = 30) -> str:
+    # ── 불릿: 크롭 영역 바깥 오른쪽 날개(전체보기 전용) — 썸네일 가독성엔 영향 없음 ──
+    def _short_bullet(b: str, limit: int = 26) -> str:
         if len(b) <= limit:
             return b
         cut = b[:limit]
@@ -199,19 +247,14 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
             cut = cut[:sp]
         return cut.rstrip() + "…"
 
-    cards_html = ""
+    n = min(len(bullets) if bullets else 0, 4)
+    wing_html = ""
     if n > 0:
-        for b in bullets[:n]:
-            short = _short_bullet(b)
-            cards_html += f"""
-      <div class="bcard">
-        <div class="btext">{escape(short)}</div>
-      </div>"""
-
-    cards_section = f"""
-  <div class="bcards" style="grid-template-columns:repeat({n},1fr);">
-    {cards_html}
-  </div>""" if n > 0 else ""
+        items = "".join(
+            f'<div class="witem"><span class="wdot"></span>{escape(_short_bullet(b))}</div>'
+            for b in bullets[:n]
+        )
+        wing_html = f'<div class="wing">{items}</div>'
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -226,100 +269,122 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
 .wrap{{
   position:relative;
   width:{W}px;height:{H}px;
-  background:{bg_light};
-  border:16px solid {color};
-  display:flex;flex-direction:column;
+  background:{bg_dark};
   font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
   overflow:hidden;
 }}
 
-/* 브랜드 워터마크 — 크롭 안전영역(가운데 정사각형) 바깥에 둬 썸네일 가독성엔 영향 없이
-   전체보기에서만 "현지언니" 브랜드를 각인시킨다(배지 삭제로 사라진 브랜딩 최소 복원). */
-.brand{{
-  position:absolute;
-  left:38px;top:30px;
-  font-size:22px;font-weight:800;
-  color:{color};
-  opacity:.5;
-  letter-spacing:.3px;
+/* 카테고리 색 인지용 하단 액센트 바 — 축소돼도 색 정체성이 남는다 */
+.edge{{
+  position:absolute;left:0;right:0;bottom:0;height:18px;
+  background:{accent};
 }}
 
-/* ── 히어로: 가운데 정렬 1줄 제목 (위아래 여백 최소) ── */
-.hero{{
-  flex:1;
-  position:relative;
-  padding:0 40px;
-  display:flex;align-items:center;justify-content:center;
-  overflow:hidden;
-}}
-/* 남는 공간이 휑해 보이지 않도록 배경에 큰 아이콘을 흐리게 배치.
-   썸네일 크롭 영역(가운데 정사각형) 바깥쪽에 위치해 축소본엔 안 나옴 — 전체보기 전용 장식. */
-.herobg{{
+/* ── 배경 장식(저투명도) — 텍스트 아래 레이어 ── */
+.glow{{
   position:absolute;
-  right:60px;top:50%;transform:translateY(-50%);
-  font-size:300px;line-height:1;
-  opacity:.10;
+  left:50%;top:44%;transform:translate(-50%,-50%);
+  width:1100px;height:700px;border-radius:50%;
+  background:radial-gradient(closest-side, rgba(255,255,255,.10), transparent 70%);
   pointer-events:none;
-  user-select:none;
+}}
+.bars{{
+  position:absolute;left:0;right:0;bottom:18px;height:46%;
+  display:flex;align-items:flex-end;gap:34px;
+  padding:0 60px;
+  opacity:.13;
+  pointer-events:none;
+}}
+.bar{{
+  flex:1;
+  background:linear-gradient(to top, {accent}, transparent 130%);
+  border-radius:10px 10px 0 0;
+}}
+/* 카테고리 아이콘 — 크롭 바깥 왼쪽 날개, 전체보기 전용 장식 */
+.sideicon{{
+  position:absolute;
+  left:40px;top:50%;transform:translateY(-50%);
+  font-size:260px;line-height:1;
+  opacity:.12;
+  pointer-events:none;user-select:none;
+}}
+
+/* ── 크롭 안전영역(가운데 900×900) 안: 칩 + 초대형 제목 + 브랜드만 ── */
+.center{{
+  position:absolute;
+  left:{(W - H) // 2}px;width:{H}px;top:0;height:{H}px;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:34px;
+  padding:0 24px 30px;
+}}
+.chip{{
+  background:{accent};
+  color:{tag_color};
+  font-size:30px;font-weight:800;
+  padding:10px 34px;
+  border-radius:999px;
+  letter-spacing:.5px;
 }}
 .title{{
   font-size:{tf}px;font-weight:900;
-  color:{color};
-  line-height:1;
-  letter-spacing:-1.5px;
+  color:#FFFFFF;
+  line-height:1.14;
+  letter-spacing:-2px;
   text-align:center;
   word-break:keep-all;
   white-space:nowrap;
+  text-shadow:0 4px 24px rgba(0,0,0,.45);
+}}
+.underline{{
+  width:150px;height:12px;border-radius:6px;
+  background:{accent};
+}}
+.brand{{
+  position:absolute;
+  left:50%;bottom:52px;transform:translateX(-50%);
+  font-size:26px;font-weight:700;
+  color:rgba(255,255,255,.60);
+  letter-spacing:2px;
 }}
 
-/* ── 키워드 구분바 ── */
-.divrow{{
-  margin:0 42px;
-  padding:14px 26px;
-  background:white;
-  border-left:7px solid {color};
-  border-radius:0 14px 14px 0;
-  font-size:16px;font-weight:600;color:#555;
+/* ── 불릿 날개(크롭 오른쪽 바깥, 전체보기 전용) ── */
+.wing{{
+  position:absolute;
+  right:44px;top:50%;transform:translateY(-50%);
+  width:{(W - H) // 2 - 90}px;
+  display:flex;flex-direction:column;gap:22px;
+}}
+.witem{{
+  display:flex;align-items:flex-start;gap:10px;
+  font-size:21px;font-weight:500;
+  color:rgba(255,255,255,.88);
+  line-height:1.4;word-break:keep-all;
+}}
+.wdot{{
   flex-shrink:0;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);
-  line-height:1.5;
-}}
-
-/* ── 하단 통계 카드 (아이콘·라벨 없이 텍스트가 칸을 꽉 채움) ── */
-.bcards{{
-  display:grid;
-  flex-shrink:0;
-  margin:16px 42px 26px;
-  gap:14px;
-}}
-.bcard{{
-  padding:20px 14px;
-  min-height:110px;
-  display:flex;align-items:center;justify-content:center;
-  background:white;
-  border-radius:14px;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);
-  text-align:center;
-}}
-.btext{{
-  font-size:26px;font-weight:800;color:{color};
-  line-height:1.3;word-break:keep-all;
+  width:10px;height:10px;border-radius:50%;
+  background:{accent};
+  margin-top:9px;
 }}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="brand">현지언니</div>
+  <div class="glow"></div>
+  <div class="bars">{bars_html}</div>
+  <div class="sideicon">{icons[0] if icons else "💡"}</div>
 
-  <div class="hero">
-    <div class="herobg">{icons[0] if icons else "💡"}</div>
-    <div class="title">{escape(display_title)}</div>
+  <div class="center">
+    <div class="chip">{escape(label)}</div>
+    <div class="title">{title_html}</div>
+    <div class="underline"></div>
+    <div class="brand">현지언니</div>
   </div>
 
-  <div class="divrow">{divider_text}</div>
+  {wing_html}
 
-  {cards_section}
-
+  <div class="edge"></div>
 </div>
 </body>
 </html>"""
@@ -357,17 +422,23 @@ def create_infographic_via_html(
 ) -> str | None:
     """
     HTML/CSS + Playwright 인포그래픽(1600×900, 가운데 900×900이 썸네일 크롭 영역).
-    실패 시 None 반환.
+    다크 배경 + 초대형 흰 제목(최대 2줄) — 썸네일 가독성 최우선. 실패 시 None 반환.
     """
+    import re
+
     style = _STYLES.get(category, _DEFAULT)
 
     display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
-    if len(display) > 22:
-        cut = display[:22]
+    # 썸네일엔 핵심 키워드만: 앞머리 날짜("2026년 7월 4일" 등)와 괄호 부연은 제거
+    display = re.sub(r"^\s*\d{4}년\s*\d{1,2}월(\s*\d{1,2}일)?[\s,·:~-]*", "", display)
+    display = re.sub(r"\([^)]*\)", "", display).strip(" ,·|-") or display
+    # 폰트가 90px 아래로 내려가지 않도록 길이 자체를 제한(단어경계+말줄임표)
+    if len(display) > 18:
+        cut = display[:18]
         sp = cut.rfind(" ")
-        if sp >= 10:
+        if sp >= 9:
             cut = cut[:sp]
-        display = cut.rstrip() + "…"
+        display = cut.rstrip(" ,·") + "…"
 
     # 자르기는 _build_html의 _short_bullet(단어경계+말줄임표)이 담당하므로 여기선 개수만 제한
     clean_bullets = (bullets or [])[:4] or None
