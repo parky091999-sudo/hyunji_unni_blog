@@ -36,8 +36,13 @@ INFO_CAT_MAP = {
     "부동산주거": "부동산, 주거",
 }
 
+def _posted_today(history: list) -> bool:
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    return any(h.get("date") == today and h.get("status") == "posted" for h in history)
+
+
 def _pick_least_recent_category() -> str:
-    """스케줄 실행(카테고리 미지정) 시: 4개 정보 카테고리 중 가장 오래 전 발행(또는 미발행)된 카테고리 선택 → 고른 순환 발행."""
+    """스케줄 실행(카테고리 미지정) 시: 오늘 미발행 카테고리 중 가장 오래 전 발행(또는 미발행)된 것 선택."""
     best, best_ts = None, None
     for cid in INFO_CAT_MAP:
         path = os.path.join(DATA_DIR, f"info_{cid}_history.json")
@@ -46,11 +51,13 @@ def _pick_least_recent_category() -> str:
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-                posted = [h.get("timestamp", "") for h in data if h.get("status") == "posted"]
+                rows = data if isinstance(data, list) else data.get("posts", [])
+                if _posted_today(rows):
+                    continue
+                posted = [h.get("timestamp", "") for h in rows if h.get("status") == "posted"]
                 last = max(posted) if posted else ""
         except Exception:
             last = ""
-        # 미발행("")이 최우선, 그다음 가장 오래된 timestamp
         key = last or "0000"
         if best is None or key < best_ts:
             best, best_ts = cid, key
@@ -146,6 +153,9 @@ def run():
     dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
 
     history = _load_history()
+    if _posted_today(history) and not force and not draft and not dry_run:
+        logger.info(f"오늘 이미 {BLOG_CATEGORY} 포스팅 완료 — 건너뜀")
+        return
     if _already_posted_this_run(history, run_slot) and not force and not draft and not dry_run:
         logger.info(f"오늘 슬롯 {run_slot}에 이미 {BLOG_CATEGORY} 포스팅 완료 — 건너뜀")
         return
