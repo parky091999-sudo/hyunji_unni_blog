@@ -3,10 +3,11 @@ name: 고CPC 정보성 포스팅 (금융·세금·보험·부동산)
 on:
   # 리런치(2026-06-30): 카테고리별 매일 1개 = 정보 4카테고리 하루 4회(자동순환=가장 오래된것 선택 → 4개 모두 매일 1개).
   schedule:
-    - cron: "0 4 * * *"   # KST 13:00
-    - cron: "0 6 * * *"   # KST 15:00
-    - cron: "0 8 * * *"   # KST 17:00
-    - cron: "0 10 * * *"  # KST 19:00
+    # 정각(:00)은 GH Actions 큐 혼잡으로 스킵·지연 빈번 → :05 분산 + 스케줄 재등록
+    - cron: "5 4 * * *"   # KST 13:05
+    - cron: "5 6 * * *"   # KST 15:05
+    - cron: "5 8 * * *"   # KST 17:05
+    - cron: "5 10 * * *"  # KST 19:05
   workflow_dispatch:
     inputs:
       category:
@@ -56,10 +57,25 @@ jobs:
       - name: Playwright 브라우저 설치
         run: playwright install chromium --with-deps
 
+      - name: 랜덤 딜레이 (봇 패턴 방지)
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 900))
+          echo "랜덤 딜레이: ${DELAY}초 (최대 15분)"
+          sleep $DELAY
+
       - name: 실행 슬롯 설정 (중복 방지용)
         run: |
-          HOUR=$(TZ='Asia/Seoul' date '+%H')
-          echo "RUN_SLOT=$HOUR" >> $GITHUB_ENV
+          # GH 스케줄러 지연 시 HOUR 드리프트 → cron 문자열로 슬롯 확정 (stock_post 패턴)
+          case "${{ github.event.schedule }}" in
+            "5 4 * * *"|"0 4 * * *")  SLOT="13" ;;
+            "5 6 * * *"|"0 6 * * *")  SLOT="15" ;;
+            "5 8 * * *"|"0 8 * * *")  SLOT="17" ;;
+            "5 10 * * *"|"0 10 * * *") SLOT="19" ;;
+            *) SLOT=$(TZ='Asia/Seoul' date '+%H') ;;
+          esac
+          echo "RUN_SLOT=$SLOT" >> $GITHUB_ENV
+          echo "슬롯 확정: $SLOT (schedule='${{ github.event.schedule }}')"
 
       - name: 포스팅 실행
         env:
