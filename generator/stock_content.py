@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from generator.content import _gen_text, _parse_response, _IMAGE_MARKER
+from generator.quality import score_stock_content, strip_title_emphasis_markers
 
 logger = logging.getLogger("stock_content")
 
@@ -61,8 +62,11 @@ _COMMON_RULES = (
     "계산·비교도 데이터에 있는 값으로만 하라.\n"
     "5. ★제도·원리·판단 기준(배정 방식, 인컴형 ETF의 구조, 오버행 개념, 레버리지의 특징, 수급 보는 법 등)은 "
     "쉬운 말로 자세히 설명하라. 이게 독자가 얻어가는 핵심 가치다 — 단, 쉬운 말 우선, 전문용어는 필요한 만큼만.\n"
-    "6. 투자 권유·단정 금지: '사라/오른다' 대신 '이런 경우엔 이렇게 판단한다'는 기준을 제공. "
+    "6. 투자 권유·단정 금지: '사라/오른다/지금 매수' 대신 '이런 경우엔 이렇게 판단한다'는 기준을 제공. "
     "마지막은 '투자 책임은 본인, 공식 자료 재확인' 면책.\n"
+    "6-A. ★PER/PBR 해석: PBR 1 미만=장부가치 대비 낮을 '수 있음'(적자·무형자산 많은 기업은 PBR만으로 판단 금지). "
+    "PBR 5 이상=프리미엄·자산 구조 특수(BTC 보유 MSTR 등) 가능 — '저평가' 단정 금지. "
+    "PER 음수·N/A=적자 기업, PER로 밸류에이션 불가라고 명시.\n"
     "7. 각 소제목 다음 1~2문장은 그 주제의 결론을 바로 제시(두괄식). 결론→쉬운 설명→실전 팁 순서로.\n"
     "8. ★★★ 강조 표시(엄격 제한): 글 전체를 통틀어 '[[강조할 짧은 구절]]' 마커는 "
     "정확히 3~5개만 사용하라. 이보다 많이 쓰면 안 된다 — 매 문장·매 소제목마다 쓰는 게 아니라 "
@@ -454,9 +458,29 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 logger.warning(f"{cfg['name']} 파싱 실패 (시도 {attempt})")
                 continue
 
+            parsed["title"] = strip_title_emphasis_markers(parsed.get("title", ""))
+
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
-            if body_len < 600:
+            if body_len < 700:
                 logger.warning(f"{cfg['name']} 본문 짧음 ({body_len}자) — 재생성")
+                continue
+
+            qr = score_stock_content(
+                title=parsed.get("title", ""),
+                body=parsed.get("body", ""),
+                tags=parsed.get("tags", []),
+                table_str=parsed.get("table_str", ""),
+                faq_str=parsed.get("faq_str", ""),
+                topic_id=topic_id,
+                fact_data=llm_fact_data,
+                subheading_count=len(parsed.get("subheadings", [])),
+            )
+            parsed["quality_score"] = qr["score"]
+            if not qr["pass"] or qr["needs_retry"]:
+                logger.warning(
+                    f"{cfg['name']} 품질 미달 ({qr['score']}점) — 재생성: "
+                    f"{'; '.join(qr.get('critical', qr.get('issues', []))[:3])}"
+                )
                 continue
 
             body = parsed.get("body", "")

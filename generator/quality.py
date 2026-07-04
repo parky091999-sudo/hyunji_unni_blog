@@ -298,3 +298,222 @@ def score_content(
             "pattern": pattern,
         },
     }
+
+
+# ── 주식(stock) 전용 품질 게이트 ─────────────────────────────────────────────
+
+_INLINE_EMPHASIS = re.compile(r"\[\[(.+?)\]\]")
+_BUY_REC_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"지금\s*(사|매수)"), "직접 매수 권유: '지금 사/매수'"),
+    (re.compile(r"무조건\s*(매수|담|사)"), "단정적 매수 권유"),
+    (re.compile(r"풀\s*매수"), "풀매수 권유"),
+    (re.compile(r"적극\s*매수\s*추천"), "매수 추천"),
+    (re.compile(r"반드시\s*(담|사)"), "강제 매수 표현"),
+]
+_YEAR_IN_TITLE = re.compile(r"20\d{2}")
+
+
+def strip_title_emphasis_markers(title: str) -> str:
+    """제목에 남은 [[강조]] 마커 제거(포스터 입력 전·품질검사 전 공통)."""
+    return _INLINE_EMPHASIS.sub(r"\1", title).strip()
+
+
+def _flatten_fact_strings(obj, out: list[str] | None = None) -> list[str]:
+    out = out if out is not None else []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if str(k).startswith("_"):
+                continue
+            _flatten_fact_strings(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _flatten_fact_strings(v, out)
+    elif obj is not None:
+        s = str(obj).strip()
+        if s and re.search(r"\d", s):
+            out.append(s)
+    return out
+
+
+def _parse_float_metric(fact_data: dict | list, *keys: str) -> float | None:
+    if not isinstance(fact_data, dict):
+        return None
+    for key in keys:
+        raw = fact_data.get(key)
+        if raw is None:
+            continue
+        m = re.search(r"-?\d+(?:\.\d+)?", str(raw).replace(",", ""))
+        if m:
+            try:
+                return float(m.group())
+            except ValueError:
+                continue
+    return None
+
+
+def validate_stock_facts(body: str, table_str: str, fact_data: dict | list) -> dict:
+    """팩트 데이터 vs 본문·표 교차검증. needs_retry 유발 critical 반환."""
+    issues: list[str] = []
+    critical: list[str] = []
+    combined = f"{table_str}\n{body}"
+
+    # 핵심 수치가 본문/표에 반영됐는지(할루시네이션 1차 방어)
+    anchor_keys = (
+        "현재가", "현재가(USD)", "등락률(%)", "공모가", "경쟁률",
+        "펀드보수", "괴리율", "PER", "PBR",
+    )
+    if isinstance(fact_data, dict):
+        for key in anchor_keys:
+            val = fact_data.get(key)
+            if val is None or str(val).strip() in ("", "-", "N/A", "None"):
+                continue
+            num = re.search(r"-?\d+(?:\.\d+)?", str(val).replace(",", ""))
+            if num and num.group() not in combined.replace(",", ""):
+                msg = f"팩트 '{key}'={val} 값이 본문·표에 없음"
+                issues.append(msg)
+                critical.append(msg + " — 표/본문에 팩트 수치 반영")
+
+    # PBR/PER 해석 sanity (MSTR 등 고PBR·적자 종목 오판 방지)
+    if isinstance(fact_data, dict):
+        pbr = _parse_float_metric(fact_data, "PBR")
+        if pbr is not None:
+            if pbr > 5 and re.search(r"저평가|싸게\s*거래|밸류\s*매력", combined):
+                critical.append(f"PBR {pbr}인데 저평가 표현 — 해석 오류(자산 구조·적자 여부 확인)")
+            if pbr < 0.8 and re.search(r"고평가|비싼\s*편|프리미엄\s*과다", combined):
+                critical.append(f"PBR {pbr}인데 고평가 표현 — 해석 오류")
+        per = _parse_float_metric(fact_data, "PER", "추정PER(컨센서스)")
+        if per is not None and per < 0 and re.search(r"PER\s*[0-9]|저\s*PER|PER\s*낮", combined):
+            critical.append("적자(PER 음수) 종목인데 PER 수치로 저평가·고평가 단정 — 수정 필요")
+
+    return {"issues": issues, "critical": critical, "needs_retry": bool(critical)}
+
+
+def score_stock_content(
+    title: str,
+    body: str,
+    tags: list[str],
+    table_str: str = "",
+    faq_str: str = "",
+    topic_id: str = "",
+    fact_data: dict | list | None = None,
+    subheading_count: int = 0,
+) -> dict:
+    """주식(종목분석·공모주·ETF) 전용 품질 채점. 60점 통과 + critical 시 재생성."""
+    title = strip_title_emphasis_markers(title)
+    score = 0
+    issues: list[str] = []
+    critical: list[str] = []
+
+    body_len = len(body)
+    body_target = 1200
+    if body_len >= body_target:
+        score += 20
+    elif body_len >= 900:
+        score += 12
+        issues.append(f"본문 약간 짧음 ({body_len}자, 목표 {body_target}자+)")
+    elif body_len >= 700:
+        score += 6
+        issues.append(f"본문 짧음 ({body_len}자)")
+        critical.append(f"본문 짧음 ({body_len}자) — {body_target}자+ 권장")
+    else:
+        issues.append(f"본문 매우 짧음 ({body_len}자)")
+        critical.append(f"본문 매우 짧음 ({body_len}자) — 재생성 필요")
+
+    ai_deduct = 0
+    for pattern_regex, desc in _AI_PATTERNS:
+        if pattern_regex.search(body) or pattern_regex.search(title):
+            ai_deduct = min(ai_deduct + 5, 20)
+            issues.append(f"AI 패턴: {desc}")
+    score += max(0, 20 - ai_deduct)
+
+    buy_hits = 0
+    for pattern_regex, desc in _BUY_REC_PATTERNS:
+        if pattern_regex.search(body):
+            buy_hits += 1
+            issues.append(f"투자 권유 위반: {desc}")
+            critical.append(desc + " — 중립적 판단 기준으로 수정")
+    if buy_hits:
+        score = max(0, score - min(buy_hits * 10, 20))
+
+    sh_count = subheading_count or len(re.findall(r"^\[구분선\]", body, re.MULTILINE))
+    if sh_count >= 5:
+        score += 10
+    elif sh_count >= 3:
+        score += 6
+    else:
+        issues.append(f"소제목 부족 ({sh_count}개)")
+
+    has_table = bool(table_str) or bool(_TABLE_MARKER.search(body))
+    has_faq = bool(faq_str) or bool(_FAQ_MARKER.search(body))
+    if has_table:
+        score += 10
+    else:
+        critical.append("표 없음 — 재생성")
+    if has_faq:
+        score += 10
+    else:
+        critical.append("FAQ 없음 — 재생성")
+
+    emphasis_count = len(_INLINE_EMPHASIS.findall(body))
+    if emphasis_count <= 5:
+        score += 10
+    elif emphasis_count <= 10:
+        score += 5
+        issues.append(f"[[강조]] 마커 과다 ({emphasis_count}개, 권장 3~5)")
+    else:
+        issues.append(f"[[강조]] 마커 과다 ({emphasis_count}개)")
+        critical.append(f"[[강조]] {emphasis_count}개 — 3~5개로 줄이기")
+
+    tag_count = len(tags)
+    if tag_count >= 5:
+        score += 10
+    elif tag_count >= 3:
+        score += 5
+
+    title_len = len(title)
+    if 15 <= title_len <= 35:
+        score += 10
+    elif 10 <= title_len <= 40:
+        score += 5
+        issues.append(f"제목 길이 미흡 ({title_len}자)")
+    else:
+        issues.append(f"제목 길이 부적합 ({title_len}자)")
+
+    if not _YEAR_IN_TITLE.search(title):
+        score -= 5
+        msg = "제목에 기준 연도(2026 등) 없음 — 신뢰·최신성 약화"
+        issues.append(msg)
+        critical.append(msg)
+
+    if fact_data is not None:
+        fv = validate_stock_facts(body, table_str, fact_data)
+        issues.extend(fv["issues"])
+        critical.extend(fv["critical"])
+
+    score = max(0, min(100, score))
+    passed = score >= 60
+    needs_retry = bool(critical)
+
+    logger.info(
+        f"[stock] 품질 {score}/100 ({'통과' if passed else '재생성'}"
+        f"{', critical' if needs_retry else ''}) | 본문 {body_len}자 | "
+        f"소제목 {sh_count} | [[ ]] {emphasis_count}개"
+    )
+    if issues:
+        logger.info(f"[stock] 이슈: {' / '.join(issues[:8])}")
+
+    return {
+        "score": score,
+        "issues": issues,
+        "critical": critical,
+        "needs_retry": needs_retry,
+        "pass": passed,
+        "detail": {
+            "body_length": body_len,
+            "subheadings": sh_count,
+            "emphasis_count": emphasis_count,
+            "has_table": has_table,
+            "has_faq": has_faq,
+            "topic_id": topic_id,
+        },
+    }
