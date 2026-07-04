@@ -5,8 +5,11 @@
 """
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
+
+KST = timezone(timedelta(hours=9))
 
 # 채점 기준 (최대 100점)
 _SCORE_WEIGHTS = {
@@ -318,6 +321,47 @@ def strip_title_emphasis_markers(title: str) -> str:
     return _INLINE_EMPHASIS.sub(r"\1", title).strip()
 
 
+def strip_body_emphasis_markers(body: str, max_markers: int = 10) -> str:
+    """본문 [[강조]] 마커를 텍스트만 남기고 제거. max_markers 초과 시 전부 제거(볼드 포기·노출 방지)."""
+    if not body:
+        return body
+    if len(_INLINE_EMPHASIS.findall(body)) > max_markers:
+        return _INLINE_EMPHASIS.sub(r"\1", body)
+    return body
+
+
+def sanitize_anchor_text(text: str) -> str:
+    """이미지·표 앵커 매칭용 — [[ ]]·접두사 제거."""
+    if not text:
+        return ""
+    t = _INLINE_EMPHASIS.sub(r"\1", text)
+    t = re.sub(r"^\[가운데\]\s*", "", t)
+    return t.strip()
+
+
+_STALE_TITLE_YEAR = re.compile(r"(20\d{2})\s*년")
+_TODAY_IPO_DEADLINE = re.compile(r"오늘\s*[\(（]?\d*\s*일[\)）]?\s*마감|오늘\s*청약\s*마감|오늘\s*마감")
+
+
+def validate_info_dates(title: str, body: str) -> list[str]:
+    """정보성 글 제목·본문 날짜 오류(critical). 구식 연도."""
+    critical: list[str] = []
+    current_year = datetime.now(KST).year
+    for m in _STALE_TITLE_YEAR.finditer(title or ""):
+        y = int(m.group(1))
+        if y < current_year - 1:
+            critical.append(f"제목 구식 연도({y}년) — {current_year}년 기준으로 수정")
+            break
+    return critical
+
+
+def validate_ipo_date_claims(body: str) -> list[str]:
+    """공모주 글 — 팩트 없이 '오늘 마감' 등 기준일·청약일 혼동 표현."""
+    if _TODAY_IPO_DEADLINE.search(body or ""):
+        return ["공모주 '오늘 마감/청약' 표현 — 팩트 데이터 청약일만 사용"]
+    return []
+
+
 def _flatten_fact_strings(obj, out: list[str] | None = None) -> list[str]:
     out = out if out is not None else []
     if isinstance(obj, dict):
@@ -489,6 +533,11 @@ def score_stock_content(
         fv = validate_stock_facts(body, table_str, fact_data)
         issues.extend(fv["issues"])
         critical.extend(fv["critical"])
+
+    if topic_id == "공모주캘린더":
+        for msg in validate_ipo_date_claims(body):
+            issues.append(msg)
+            critical.append(msg)
 
     score = max(0, min(100, score))
     passed = score >= 60

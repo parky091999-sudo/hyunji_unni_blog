@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from generator.content import _gen_text, _parse_response, _IMAGE_MARKER
-from generator.quality import score_stock_content, strip_title_emphasis_markers
+from generator.quality import score_stock_content, strip_title_emphasis_markers, strip_body_emphasis_markers
 
 logger = logging.getLogger("stock_content")
 
@@ -240,7 +240,9 @@ def _struct_ipo(cfg: dict) -> str:
         f"[표시작]\n{cfg['table_header']}\n"
         "(팩트 데이터 종목만. 미확정 칸은 '미정'. 없는 종목 추가 금지)\n[표끝]\n"
         "\n[소제목] 종목별 일정 코멘트\n"
-        "(각 종목을 팩트(공모가·청약일·상장일·경쟁률·주간사)만으로 한 줄씩. 청약 마감 임박/주관 증권사 등 실용 정보. 불릿 '· '.)\n"
+        "(각 종목을 팩트(공모가·청약일·상장일·경쟁률·주간사)만으로 한 줄씩. "
+        "★청약일·상장일·마감일은 팩트 데이터에 적힌 날짜만 그대로 써라. "
+        "'오늘 마감'/'오늘(N일) 청약'처럼 기준일(오늘)과 청약일을 혼동해 단정하지 마라. 불릿 '· '.)\n"
         "\n[소제목] 경쟁률만 보고 판단하면 안 되는 이유\n"
         "(쉬운 해석: 기관 대상 수요예측 경쟁률이 높으면 흥행한 걸로 보이지만, '의무보유확약'(기관이 일정 기간 안 팔겠다고 "
         "약속한 비율)도 같이 봐야 함. 이 비율이 낮으면 경쟁률만 높고 상장 직후 기관이 바로 팔아버릴 수 있음. "
@@ -459,6 +461,7 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 continue
 
             parsed["title"] = strip_title_emphasis_markers(parsed.get("title", ""))
+            parsed["body"] = strip_body_emphasis_markers(parsed.get("body", ""))
 
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
             if body_len < 700:

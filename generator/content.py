@@ -11,6 +11,8 @@ import time
 from google import genai
 from google.genai import types as gtypes
 
+from generator.quality import strip_title_emphasis_markers
+
 logger = logging.getLogger(__name__)
 
 def scrub_persona_name(body: str) -> str:
@@ -321,7 +323,7 @@ def _parse_response(raw: str) -> dict | None:
                 t = line[6:].strip()
                 # 제목 끝 (괄호) 카테고리 누출 제거: "...비법 (제품추천)" → "...비법"
                 t = re.sub(r"\s*[\(（][^)）]{0,14}[\)）]\s*$", "", t).strip()
-                result["title"] = t
+                result["title"] = strip_title_emphasis_markers(t)
             elif line.startswith("TAGS:"):
                 result["tags"] = [t.strip() for t in line[5:].split(",") if t.strip()]
             elif line.startswith("COUPANG_HINT_"):

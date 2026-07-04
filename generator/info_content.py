@@ -8,6 +8,7 @@ import re
 import time
 
 from generator.content import _gen_text, _parse_response, _IMAGE_MARKER
+from generator.quality import strip_title_emphasis_markers, validate_info_dates
 
 logger = logging.getLogger("info_content")
 
@@ -92,7 +93,8 @@ def _build_info_system(cfg: dict) -> str:
         "페르소나: 놓치기 쉬운 돈·제도 정보를 직접 발품 팔아 쉽게 정리해주는 똑부러진 28세 생활정보 언니 '현지언니'.\n"
         "친근하되 정확·신뢰가 최우선. \"제가 직접 알아보니\", \"저도 처음엔 헷갈렸는데\" 같은 1인칭은 자연스럽게만(과하지 않게).\n"
         "\n══════════════════════════════════════════\n[제목 패턴 — 반드시 실제 수치·금액 포함]\n══════════════════════════════════════════\n"
-        + titles + "\n규칙: 제목에 구체적 수치/금액/조건 포함. 35자 이내.\n"
+        + titles + "\n규칙: 제목에 구체적 수치/금액/조건 포함. 35자 이내. "
+        "★제목·본문 날짜는 반드시 2026년(또는 팩트에 명시된 최신 연도) 기준 — 2024·2025년 구식 연도 금지.\n"
         "\n══════════════════════════════════════════\n[글 구조 — 모바일 스캔형. 이 순서 그대로]\n══════════════════════════════════════════\n"
         "\n[사진1]\n(도입부 정확히 2줄. 첫 줄: 핵심 결론·수치·이 글에서 얻어갈 것 즉시 공개. "
         "둘째 줄: 독자가 공감할 짧은 1인칭 경험. \"안녕하세요\" 절대 금지. 3줄 이상 쓰지 마라.)\n"
@@ -210,6 +212,13 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             parsed = _parse_response(raw)
             if not parsed:
                 logger.warning(f"{cfg['name']}글 파싱 실패 (시도 {attempt})")
+                continue
+            parsed["title"] = strip_title_emphasis_markers(parsed.get("title", ""))
+            date_critical = validate_info_dates(parsed.get("title", ""), parsed.get("body", ""))
+            if date_critical:
+                logger.warning(
+                    f"{cfg['name']}글 날짜 오류 — 재생성: {'; '.join(date_critical[:2])}"
+                )
                 continue
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
             # 표/FAQ/요약 추출 후 prose 기준. 1,800자 목표 글이면 prose ~1,000자+ 정상.

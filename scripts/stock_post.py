@@ -122,11 +122,29 @@ def _save_history(history: list):
 
 
 def _already_posted_today(history: list) -> bool:
+    """같은 날·같은 소분류(stock_topic) 1회만 — posted/pending 모두 차단(ETF 4중복 방지)."""
     today = datetime.now(KST).strftime("%Y-%m-%d")
     for h in history:
-        if h.get("date") == today and h.get("status") == "posted":
+        if h.get("date") == today and h.get("status") in ("posted", "pending"):
             return True
     return False
+
+
+def _reserve_today_slot(history: list, stock_topic: str, topic_name: str) -> list:
+    """동시 실행·연속 재시도 시 중복 발행 방지 — pending 선기록."""
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    history = [h for h in history if not (h.get("date") == today and h.get("status") == "pending")]
+    history.insert(
+        0,
+        {
+            "date": today,
+            "timestamp": datetime.now(KST).isoformat(),
+            "stock_topic": stock_topic,
+            "topic_name": topic_name,
+            "status": "pending",
+        },
+    )
+    return history
 
 
 def _is_real_post_url(url: str | None) -> bool:
@@ -174,6 +192,11 @@ def run():
     if _already_posted_today(history) and not force and not draft and not dry_run:
         logger.info(f"오늘 이미 [{topic_name}] 포스팅 완료 — 건너뜀")
         return
+
+    if not force and not draft and not dry_run:
+        history = _reserve_today_slot(history, STOCK_TOPIC, topic_name)
+        _save_history(history)
+        logger.info(f"[{topic_name}] 오늘 슬롯 pending 선점 — 중복 실행 방지")
 
     from generator.stock_collector import StockDataCollector
 
@@ -373,6 +396,8 @@ def run():
     }
 
     history = _load_history()
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    history = [h for h in history if not (h.get("date") == today and h.get("status") == "pending")]
     history.insert(0, entry)
     _save_history(history[:300])
 

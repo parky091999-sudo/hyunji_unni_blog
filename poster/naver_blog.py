@@ -22,6 +22,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+from generator.quality import sanitize_anchor_text, strip_body_emphasis_markers, strip_title_emphasis_markers
+
 logger = logging.getLogger(__name__)
 
 ROOT        = os.path.dirname(os.path.dirname(__file__))
@@ -340,7 +342,7 @@ async def _close_help_panel(page: Page):
 async def _fill_title(page: Page, title: str):
     """제목 입력 — 메인 페이지와 iframe 모두 탐색. 입력 후 Tab으로 본문 포커스 이동"""
     # [[...]] 강조 마커가 제목에 들어오면 텍스트로 노출되므로 제거
-    title = re.sub(r"\[\[(.+?)\]\]", r"\1", title)
+    title = strip_title_emphasis_markers(title)
     target = await _get_editor_frame(page)
 
     title_sels = [
@@ -900,7 +902,7 @@ def _preceding_text_at(body: str, pos: int) -> str:
     """body의 pos 위치 바로 이전 비어있지 않은 단락/라인 텍스트를 반환(마커 제거)."""
     preceding_part = re.sub(r"\[사진\d+\]|\[표삽입\]|\[FAQ삽입\]|\[요약삽입\]|\[구분선\]", "", body[:pos])
     lines = [ln.strip() for ln in preceding_part.split("\n") if ln.strip()]
-    return lines[-1] if lines else ""
+    return sanitize_anchor_text(lines[-1] if lines else "")
 
 
 def _get_preceding_text(body: str, marker_str: str) -> str:
@@ -988,6 +990,9 @@ def _parse_table_rows(table_str: str) -> list[list[str]]:
     return rows
 
 
+_CHART_ANCHOR_PHRASES = ("차트로 살펴", "가격 흐름", "가격 추이", "차트를", "6개월")
+
+
 async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
     """
     에디터 본문에서 anchor_text와 일치하거나 포함하는 단락을 찾아 그 끝으로 커서를 이동합니다.
@@ -1003,7 +1008,7 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
     target = await _get_editor_frame(page)
     try:
-        clean_anchor = anchor_text.strip()
+        clean_anchor = sanitize_anchor_text(anchor_text)
 
         # 1차: 일반 텍스트 단락 검색
         # 2차: quotation 블록 포함 확장 검색 (소제목이 스타일 적용 후 quotation 블록이 되는 경우 대비)
@@ -1023,7 +1028,7 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                 continue
             for i in range(cnt):
                 try:
-                    p_text = (await paras.nth(i).inner_text()).strip()
+                    p_text = sanitize_anchor_text(await paras.nth(i).inner_text())
                     if not p_text:
                         continue
                     if p_text == clean_anchor:
@@ -1063,16 +1068,32 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
             return True
 
         logger.warning(f"앵커 텍스트 매칭 단락을 찾지 못함: {clean_anchor[:40]}")
-        await page.keyboard.press("Control+End")
-        await _delay(150, 300)
         return False
     except Exception as e:
         logger.warning(f"텍스트 기반 커서 이동 중 예외 발생: {e}")
+        return False
+
+
+async def _move_cursor_for_image(page: Page, anchor_text: str, img_idx: int) -> bool:
+    """[사진N] 앵커로 커서 이동. [사진2] 차트 등 실패 시 키워드·문서 끝 폴백."""
+    clean = sanitize_anchor_text(anchor_text)
+    if clean and await _move_cursor_after_text(page, clean):
+        return True
+    if img_idx >= 1:
+        for phrase in _CHART_ANCHOR_PHRASES:
+            if await _move_cursor_after_text(page, phrase):
+                logger.info(f"이미지 {img_idx + 1}번 차트 앵커 폴백: {phrase}")
+                return True
         try:
             await page.keyboard.press("Control+End")
+            await _delay(150, 300)
+            logger.warning(f"이미지 {img_idx + 1}번 앵커 매칭 실패 — 문서 끝 폴백")
+            return True
         except Exception:
             pass
-        return False
+    if not clean:
+        return await _move_cursor_after_text(page, "")
+    return False
 
 
 def _load_card_font(size: int):
@@ -3071,6 +3092,9 @@ async def _post(
 
         await _screenshot(write_page, "editor_ready2")
 
+        title = strip_title_emphasis_markers(title)
+        body = strip_body_emphasis_markers(body)
+
         # 제목 입력
         logger.info(f"제목 입력 시작: {title[:40]}")
         await _fill_title(write_page, title)
@@ -3215,7 +3239,7 @@ async def _post(
                     logger.warning(f"이미지 {img_idx+1}번 다운로드 실패 — 건너뜀")
                     continue
                 # anchor에서 [가운데] 접두사 제거 (에디터 실제 텍스트와 매칭)
-                clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
+                clean_anchor = sanitize_anchor_text(anchor_text)
                 # 헤더카드/최상단 이미지(첫 이미지+로컬 생성 + 빈 앵커)는 빈앵커→문서끝(Control+End)이 아니라
                 # 문서 맨 위(Control+Home)에 삽입해야 한다(gov/health 브랜드 헤더카드가 글 맨 아래로 가던 버그).
                 is_header_top = img_idx == 0 and bool(images[img_idx].get("local_path")) and not clean_anchor.strip()
@@ -3235,7 +3259,7 @@ async def _post(
                         except Exception as _e:
                             logger.warning(f"헤더 이미지용 표 탈출 클릭 실패(계속): {_e}")
                 else:
-                    await _move_cursor_after_text(write_page, clean_anchor)
+                    await _move_cursor_for_image(write_page, anchor_text, img_idx)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
                 if await _caret_in_table(write_page):
                     logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
@@ -3258,8 +3282,7 @@ async def _post(
                         await write_page.keyboard.press("Control+Home")
                         await _delay(150, 300)
                     else:
-                        clean_anchor = re.sub(r"^\[가운데\]\s*", "", anchor_text)
-                        await _move_cursor_after_text(write_page, clean_anchor)
+                        await _move_cursor_for_image(write_page, anchor_text, img_idx)
                     await write_page.keyboard.press("Enter")
                     await _delay(200, 400)
                     ok = await _insert_image_file(
