@@ -378,6 +378,9 @@ def _parse_response(raw: str) -> dict | None:
             # 마크다운/기호 제거 (Gemini 후처리)
             body = re.sub(r"\*\*(.+?)\*\*", r"\1", body)
             body = re.sub(r"__(.+?)__", r"\1", body)
+            # 여러 줄에 걸친 볼드(**\n…\n**)는 위 단일행 정규식이 못 지워 '**'만 남은 줄이 생김.
+            # 리터럴 노출 + 표/요약 앵커 오염(→ 헤더 이미지 삽입 실패, 2026-07-04 실라이브)이라 별표만 있는 줄 제거.
+            body = re.sub(r"^\s*\*+\s*$\n?", "", body, flags=re.MULTILINE)
             body = re.sub(r"^[*\-•]\s+", "", body, flags=re.MULTILINE)
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)

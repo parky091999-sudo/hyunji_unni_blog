@@ -3222,6 +3222,18 @@ async def _post(
                 if is_header_top:
                     await write_page.keyboard.press("Control+Home")
                     await _delay(150, 300)
+                    # 직전 작업(요약/표)으로 커서가 표 셀 안이면 Ctrl+Home이 셀 내부에서만 이동해
+                    # 표를 못 벗어남 → 첫 일반 텍스트 단락을 직접 클릭해 탈출(2026-07-04 헤더카드 유실 원인).
+                    if await _caret_in_table(write_page):
+                        try:
+                            _tf = await _get_editor_frame(write_page)
+                            _first_para = _tf.locator(".se-section-text .se-text-paragraph").first
+                            if await _first_para.count():
+                                await _first_para.click()
+                                await write_page.keyboard.press("Home")
+                                await _delay(150, 300)
+                        except Exception as _e:
+                            logger.warning(f"헤더 이미지용 표 탈출 클릭 실패(계속): {_e}")
                 else:
                     await _move_cursor_after_text(write_page, clean_anchor)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
