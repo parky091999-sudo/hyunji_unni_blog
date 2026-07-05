@@ -61,7 +61,8 @@ def _base_time_line() -> str:
 def _strip_internal_fields(obj):
     """"_"로 시작하는 내부용 키(차트 티커, datetime 등)를 모든 중첩 depth에서 제거."""
     if isinstance(obj, dict):
-        return {k: _strip_internal_fields(v) for k, v in obj.items() if not k.startswith("_")}
+        # 키가 int인 dict(연도별 데이터 등)도 안전하게 처리
+        return {k: _strip_internal_fields(v) for k, v in obj.items() if not (isinstance(k, str) and k.startswith("_"))}
     if isinstance(obj, list):
         return [_strip_internal_fields(v) for v in obj]
     return obj
@@ -115,8 +116,26 @@ _OUTPUT_FORMAT = (
 )
 
 
-def _struct_etf_individual(cfg: dict, market_label: str) -> str:
-    """ETF 1개를 깊게 파는 글 (국내/미국/국내상장 해외 공용, market_label만 다름)."""
+def _struct_etf_individual(cfg: dict, market_label: str, has_dividend: bool = False) -> str:
+    """ETF 1개를 깊게 파는 글 (국내/미국/국내상장 해외 공용, market_label만 다름).
+    has_dividend: 배당 이력·백테스트 팩트가 있으면 배당 성과 섹션+차트 2장([사진3]·[사진4]) 추가."""
+    dividend_block = (
+        "\n[소제목] 배당으로 보는 진짜 성과\n"
+        "(★배당 ETF의 핵심 섹션 — 주가 그래프만으로는 총수익이 누락된다는 걸 보여주는 파트. "
+        "팩트 데이터의 '연도별배당(주당USD)'·'배당연속증가(년)'·'배당성장률...'·'배당수익률(직근12개월, %)' "
+        "수치로 ①배당이 몇 년째 늘었고 ②직전 연도 주당 배당이 얼마였는지 짚어라. 2~3문장.)\n"
+        "\n[사진3]\n"
+        "(★위 [사진3]은 연도별 주당 배당금 막대 차트다. 바로 다음 문장에서 차트를 한 줄로 해석하라.)\n"
+        "\n(이어서 '백테스트(배당재투자, 마지막거래일 기준)' 수치로 배당 재투자 효과를 설명하라 — "
+        "예: 10년 주가만 +N% vs 배당 재투자 시 +M%. "
+        "'1천만원투자시_배당재투자(만원)'·'1천만원투자시_주가만(만원)' 값을 그대로 인용해 "
+        "'10년 전 1천만원이 배당 재투자 시 약 X만원, 주가만으론 약 Y만원'처럼 체감형으로 비교하라 "
+        "— ★환산 계산을 직접 하지 말고 반드시 데이터의 값을 그대로 써라. "
+        "★'과거 성과는 미래 수익을 보장하지 않는다'를 이 섹션 안에 반드시 명시. 불릿 2~3줄.)\n"
+        "\n[사진4]\n"
+        "(★위 [사진4]는 배당 재투자 포함 총수익 vs 주가만 비교 차트다. "
+        "바로 다음 문장에서 두 곡선의 격차가 의미하는 바를 한 줄로 짚어라.)\n"
+    ) if has_dividend else ""
     return (
         "\n★★★ 본문(---다음)의 맨 첫 줄은 반드시 '[사진1]' 단독 한 줄이어야 한다. "
         "절대 다른 문장·제목으로 본문을 시작하지 마라. 이 규칙을 어기면 전체 재작성이다.\n"
@@ -133,7 +152,8 @@ def _struct_etf_individual(cfg: dict, market_label: str) -> str:
         "(1~2문장 해석 후 표. 팩트 데이터에 '있는 키만' '항목 | 수치 | 한줄 해석' 3열로 채워라 — "
         "현재가·전일대비등락률·시가총액·최근NAV·괴리율·펀드보수·1개월/3개월/6개월/1년수익률 등 있는 것만. "
         "한줄 해석은 10자 이내(예: '순자산가치보다 약간 비싸게 거래', '최근 1년 우상향'). "
-        "ETF명·기초지수·운용사·상장일·구성종목·선정사유는 표에 넣지 마라(다른 섹션에서 다룸). "
+        "ETF명·기초지수·운용사·상장일·구성종목·선정사유·구성종목TOP10·섹터구성·연도별배당·백테스트는 "
+        "표에 넣지 마라(전부 다른 섹션에서 다룸). "
         "없는 지표는 행 자체를 만들지 마라. 셀 내 문장 금지 — 핵심 단어·숫자만)\n"
         "[표시작]\n항목 | 수치 | 한줄 해석\n(팩트 데이터에 있는 지표만, 3열 유지)\n[표끝]\n"
         "\n이 ETF의 최근 실제 가격 흐름을 차트로 살펴보면 다음과 같습니다.\n"
@@ -142,9 +162,13 @@ def _struct_etf_individual(cfg: dict, market_label: str) -> str:
         "바로 다음 문장에서 차트를 짧게 언급하며 최근 추세가 상승·하락·횡보 중 어디에 가까운지 "
         "표에 있는 수익률 수치로만 근거를 들어 한 줄로 짚어라.)\n"
         "\n[소제목] 이 ETF는 실제로 뭘 담고 있나\n"
-        "(팩트 데이터의 '기초지수'·'유형'·'구성종목상위'(있으면 실제 종목명·비중을 그대로 인용)로 "
-        "이 상품의 정체를 쉽게 설명하라. 기초지수·복제방식처럼 낯설 수 있는 용어는 "
-        "처음 등장하는 순간 괄호로 쉬운 뜻을 붙여라. 구성종목 데이터가 없으면 기초지수·유형만으로 설명. 불릿 3~4줄.)\n"
+        "(★'우량 기업 100개' 같은 추상 설명 금지 — 실체를 보여줘라. "
+        "팩트 데이터의 '구성종목TOP10'(실제 종목명·비중)·'섹터구성(%)'·'구성종목상위'가 있으면 "
+        "상위 종목들을 비중과 함께 실명으로 소개하고, 이 기업들의 공통 성향(배당 연속 지급·현금창출력·"
+        "경기방어 등)을 묶어서 해석하라. 최대 섹터 비중으로 쏠림 여부도 짚어라. "
+        "'기초지수'·'유형' 설명 포함, 낯선 용어는 괄호로 쉬운 뜻. "
+        "'구성데이터출처' 문구가 있으면 '야후파이낸스 집계 기준' 정도로 짧게 언급. "
+        "구성 데이터가 전혀 없으면 기초지수·유형만으로 설명. 불릿 4~5줄.)\n"
         "\n[소제목] 비용과 괴리율, 왜 봐야 하나\n"
         "(쉬운 해석: ①펀드보수(운용사가 매년 미리 떼가는 비용)는 작아 보여도 오래 투자할수록 차이가 쌓인다는 점 "
         "②괴리율(시장가격이 순자산가치·NAV보다 비싸거나 싼 정도)이 크면 사려는 가격이 실제 가치보다 "
@@ -153,7 +177,15 @@ def _struct_etf_individual(cfg: dict, market_label: str) -> str:
         "\n[소제목] 최근 성과로 보면\n"
         "(팩트 데이터의 1개월·3개월·6개월·1년수익률 수치로 실제 흐름을 해석하라. "
         "레버리지·인버스 성격이면 복리감소 위험을 짧게 언급. "
-        "'과거 성과가 미래 수익을 보장하지 않는다'는 점도 명시. 데이터에 없는 기간은 언급하지 마라. 불릿 3줄.)\n"
+        "'과거 성과가 미래 수익을 보장하지 않는다'는 점도 명시. 데이터에 없는 기간은 언급하지 마라. "
+        "★같은 수익률 수치를 다른 섹션에서 이미 썼으면 여기선 반복하지 말고 해석만 더하라. 불릿 3줄.)\n"
+        + dividend_block +
+        "\n[소제목] 이 ETF, 어떤 투자자에게 맞나\n"
+        "(팩트 데이터의 '성격'·'포지션'·배당수익률·6개월최대낙폭·수익률을 근거로 "
+        "①어울리는 투자자 유형(예: 월급 외 현금흐름이 목표인 사람, 은퇴 준비 장기 적립, 변동성이 부담스러운 초보) "
+        "②맞지 않는 투자자 유형(예: 단기 시세차익 추구, 공격적 성장 선호) "
+        "③포트폴리오에서의 역할(중심을 잡는 코어인지, 곁들이는 위성인지)을 제시하라. "
+        "'이런 사람은 사라'는 단정이 아니라 '이런 성향이면 이렇게 판단한다'는 기준 제공. 불릿 3~4줄.)\n"
         "\n[소제목] 투자 전 실전 체크포인트\n"
         f"(이 ETF·{market_label} 상품 특유의 이슈에 맞춰 구체적으로 써라 — 뻔한 나열 금지. "
         "예: 해외 상품이면 환율·배당(분배금) 세금 이슈, 테마형이면 기초지수 변경·쏠림 리스크, "
@@ -300,7 +332,19 @@ def _struct_ipo(cfg: dict) -> str:
     )
 
 
-def _struct_single_stock(cfg: dict) -> str:
+def _financials_photo_block(has_financials: bool) -> str:
+    """[사진3] 연간 실적 추이 차트 블록 — '연간실적' 팩트가 있을 때만 구조에 포함."""
+    if not has_financials:
+        return ""
+    return (
+        "\n[사진3]\n"
+        "(★위 [사진3]은 이 종목의 연간 매출·영업이익 추이 차트다. "
+        "팩트 데이터의 '연간실적' 수치만 근거로 실적이 성장·정체·역성장 중 어디에 가까운지 "
+        "바로 다음 문장에서 한 줄로 짚어라.)\n"
+    )
+
+
+def _struct_single_stock(cfg: dict, has_financials: bool = False) -> str:
     return (
         "\n★★★ 본문(---다음)의 맨 첫 줄은 반드시 '[사진1]' 단독 한 줄이어야 한다. "
         "절대 다른 문장·제목으로 본문을 시작하지 마라. 이 규칙을 어기면 전체 재작성이다.\n"
@@ -325,6 +369,7 @@ def _struct_single_stock(cfg: dict) -> str:
         "(★위 [사진2]는 이 종목의 최근 6개월 가격 추이 차트(20일 이동평균선 포함)다. "
         "바로 다음 문장에서 차트를 짧게 언급하며 최근 추세가 상승·하락·횡보 중 어디에 가까운지 "
         "표에 있는 등락률·52주최고/최저 수치로만 근거를 들어 한 줄로 짚어라.)\n"
+        + _financials_photo_block(has_financials) +
         "\n[소제목] 왜 지금 이 종목이 화제인가\n"
         "(★핵심 섹션 — '공시·뉴스로 확인하세요' 같은 무성의한 회피 금지. "
         "팩트 데이터에 '최근뉴스'(제목 리스트)가 있으면 그 실제 헤드라인들을 근거로 무슨 이슈인지 구체적으로 설명하고, "
@@ -371,7 +416,7 @@ def _struct_single_stock(cfg: dict) -> str:
     )
 
 
-def _struct_single_stock_weekend(cfg: dict) -> str:
+def _struct_single_stock_weekend(cfg: dict, has_financials: bool = False) -> str:
     """주말판 종목분석 — 당일 시황이 없으므로 '이번 주 리뷰 + 주말 이슈 + 월요일 관전포인트' 구조.
     (2026-07-05 지시: 종목분석은 주말에도 발행 — 최근 동향·주말 이슈 기업·월요일 흐름 예상)"""
     return (
@@ -396,6 +441,7 @@ def _struct_single_stock_weekend(cfg: dict) -> str:
         "\n[사진2]\n"
         "(★위 [사진2]는 이 종목의 최근 6개월 가격 추이 차트다. 바로 다음 문장에서 차트 추세를 "
         "표의 수치로만 근거를 들어 한 줄로 짚어라.)\n"
+        + _financials_photo_block(has_financials) +
         "\n[소제목] 이번 주 왜 화제였나\n"
         "(★핵심 섹션. 팩트 데이터의 '최근뉴스' 헤드라인들을 근거로 이번 주 이 종목을 움직인 "
         "재료·이슈를 구체적으로 설명. 뉴스가 없으면 등락률·거래량 등 있는 팩트로 화제성을 설명하고 "
@@ -442,19 +488,21 @@ _ETF_MARKET_LABEL = {
     "kr_overseas_individual": "국내상장 해외",
 }
 _ETF_CHECKLIST = {
-    "kr_individual": "- 소제목 6개(숫자표/구성내역/비용괴리율/최근성과/체크포인트/FAQ)\n",
-    "us_individual": "- 소제목 6개(숫자표/구성내역/비용괴리율/최근성과/체크포인트/FAQ)\n",
-    "kr_overseas_individual": "- 소제목 6개(숫자표/구성내역/비용괴리율/최근성과/체크포인트/FAQ)\n",
+    "kr_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
+    "us_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
+    "kr_overseas_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
     "sector_compare_kr": "- 소제목 7개(지표/차이/성과차트해석/비용배당/조합예시/체크포인트/FAQ)\n",
     "sector_compare_us": "- 소제목 7개(지표/차이/성과차트해석/비용배당/조합예시/체크포인트/FAQ)\n",
     "tax_account": "- 소제목 6개(제도설명/이유/추천성격/주의사항/세금차이/FAQ)\n",
 }
+# 배당 이력 팩트가 있는 개별분석은 '배당으로 보는 진짜 성과' 섹션이 추가돼 소제목 8개
+_ETF_CHECKLIST_DIVIDEND = "- 소제목 8개(숫자표/구성내역/비용괴리율/최근성과/배당성과/투자자적합/체크포인트/FAQ)\n"
 
 
-def _etf_struct_fn(etf_content_type: str):
+def _etf_struct_fn(etf_content_type: str, has_dividend: bool = False):
     if etf_content_type in _ETF_MARKET_LABEL:
         market_label = _ETF_MARKET_LABEL[etf_content_type]
-        return lambda cfg: _struct_etf_individual(cfg, market_label)
+        return lambda cfg: _struct_etf_individual(cfg, market_label, has_dividend)
     if etf_content_type == "sector_compare_kr":
         return lambda cfg: _struct_etf_sector_compare(cfg, "국내")
     if etf_content_type == "sector_compare_us":
@@ -465,27 +513,43 @@ def _etf_struct_fn(etf_content_type: str):
     return lambda cfg: _struct_etf_sector_compare(cfg, "미국")
 
 
-def _build_stock_system(topic_id: str, cfg: dict, etf_content_type: str | None = None) -> str:
+def _build_stock_system(
+    topic_id: str, cfg: dict, etf_content_type: str | None = None, fact_data: dict | None = None
+) -> str:
+    fact = fact_data if isinstance(fact_data, dict) else {}
+    # 심층 팩트 유무에 따라 구조(섹션·이미지 슬롯)가 달라진다 — 차트는 stock_post가 같은 조건으로 생성
+    has_dividend = bool(fact.get("연도별배당(주당USD)"))
+    has_financials = any(k.startswith("연간실적") for k in fact)
+
+    n_imgs = 1
     if topic_id == "etf포트폴리오":
         etf_content_type = etf_content_type or "sector_compare_us"
-        struct_fn = _etf_struct_fn(etf_content_type)
-        checklist = _ETF_CHECKLIST.get(etf_content_type, "- [소제목] 6개\n")
-        multi_image = etf_content_type != "tax_account"
-    elif topic_id == "종목분석" and _is_weekend():
-        # 주말엔 당일 시황이 없으므로 주간 리뷰+월요일 관전포인트 구조로 전환
-        struct_fn = _struct_single_stock_weekend
-        checklist = _CHECKLIST_WEEKEND_STOCK
-        multi_image = True
+        struct_fn = _etf_struct_fn(etf_content_type, has_dividend)
+        if has_dividend and etf_content_type in _ETF_MARKET_LABEL:
+            checklist = _ETF_CHECKLIST_DIVIDEND
+            n_imgs = 4
+        else:
+            checklist = _ETF_CHECKLIST.get(etf_content_type, "- [소제목] 6개\n")
+            n_imgs = 2 if etf_content_type != "tax_account" else 1
+    elif topic_id == "종목분석":
+        if _is_weekend():
+            # 주말엔 당일 시황이 없으므로 주간 리뷰+월요일 관전포인트 구조로 전환
+            struct_fn = lambda c: _struct_single_stock_weekend(c, has_financials)
+            checklist = _CHECKLIST_WEEKEND_STOCK
+        else:
+            struct_fn = lambda c: _struct_single_stock(c, has_financials)
+            checklist = _CHECKLIST["종목분석"]
+        n_imgs = 3 if has_financials else 2
     else:
         struct_fn = _STRUCT_BUILDERS.get(topic_id, _struct_ipo)
         checklist = _CHECKLIST.get(topic_id, "- [소제목] 6개\n")
-        multi_image = topic_id in _MULTI_IMAGE_TOPICS
+        n_imgs = 2 if topic_id in _MULTI_IMAGE_TOPICS else 1
 
-    photo_rule = (
-        "- [사진1], [사진2] 정확히 1개씩(각 위치는 구조대로). [사진3]+ 금지\n"
-        if multi_image
-        else "- [사진1] 1개만. [사진2]+ 금지\n"
-    )
+    if n_imgs == 1:
+        photo_rule = "- [사진1] 1개만. [사진2]+ 금지\n"
+    else:
+        slots = ", ".join(f"[사진{i}]" for i in range(1, n_imgs + 1))
+        photo_rule = f"- {slots} 정확히 1개씩(각 위치는 구조대로). [사진{n_imgs + 1}]+ 금지\n"
     return (
         _COMMON_RULES
         + "\n" + _base_time_line() + "\n"
@@ -510,7 +574,7 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
         return None
 
     etf_content_type = fact_data.get("_etf_content_type") if isinstance(fact_data, dict) else None
-    system = _build_stock_system(topic_id, cfg, etf_content_type)
+    system = _build_stock_system(topic_id, cfg, etf_content_type, fact_data if isinstance(fact_data, dict) else None)
     # "_"로 시작하는 내부용 필드(예: 차트 생성용 종목코드·콘텐츠타입·datetime)는 LLM 프롬프트에서 제외.
     # 중첩 dict(예: ETF 비교 데이터의 개별 종목 상세) 안에도 내부 필드가 있을 수 있어 재귀 처리.
     llm_fact_data = _strip_internal_fields(fact_data)

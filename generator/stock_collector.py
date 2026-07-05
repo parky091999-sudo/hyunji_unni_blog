@@ -337,6 +337,30 @@ class StockDataCollector:
         return results
 
     @staticmethod
+    def get_financial_trend(yf_ticker: str, is_krw: bool = False) -> dict:
+        """연간 매출·영업이익 추이 (yfinance income_stmt, 최근 4개 회계연도).
+        차트(generate_financials_chart)와 같은 소스 — 본문 수치와 차트 불일치 방지.
+        실패 시 빈 dict (하드 실패 없음)."""
+        out: dict = {}
+        try:
+            df = yf.Ticker(yf_ticker).income_stmt
+            if df is None or df.empty:
+                return out
+            unit_div, unit_label = (1e12, "조원") if is_krw else (1e9, "십억달러")
+            trend: dict = {}
+            for key, name in (("Total Revenue", "매출"), ("Operating Income", "영업이익")):
+                if key not in df.index:
+                    continue
+                s = df.loc[key].dropna().sort_index()
+                if len(s):
+                    trend[name] = {str(ts.year): round(float(v) / unit_div, 1) for ts, v in s.items()}
+            if trend.get("매출"):
+                out[f"연간실적({unit_label})"] = trend
+        except Exception as e:
+            logger.warning(f"{yf_ticker} 재무 추이 수집 실패(무시): {e}")
+        return out
+
+    @staticmethod
     def get_search_news(queries: list[str], display: int = 4, max_total: int = 6) -> list[dict]:
         """Naver 뉴스 검색 API로 종목·ETF 최신 이슈 헤드라인 수집(제목 중복 제거).
         NAVER_CLIENT_ID/SECRET 없으면 빈 리스트 — 하드 실패 없음.

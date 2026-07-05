@@ -236,6 +236,26 @@ def run():
             except Exception as e:
                 logger.warning(f"뉴스 검색 보강 실패(무시): {e}")
 
+    # ── 종목분석: 연간 매출·영업이익 추이 보강 (본문 인용 + [사진3] 재무 차트와 동일 소스) ──
+    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict):
+        fin_tickers: list[tuple[str, bool]] = []
+        if fact_data.get("시장") == "미국" and fact_data.get("티커"):
+            fin_tickers = [(fact_data["티커"], False)]
+        elif fact_data.get("_code"):
+            fin_tickers = [(f"{fact_data['_code']}.KS", True), (f"{fact_data['_code']}.KQ", True)]
+        for yft, is_krw in fin_tickers:
+            try:
+                fin = StockDataCollector.get_financial_trend(yft, is_krw=is_krw)
+            except Exception as e:
+                logger.warning(f"재무 추이 보강 실패(무시): {e}")
+                fin = {}
+            if fin:
+                fact_data.update(fin)
+                fact_data["_fin_ticker"] = yft
+                fact_data["_fin_is_krw"] = is_krw
+                logger.info(f"재무 추이 보강: {yft}")
+                break
+
     from generator.stock_content import generate_stock_post
 
     post = generate_stock_post(STOCK_TOPIC, fact_data, GOOGLE_API_KEY)
@@ -310,6 +330,34 @@ def run():
                     "label": title or "차트",
                 })
                 logger.info(f"ETF 차트 생성: {chart_path}")
+
+            # ── 배당 심층 차트 2장 ([사진3] 배당성장, [사진4] 재투자 비교) ──
+            # ★가격차트([사진2])가 성공했을 때만 — 실패 시 이미지 인덱스가 밀려
+            #   배당 차트가 [사진2] 자리(가격차트 해석 문장)에 들어가는 캡션 불일치 방지.
+            # [사진3]은 배당차트 성공이 전제이므로 배당차트 실패 시 재투자 차트도 생략.
+            if chart_path and chart_mode == "single" and tickers and fact_data.get("연도별배당(주당USD)"):
+                from generator.stock_chart import (
+                    generate_dividend_history_chart,
+                    generate_total_return_chart,
+                )
+
+                div_label = labels.get(tickers[0], tickers[0])
+                div_path = generate_dividend_history_chart(tickers[0], label=div_label)
+                if div_path:
+                    images.append({
+                        "local_path": div_path, "url": "",
+                        "alt_text": f"{div_label} 연도별 주당 배당금 추이",
+                        "label": "연도별 주당 배당금",
+                    })
+                    logger.info(f"배당 이력 차트 생성: {div_path}")
+                    tr_path = generate_total_return_chart(tickers[0], label=div_label)
+                    if tr_path:
+                        images.append({
+                            "local_path": tr_path, "url": "",
+                            "alt_text": f"{div_label} 배당 재투자 총수익 vs 주가 비교",
+                            "label": "배당 재투자 vs 주가",
+                        })
+                        logger.info(f"총수익 비교 차트 생성: {tr_path}")
         except Exception as e:
             logger.warning(f"ETF 차트 생성 실패 (무시): {e}")
 
@@ -334,6 +382,22 @@ def run():
                     "label": f"{stock_name} 가격 추이",
                 })
                 logger.info(f"종목 가격 차트 생성: {chart_path}")
+
+            # ── [사진3] 연간 실적 추이 차트 — 가격차트 성공 + 재무 팩트 존재 시에만(인덱스 밀림 방지) ──
+            if chart_path and fact_data.get("_fin_ticker"):
+                from generator.stock_chart import generate_financials_chart
+
+                fin_path = generate_financials_chart(
+                    fact_data["_fin_ticker"], label=stock_name,
+                    is_krw=bool(fact_data.get("_fin_is_krw")),
+                )
+                if fin_path:
+                    images.append({
+                        "local_path": fin_path, "url": "",
+                        "alt_text": f"{stock_name} 연간 매출·영업이익 추이 차트",
+                        "label": f"{stock_name} 연간 실적 추이",
+                    })
+                    logger.info(f"재무 추이 차트 생성: {fin_path}")
         except Exception as e:
             logger.warning(f"종목 가격 차트 생성 실패 (무시): {e}")
 

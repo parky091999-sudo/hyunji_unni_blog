@@ -26,6 +26,14 @@ _KR_TAB_LABEL = {
 # 레버리지·인버스는 변동성이 커서 '정보성' 개별분석/절세계좌 소재로 부적절 — 기본 제외
 _RISK_EXCLUDE_KEYWORDS = ["레버리지", "인버스", "곱버스"]
 
+# yfinance 섹터 키 → 한글 (구성 섹터 비중 표기용)
+_SECTOR_KO = {
+    "technology": "기술", "financial_services": "금융", "healthcare": "헬스케어",
+    "consumer_defensive": "필수소비재", "consumer_cyclical": "임의소비재",
+    "industrials": "산업재", "energy": "에너지", "communication_services": "커뮤니케이션",
+    "utilities": "유틸리티", "realestate": "부동산", "basic_materials": "소재",
+}
+
 # 국내 섹터·테마 비교군 (실제 KRX 코드, 2026-07 시가총액 상위 검증됨)
 KR_SECTOR_GROUPS: dict[str, list[str]] = {
     "반도체": ["396500", "091160", "395270"],
@@ -359,6 +367,108 @@ class EtfDataCollector:
                 logger.warning(f"{ticker} 데이터 수집 실패: {e}")
         return etf_data
 
+    # ── 미국 ETF 심층 데이터 (구성종목·배당·백테스트, 전부 실데이터) ──
+    @staticmethod
+    def get_us_etf_enrichment(ticker: str) -> dict:
+        """us_individual 심층분석용 추가 팩트: 구성종목 TOP10·섹터구성·연도별 배당·
+        배당재투자 백테스트. 항목별 개별 실패 허용 — 수집된 것만 담아 반환.
+        (2026-07-05 지시: 실제 top10 종목·비중, 배당 이력·재투자 성과, 10년+ 백테스트 반영)"""
+        out: dict = {}
+        try:
+            stock = yf.Ticker(ticker)
+        except Exception as e:
+            logger.warning(f"{ticker} enrichment 초기화 실패: {e}")
+            return out
+
+        # ① 구성종목 TOP10 + 섹터 구성 (야후 집계 — 운용사 공시와 시차 가능)
+        try:
+            fd = stock.funds_data
+            th = fd.top_holdings
+            if th is not None and len(th):
+                out["구성종목TOP10"] = [
+                    {"종목": str(r["Name"]), "티커": str(idx), "비중(%)": round(float(r["Holding Percent"]) * 100, 2)}
+                    for idx, r in th.iterrows()
+                ]
+            sw = fd.sector_weightings or {}
+            sectors = {_SECTOR_KO.get(k, k): round(v * 100, 1) for k, v in sw.items() if v and v >= 0.005}
+            if sectors:
+                out["섹터구성(%)"] = dict(sorted(sectors.items(), key=lambda x: -x[1]))
+            if out:
+                out["구성데이터출처"] = "야후파이낸스 집계 기준 — 운용사 공시와 시차가 있을 수 있음"
+        except Exception as e:
+            logger.warning(f"{ticker} 구성종목 수집 실패(무시): {e}")
+
+        # ② 연도별 배당 이력 (완결 연도만 — 진행 중인 올해는 합계가 부분값이라 왜곡됨)
+        try:
+            div = stock.dividends
+            if div is not None and len(div) >= 8:
+                yearly = div.groupby(div.index.year).sum()
+                cur_year = datetime.now(KST).year
+                full_years = {int(y): round(float(v), 4) for y, v in yearly.items() if int(y) < cur_year}
+                if len(full_years) >= 3:
+                    ys = sorted(full_years)[-10:]
+                    # 키는 반드시 str — int 키는 _strip_internal_fields(k.startswith)에서 크래시
+                    out["연도별배당(주당USD)"] = {str(y): full_years[y] for y in ys}
+                    streak = 0
+                    for prev_y, next_y in zip(ys[-2::-1], ys[::-1]):
+                        if full_years[next_y] > full_years[prev_y]:
+                            streak += 1
+                        else:
+                            break
+                    if streak >= 2:
+                        out["배당연속증가(년)"] = streak
+                    first, last = ys[0], ys[-1]
+                    if full_years[first] > 0 and last > first:
+                        cagr = ((full_years[last] / full_years[first]) ** (1 / (last - first)) - 1) * 100
+                        out[f"배당성장률({first}→{last} 연평균, %)"] = round(cagr, 1)
+                # 직근 12개월 배당수익률 자체 계산 (yfinance yield 필드가 0/None인 경우 대비)
+                # ★윈도우 350일: 366일로 잡으면 정확히 12개월 전 지급분까지 포함돼
+                #   분기배당이 5회 합산(수익률 25% 과대)되는 off-by-one 실측 확인(SCHD 4.04%→3.2%)
+                ttm = float(div[div.index > div.index.max() - timedelta(days=350)].sum())
+                px = stock.history(period="5d")["Close"]
+                if ttm > 0 and len(px):
+                    out["배당수익률(직근12개월, %)"] = round(ttm / float(px.iloc[-1]) * 100, 2)
+        except Exception as e:
+            logger.warning(f"{ticker} 배당 이력 수집 실패(무시): {e}")
+
+        # ③ 배당재투자 백테스트 — auto_adjust=True(수정주가)=배당 재투자 총수익 근사
+        try:
+            tr = stock.history(period="max", auto_adjust=True)["Close"]
+            pr = stock.history(period="max", auto_adjust=False)["Close"]
+            if len(tr) > 300 and len(pr) == len(tr):
+                bt: dict = {}
+                periods = [("5년", 5), ("10년", 10)]
+                inception_years = len(tr) / 252
+                if inception_years > 11:
+                    periods.append((f"상장후 약{inception_years:.0f}년", int(inception_years)))
+                for label, years in periods:
+                    n = years * 252
+                    if n >= len(tr):
+                        n = len(tr) - 1
+                        if n < 300:
+                            continue
+                    t_ret = (float(tr.iloc[-1]) / float(tr.iloc[-n]) - 1) * 100
+                    p_ret = (float(pr.iloc[-1]) / float(pr.iloc[-n]) - 1) * 100
+                    cagr = ((float(tr.iloc[-1]) / float(tr.iloc[-n])) ** (252 / n) - 1) * 100
+                    # 1천만원 환산은 두 경우 모두 미리 계산해 제공 — %만 주면 LLM이
+                    # 자체 환산하다 틀리는 실사고 확인(134.9%를 1,349만원으로 오변환)
+                    bt[label] = {
+                        "총수익_배당재투자(%)": round(t_ret, 1),
+                        "총수익_주가만(%)": round(p_ret, 1),
+                        "연평균CAGR(%)": round(cagr, 1),
+                        "1천만원투자시_배당재투자(만원)": round(1000 * (1 + t_ret / 100)),
+                        "1천만원투자시_주가만(만원)": round(1000 * (1 + p_ret / 100)),
+                    }
+                if bt:
+                    out["백테스트(배당재투자, 마지막거래일 기준)"] = bt
+                    out["백테스트주의"] = "과거 성과는 미래 수익을 보장하지 않음 — 본문에 반드시 명시"
+        except Exception as e:
+            logger.warning(f"{ticker} 백테스트 계산 실패(무시): {e}")
+
+        if out:
+            logger.info(f"{ticker} enrichment 수집: {list(out.keys())}")
+        return out
+
     # ── 콘텐츠 타입 순환 선정 ──────────────────────────
     @staticmethod
     def pick_etf_topic(history: list[dict] | None = None, force_content_type: str | None = None) -> dict | None:
@@ -457,6 +567,8 @@ class EtfDataCollector:
         row = data.get(ticker)
         if not row:
             return None
+        # 심층 팩트(구성종목 TOP10·섹터·배당이력·백테스트) — 실패해도 기본 데이터로 진행
+        row.update(EtfDataCollector.get_us_etf_enrichment(ticker))
         return {
             "_etf_content_type": "us_individual",
             "_etf_subject": ticker,
