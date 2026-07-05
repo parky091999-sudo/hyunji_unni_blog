@@ -291,6 +291,8 @@ class StockDataCollector:
                     "현재가(USD)": round(current, 2),
                     "등락률(%)": round(chg, 2),
                     "거래량": int(hist["Volume"].iloc[-1]),
+                    # 주말·휴장일 발행 시 '오늘/전일 마감' 오표기 방지
+                    "마지막거래일": hist.index[-1].strftime("%Y-%m-%d"),
                 }
                 pe = info.get("trailingPE")
                 if isinstance(pe, (int, float)):
@@ -333,6 +335,33 @@ class StockDataCollector:
 
         results.sort(key=lambda r: abs(r.get("등락률(%)", 0)), reverse=True)
         return results
+
+    @staticmethod
+    def get_search_news(queries: list[str], display: int = 4, max_total: int = 6) -> list[dict]:
+        """Naver 뉴스 검색 API로 종목·ETF 최신 이슈 헤드라인 수집(제목 중복 제거).
+        NAVER_CLIENT_ID/SECRET 없으면 빈 리스트 — 하드 실패 없음.
+        (2026-07-05 지시: 주식분석·ETF 글은 최근 관련 이슈·뉴스를 검색해 반영)"""
+        from generator.info_collector import _fetch_naver_news
+
+        out: list[dict] = []
+        seen: set[str] = set()
+        for q in queries:
+            for n in _fetch_naver_news(q, display=display):
+                title = n.get("title", "").strip()
+                if not title or title in seen:
+                    continue
+                seen.add(title)
+                item = {"제목": title}
+                if n.get("desc"):
+                    item["요약"] = n["desc"][:80]
+                if n.get("date"):
+                    item["날짜"] = n["date"][:16]
+                if n.get("link"):
+                    item["링크"] = n["link"]
+                out.append(item)
+        if out:
+            logger.info(f"뉴스 검색 보강: {queries} → {len(out)}건")
+        return out[:max_total]
 
     @staticmethod
     def pick_featured_stock(recent_names: set[str] | None = None, history_len: int = 0) -> dict | None:

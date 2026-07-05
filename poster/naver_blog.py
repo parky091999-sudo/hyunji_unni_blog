@@ -439,6 +439,12 @@ async def _type_in_editor(page: Page, text: str):
                 if is_centered:
                     await page.keyboard.press("Control+e")  # 가운데 정렬
                     await _delay(80, 150)
+                # [[강조]] 마커 → 타이핑 시점에 **볼드**와 동일 경로로 처리.
+                # 과거 후처리(_apply_inline_emphasis: Home+ArrowRight 커서 이동+Shift+Delete)는
+                # SE ONE의 ZWSP·키 유실로 커서가 어긋나 엉뚱한 본문 글자를 삭제(문자 유실)하고
+                # 마커도 못 지운 채 guard 상한까지 반복하는 실사고가 확인돼 폐기(2026-07-05 SCHD 글).
+                if "[[" in stripped_line:
+                    stripped_line = _EMPHASIS_RE.sub(r"**\1**", stripped_line)
                 # **bold** 파싱: **텍스트** → Ctrl+B 토글
                 if "**" in stripped_line:
                     parts = re.split(r"(\*\*[^*]+\*\*)", stripped_line)
@@ -675,109 +681,9 @@ async def _convert_bullets_to_list(page: Page) -> int:
 _EMPHASIS_RE = re.compile(r"\[\[(.+?)\]\]")
 
 
-async def _apply_inline_emphasis(page: Page) -> int:
-    """본문 단락 안의 '[[키워드]]' 마커를 찾아 마커 문자를 제거하고 그 자리의
-    텍스트에 볼드를 적용한다(문장 전체가 아니라 특정 키워드만 강조).
-    한 단락에 마커가 여러 개면 하나씩 처리 후 단락을 다시 읽어 위치 어긋남을 방지한다.
-    프롬프트는 글 전체 3~5개로 제한하지만, 모델이 지시를 넘겨 과다 생성해도
-    실행 시간이 과도하게 늘어나지 않도록 안전 상한을 낮게 둔다."""
-    target = await _get_editor_frame(page)
-    applied = 0
-    guard = 0
-    while guard < 20:
-        guard += 1
-        try:
-            paras = target.locator(".se-section-text .se-text-paragraph")
-            n = await paras.count()
-        except Exception:
-            break
-        found = -1
-        m = None
-        for i in range(n):
-            try:
-                t = await paras.nth(i).inner_text()
-            except Exception:
-                continue
-            mm = _EMPHASIS_RE.search(t)
-            if mm:
-                found = i
-                m = mm
-                break
-        if found < 0 or m is None:
-            break
-        start = m.start()
-        kw_len = len(m.group(1))
-        try:
-            await paras.nth(found).click(timeout=7000)
-            await _delay(100, 180)
-            await page.keyboard.press("Home")
-            # ★각 ArrowRight 사이 소폭 지연 필수 — 무지연 연타 시 SE ONE 에디터가 일부 키 입력을
-            # 놓쳐 커서가 의도한 위치보다 짧게 이동하고, 그 결과 뒤이은 Shift+Delete가 엉뚱한
-            # 위치의 실제 본문 텍스트를 삭제하는 사고가 실라이브 발행에서 확인됨(텍스트 유실).
-            for _ in range(start):
-                await page.keyboard.press("ArrowRight")
-                await _delay(15, 30)
-            # 여는 '[[' (2글자) 선택 후 삭제
-            await page.keyboard.down("Shift")
-            await page.keyboard.press("ArrowRight")
-            await _delay(15, 30)
-            await page.keyboard.press("ArrowRight")
-            await page.keyboard.up("Shift")
-            await page.keyboard.press("Delete")
-            await _delay(80, 140)
-            # 키워드 선택 후 볼드 적용
-            await page.keyboard.down("Shift")
-            for _ in range(kw_len):
-                await page.keyboard.press("ArrowRight")
-                await _delay(15, 30)
-            await page.keyboard.up("Shift")
-            await page.keyboard.press("Control+b")
-            await _delay(100, 160)
-            # 선택을 오른쪽 끝으로 접은 뒤 닫는 ']]' (2글자) 선택 후 삭제
-            await page.keyboard.press("ArrowRight")
-            await _delay(15, 30)
-            await page.keyboard.down("Shift")
-            await page.keyboard.press("ArrowRight")
-            await _delay(15, 30)
-            await page.keyboard.press("ArrowRight")
-            await page.keyboard.up("Shift")
-            await page.keyboard.press("Delete")
-            applied += 1
-            await _delay(100, 180)
-        except Exception as e:
-            logger.info(f"인라인 강조 적용 실패(중단): {e}")
-            break
-    if applied:
-        logger.info(f"인라인 강조(볼드) 적용 {applied}개")
-    return applied
-
-
-async def _cleanup_emphasis_markers(page: Page) -> int:
-    """_apply_inline_emphasis 처리 후 남은 [[...]] 마커를 JS로 일괄 제거.
-    마커 안 텍스트는 유지하고 [[ ]] 기호만 삭제. 볼드 적용은 포기하되 텍스트 노출은 방지."""
-    target = await _get_editor_frame(page)
-    try:
-        removed = await target.evaluate("""() => {
-            let count = 0;
-            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-            const nodes = [];
-            let node;
-            while ((node = walker.nextNode())) nodes.push(node);
-            for (const n of nodes) {
-                if (n.nodeValue && n.nodeValue.includes('[[')) {
-                    const before = n.nodeValue;
-                    n.nodeValue = n.nodeValue.replace(/\\[\\[(.+?)\\]\\]/g, '$1');
-                    if (n.nodeValue !== before) count++;
-                }
-            }
-            return count;
-        }""")
-        if removed:
-            logger.info(f"잔여 [[...]] 마커 JS 일괄 제거: {removed}개 텍스트 노드")
-        return removed or 0
-    except Exception as e:
-        logger.info(f"잔여 마커 제거 스킵: {e}")
-        return 0
+# [[강조]] 마커는 _type_in_editor가 타이핑 시점에 Ctrl+B 토글로 볼드 처리한다.
+# (과거 _apply_inline_emphasis/_cleanup_emphasis_markers 후처리는 커서 어긋남으로
+#  본문 문자 유실 + 마커 노출 실사고가 있어 2026-07-05 폐기)
 
 
 async def _center_oglink_cards(page: Page) -> int:
@@ -2152,6 +2058,8 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
 
 async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     """table_str(파이프 구분 행) → 네이버 SE 진짜 표 삽입. best-effort + 디버그 DOM 로그."""
+    # 표 셀도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지
+    table_str = _EMPHASIS_RE.sub(r"", table_str)
     rows = _parse_table_rows(table_str)
     if not rows:
         return False
@@ -2374,6 +2282,8 @@ async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor
     """FAQ (질문/답변) 짝을 네이버 에디터 인용구 하나에 묶어서 개행 타이핑하여 삽입"""
     if not faq_pairs:
         return False
+    # FAQ도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지
+    faq_pairs = [(_EMPHASIS_RE.sub(r"", q), _EMPHASIS_RE.sub(r"", a)) for q, a in faq_pairs]
     logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커텍스트: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
     
@@ -2596,6 +2506,9 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
     """도입부 뒤 앵커 위치에 핵심 요약 버티컬라인 인용구 블록 삽입"""
     if not summary_text:
         return False
+    # 요약 블록은 본문과 별도 타이핑 경로 — [[강조]] 마커가 그대로 노출되므로 텍스트만 남김
+    # (2026-07-05 SCHD 글에서 '· 비용·수익률: [[총보수 0.06%]]' 리터럴 노출 실사고)
+    summary_text = _EMPHASIS_RE.sub(r"\1", summary_text)
     try:
         if anchor_text:
             await _move_cursor_after_text(page, anchor_text)
@@ -3160,16 +3073,7 @@ async def _post(
         except Exception as e:
             logger.warning(f"소제목 스타일 예외(계속): {e}")
 
-        # ── '[[키워드]]' 마커 → 인라인 볼드(문단 구조 바뀌기 전에 먼저 처리) ──
-        try:
-            await _apply_inline_emphasis(write_page)
-        except Exception as e:
-            logger.warning(f"인라인 강조 적용 예외(계속): {e}")
-        # 볼드 적용 실패한 잔여 마커 일괄 제거 (텍스트 노출 방지)
-        try:
-            await _cleanup_emphasis_markers(write_page)
-        except Exception as e:
-            logger.warning(f"잔여 마커 제거 예외(계속): {e}")
+        # '[[키워드]]' 인라인 볼드는 _type_in_editor가 타이핑 시점에 이미 처리함
 
         # ── 글머리(·) 줄 → 네이티브 글머리표 리스트(자동 내어쓰기) ──
         try:

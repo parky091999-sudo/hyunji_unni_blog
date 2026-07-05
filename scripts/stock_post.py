@@ -217,6 +217,25 @@ def run():
         sys.exit(1 if (force or draft) else 0)
     logger.info(f"팩트 데이터 수집 완료: {type(fact_data).__name__}")
 
+    # ── 최근 뉴스·이슈 검색 보강 (종목분석·ETF 개별분석) ──
+    # 기존 '최근뉴스'(국내 종목 상세 페이지 스크랩)와 같은 키로 병합 — 프롬프트 규칙 공유.
+    if isinstance(fact_data, dict):
+        news_queries: list[str] = []
+        if STOCK_TOPIC == "종목분석" and fact_data.get("종목명"):
+            news_queries = [f"{fact_data['종목명']} 주가"]
+        elif STOCK_TOPIC == "etf포트폴리오" and fact_data.get("_etf_content_type") in _INDIVIDUAL_ETF_TYPES:
+            subject = fact_data.get("_etf_subject") or ""
+            if subject:
+                news_queries = [f"{subject} ETF"]
+        if news_queries:
+            try:
+                extra_news = StockDataCollector.get_search_news(news_queries)
+                if extra_news:
+                    merged = list(fact_data.get("최근뉴스") or []) + extra_news
+                    fact_data["최근뉴스"] = merged[:6]
+            except Exception as e:
+                logger.warning(f"뉴스 검색 보강 실패(무시): {e}")
+
     from generator.stock_content import generate_stock_post
 
     post = generate_stock_post(STOCK_TOPIC, fact_data, GOOGLE_API_KEY)

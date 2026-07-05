@@ -7,6 +7,7 @@ info 카테고리 팩트 수집기.
 
 수집된 팩트 블록은 Gemini 프롬프트 앞에 주입 → hallucination 최소화.
 """
+import html
 import json
 import logging
 import os
@@ -46,10 +47,12 @@ def _fetch_naver_news(keyword: str, display: int = 5) -> list[dict]:
         items = data.get("items", [])
         results = []
         for item in items:
-            title = item.get("title", "").replace("<b>", "").replace("</b>", "")
-            desc = item.get("description", "").replace("<b>", "").replace("</b>", "")
+            # <b>태그 제거 + &quot; 등 HTML 엔티티 복원 (그대로 두면 본문에 리터럴 노출)
+            title = html.unescape(item.get("title", "").replace("<b>", "").replace("</b>", ""))
+            desc = html.unescape(item.get("description", "").replace("<b>", "").replace("</b>", ""))
             pub_date = item.get("pubDate", "")
-            results.append({"title": title, "desc": desc, "date": pub_date})
+            link = item.get("originallink") or item.get("link") or ""
+            results.append({"title": title, "desc": desc, "date": pub_date, "link": link})
         logger.info(f"Naver 뉴스 수집: {keyword!r} → {len(results)}건")
         return results
     except Exception as e:

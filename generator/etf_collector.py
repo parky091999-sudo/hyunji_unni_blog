@@ -311,6 +311,9 @@ class EtfDataCollector:
                     "현재가(USD)": round(current_price, 2),
                     "전일대비 등락률(%)": round(change_pct, 2),
                     "거래량": int(hist["Volume"].iloc[-1]),
+                    # 주말·휴장일 발행 시 '오늘/전일 마감' 오표기 방지 — 실제 마지막 거래일 명시
+                    # (2026-07-05(일) 글이 7/2(목) 종가를 '전일 대비 상승 마감'으로 쓴 실사고)
+                    "마지막거래일": hist.index[-1].strftime("%Y-%m-%d"),
                 }
 
                 def _trailing_return(days_back: int, _closes=closes, _cur=current_price) -> float | None:
