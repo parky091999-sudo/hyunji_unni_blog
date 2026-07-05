@@ -773,18 +773,25 @@ async def _apply_subheading_color(page: Page, target) -> bool:
                     break
             except Exception:
                 continue
-    # 파랑 계열 색 클릭 — 네이버 SE ONE 팔레트 실측값(2026-07-05 DRAFT probe): 진한 파랑 우선
-    for sel in ["[data-value='#0095e9']", "[data-value='#00cdff']", "[data-value='#5bc7ff']",
-                "[data-value='#28e1ff']"]:
-        try:
-            c = btn_ctx.locator(sel).first
-            if await c.count():
-                # 팔레트 색 셀은 오버레이/애니메이션으로 is_visible이 지연됨 → force 클릭
-                await c.click(timeout=1200, force=True)
-                logger.info(f"소제목 색상 적용: {sel}")
-                return True
-        except Exception:
-            continue
+    # 파랑 색 셀을 JS로 직접 click — locator.click은 SE 오버레이(se-selection)로 막히므로
+    # DOM 요소를 evaluate에서 직접 클릭해 우회(팔레트 실측값 #0095e9 진한파랑 우선).
+    try:
+        clicked = await btn_ctx.evaluate(
+            "() => {"
+            "  const want = ['#0095e9','#00cdff','#5bc7ff','#28e1ff'];"
+            "  for (const w of want) {"
+            "    const el = [...document.querySelectorAll('[data-value]')]"
+            "      .find(e => (e.getAttribute('data-value')||'').toLowerCase() === w);"
+            "    if (el) { el.click(); return w; }"
+            "  }"
+            "  return null;"
+            "}"
+        )
+        if clicked:
+            logger.info(f"소제목 색상 적용(JS): {clicked}")
+            return True
+    except Exception as e:
+        logger.info(f"소제목 색상 JS 클릭 실패: {e.__class__.__name__}")
     logger.info("소제목 색상: 팔레트에서 파랑 색 못 찾음(볼드만 유지)")
     try:
         await page.keyboard.press("Escape")
