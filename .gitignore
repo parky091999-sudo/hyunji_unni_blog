@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 .DS_Store
 venv/
+
+벤치마크/
+scratch/bench/
