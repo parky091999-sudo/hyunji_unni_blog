@@ -1,5 +1,29 @@
 [
   {
+    "date": "2026-07-05",
+    "timestamp": "2026-07-05T12:31:29.123533+09:00",
+    "run_slot": "12",
+    "keyword": "의료급여 신청 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "의료급여 신청 | 2026년 본인부담금 0원 받는 가이드",
+    "tags": [
+      "의료급여",
+      "의료비지원",
+      "정부지원",
+      "복지혜택",
+      "기초생활수급자",
+      "차상위계층",
+      "의료비경감"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224336922680",
+    "images_count": 1,
+    "images_inserted": 1,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
     "date": "2026-07-04",
     "timestamp": "2026-07-04T12:03:08.925349+09:00",
     "run_slot": "11",
