@@ -335,7 +335,10 @@ def run():
             # ★가격차트([사진2])가 성공했을 때만 — 실패 시 이미지 인덱스가 밀려
             #   배당 차트가 [사진2] 자리(가격차트 해석 문장)에 들어가는 캡션 불일치 방지.
             # [사진3]은 배당차트 성공이 전제이므로 배당차트 실패 시 재투자 차트도 생략.
-            if chart_path and chart_mode == "single" and tickers and fact_data.get("연도별배당(주당USD)"):
+            # 배당 차트 2장은 배당·인컴형(dividend)에만 — growth/bond는 배당데이터가 있어도
+            # 구조에 배당 섹션([사진3][사진4])이 없어 삽입 안 됨(생성 낭비 방지).
+            _is_div_type = fact_data.get("_etf_type", "dividend") == "dividend"
+            if chart_path and chart_mode == "single" and tickers and _is_div_type and fact_data.get("연도별배당(주당USD)"):
                 from generator.stock_chart import (
                     generate_dividend_history_chart,
                     generate_total_return_chart,

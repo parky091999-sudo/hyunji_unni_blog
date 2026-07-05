@@ -8,7 +8,7 @@ import re
 import time
 from datetime import datetime, timezone, timedelta
 
-from generator.content import _gen_text, _parse_response, _IMAGE_MARKER
+from generator.content import _gen_text, _parse_response, _IMAGE_MARKER, _split_long_paragraphs
 from generator.quality import score_stock_content, strip_title_emphasis_markers, strip_body_emphasis_markers
 
 logger = logging.getLogger("stock_content")
@@ -34,48 +34,6 @@ STOCK_TOPICS: dict[str, dict] = {
 
 
 _WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
-
-# 종결어미 뒤 공백에서 문장 분리 ("~다. ", "~요. ", "~죠. ") — 소수점(4.72) 오분리 방지
-_SENT_BOUNDARY = re.compile(r"(?<=[다요죠]\.)\s+")
-
-
-def _split_long_paragraphs(body: str, limit: int = 150, target: int = 110) -> str:
-    """모바일 가독성 후처리(§6): 여러 문장이 한 줄에 붙은 덩어리 문단을 문장 경계에서 분리.
-    프롬프트 지시(한 문단 1~2문장)를 모델이 어겨도 결정적으로 교정한다.
-    - 일반 줄: 문장들을 target자 이내 그룹으로 묶어 빈 줄(새 문단)로 분리
-    - '· ' 불릿 줄: 각 문장을 각각의 불릿으로 분리
-    - 구조 마커([...]) 줄은 건드리지 않음"""
-    out: list[str] = []
-    for line in body.splitlines():
-        s = line.strip()
-        if len(s) <= limit or s.startswith("["):
-            out.append(line)
-            continue
-        is_bullet = s.startswith("· ")
-        sentences = [p.strip() for p in _SENT_BOUNDARY.split(s[2:] if is_bullet else s) if p.strip()]
-        if len(sentences) < 2:
-            out.append(line)
-            continue
-        if is_bullet:
-            out.extend(f"· {sent}" for sent in sentences)
-        else:
-            groups: list[str] = []
-            cur = ""
-            for sent in sentences:
-                if cur and len(cur) + len(sent) + 1 > target:
-                    groups.append(cur)
-                    cur = sent
-                else:
-                    cur = f"{cur} {sent}".strip()
-            if cur:
-                groups.append(cur)
-            # 빈 줄로 구분해 각 그룹을 별도 문단으로
-            for gi, g in enumerate(groups):
-                if gi:
-                    out.append("")
-                out.append(g)
-    return "\n".join(out)
-
 
 def _today_str() -> str:
     return datetime.now(KST).strftime("%Y년 %m월 %d일")
@@ -543,10 +501,13 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False) -> str:
         "목표주가 컨센서스가 있으면 '현재가 대비 상승 여력 X%' 수치도 근거로 활용. "
         "'정답 아닌 참고'임을 명시. 불릿 2~3줄.)\n"
         "\n[소제목] 자주 묻는 질문\n"
+        "(★FAQ 질문 3개는 이 종목의 오늘 이슈·업종·재무 특성을 반영해 매번 다르게 만들어라 — 아래는 "
+        "방향 예시일 뿐 그대로 베끼지 마라. 이 종목만의 재료(AI·실적·공시·수급 등)를 반영한 구체적 질문을. "
+        "매 글 똑같은 '왜 움직였나/지금 사도 될까/목표주가' 3종 반복 금지.)\n"
         "[FAQ시작]\n"
-        "Q: (오늘 이 종목이 왜 이렇게 움직였나요 — 재료·이슈 중심)\nA: (뉴스·수급 팩트 기반 2~3줄)\n"
-        "Q: (지금 사도 될까요 / 추가 하락 가능성은 있나요 류)\nA: (단기 시나리오 기반 중립적 답변)\n"
-        "Q: (목표주가는 얼마인가요·전망은 류)\nA: (컨센서스는 참고 지표 + 실제 수치 인용)\n"
+        "Q: (이 종목의 오늘 이슈·재료 관련 구체 질문)\nA: (뉴스·수급 팩트 기반 2~3줄)\n"
+        "Q: (이 종목 고유의 실전 궁금증 — 밸류에이션·업종·수급 등)\nA: (데이터 기반 중립 답변)\n"
+        "Q: (전망·시나리오 — 컨센서스나 재료 지속성)\nA: (참고 지표 + 실제 수치, 단정 금지)\n"
         "[FAQ끝]\n"
         "\n(마무리 1~2줄: 개별 종목 투자는 최신 공시·뉴스 직접 확인 후 본인 판단, 투자 책임은 본인.)\n"
     )

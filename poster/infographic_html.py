@@ -327,12 +327,24 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
   width:150px;height:12px;border-radius:6px;
   background:{accent};
 }}
-.brand{{
+/* 검색바 목업 — 검색 유도(벤치마킹: 너부리 스타일). 하단 크롭 안전영역. */
+.searchbar{{
   position:absolute;
-  left:50%;bottom:52px;transform:translateX(-50%);
-  font-size:26px;font-weight:700;
-  color:rgba(255,255,255,.60);
-  letter-spacing:2px;
+  left:50%;bottom:60px;transform:translateX(-50%);
+  display:flex;align-items:stretch;
+  border-radius:12px;overflow:hidden;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+  max-width:600px;
+}}
+.sb-text{{
+  background:#FFFFFF;color:#2A2A2A;
+  padding:16px 26px;font-size:27px;font-weight:700;
+  white-space:nowrap;
+}}
+.sb-btn{{
+  background:{accent};color:{tag_color};
+  padding:16px 26px;font-size:27px;font-weight:800;
+  white-space:nowrap;
 }}
 
 </style>
@@ -347,9 +359,12 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
     <div class="chip">{escape(label)}</div>
     <div class="title">{title_html}</div>
     <div class="underline"></div>
-    <div class="brand">현지언니</div>
   </div>
 
+  <div class="searchbar">
+    <span class="sb-text">현지언니 {escape(label)}</span>
+    <span class="sb-btn">🔍 검색</span>
+  </div>
 
   <div class="edge"></div>
 </div>

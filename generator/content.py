@@ -268,6 +268,46 @@ def _faq_questions(faq_str: str) -> list[str]:
     return [l.strip() for l in faq_str.strip().split("\n") if l.strip().startswith("Q")]
 
 
+# 종결어미 뒤 공백에서 문장 분리("~다. ", "~요. ", "~죠. ") — 소수점(4.72) 오분리 방지
+_SENT_BOUNDARY = re.compile(r"(?<=[다요죠]\.)\s+")
+
+
+def _split_long_paragraphs(body: str, limit: int = 150, target: int = 110) -> str:
+    """모바일 가독성 후처리(§6): 여러 문장이 한 줄에 붙은 덩어리 문단을 문장 경계에서 분리.
+    전 카테고리 공통(_parse_response에서 호출). 구조 마커([...]) 줄은 건드리지 않는다.
+    - 일반 줄: 문장을 target자 이내 그룹으로 묶어 빈 줄(새 문단)로 분리
+    - '· ' 불릿 줄: 각 문장을 각각의 불릿으로 분리"""
+    out: list[str] = []
+    for line in body.splitlines():
+        s = line.strip()
+        if len(s) <= limit or s.startswith("["):
+            out.append(line)
+            continue
+        is_bullet = s.startswith("· ")
+        sentences = [p.strip() for p in _SENT_BOUNDARY.split(s[2:] if is_bullet else s) if p.strip()]
+        if len(sentences) < 2:
+            out.append(line)
+            continue
+        if is_bullet:
+            out.extend(f"· {sent}" for sent in sentences)
+        else:
+            groups: list[str] = []
+            cur = ""
+            for sent in sentences:
+                if cur and len(cur) + len(sent) + 1 > target:
+                    groups.append(cur)
+                    cur = sent
+                else:
+                    cur = f"{cur} {sent}".strip()
+            if cur:
+                groups.append(cur)
+            for gi, g in enumerate(groups):
+                if gi:
+                    out.append("")
+                out.append(g)
+    return "\n".join(out)
+
+
 def _parse_faq_pairs(faq_str: str) -> list[tuple[str, str]]:
     """FAQ 원문에서 Q와 A를 짝지어 반환"""
     lines = [l.strip() for l in faq_str.strip().split("\n") if l.strip()]
@@ -408,7 +448,7 @@ def _parse_response(raw: str) -> dict | None:
                 r"^((?:\s*\[사진\d+\]\s*)*)\s*안녕하세요[^.!?~\n]*[.!?~]?\s*",
                 r"\1", body, flags=re.IGNORECASE,
             ).lstrip()
-            result["body"] = body.strip()
+            result["body"] = _split_long_paragraphs(body.strip())
 
         if "title" not in result or "body" not in result:
             logger.warning("파싱 실패")
