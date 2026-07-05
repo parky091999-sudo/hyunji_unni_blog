@@ -461,6 +461,13 @@ async def _type_in_editor(page: Page, text: str):
                 else:
                     await page.keyboard.type(stripped_line, delay=char_delay)
 
+                # ★한글 마지막 음절의 IME 조합이 확정되기 전에 Enter/문단전환이 실행되면 끝
+                # 글자가 유실된다('합니다'→'합니', DIVO 실발행 224337110930). 타이핑 직후
+                # End로 조합을 확정시키고 짧게 대기해 이후 Enter가 온전한 글자 뒤에 오게 한다.
+                if stripped_line and not stripped_line.startswith(("http://", "https://")):
+                    await page.keyboard.press("End")
+                    await _delay(60, 110)
+
                 # URL 감지 시 네이버 에디터가 링크 카드로 렌더링하도록 3~4초간 대기
                 if stripped_line.startswith("http://") or stripped_line.startswith("https://"):
                     logger.info(f"URL 감지 → 링크 카드 생성 대기: {stripped_line[:40]}...")
