@@ -731,6 +731,54 @@ async def _center_oglink_cards(page: Page) -> int:
     return centered
 
 
+_color_palette_logged = False
+
+
+async def _apply_subheading_color(page: Page, target) -> bool:
+    """현재 선택된 텍스트(소제목)에 강조 색(파랑 계열) 적용. best-effort.
+    SE ONE 글자색: [data-name='font-color'] 버튼 클릭 → 팔레트 → 색 셀 클릭.
+    팔레트 색상값은 실측 로그로 확인(첫 1회만 덤프). 실패 시 볼드만 유지."""
+    global _color_palette_logged
+    btn = target.locator("[data-name='font-color']").first
+    try:
+        if not await btn.count():
+            return False
+        await btn.click(timeout=1500)
+        await _delay(350, 550)
+    except Exception:
+        return False
+    # 팔레트 색상값 실측(첫 1회) — 이후 정확한 셀렉터로 좁히기 위함
+    if not _color_palette_logged:
+        try:
+            palette = await target.evaluate(
+                "() => [...document.querySelectorAll('[data-value]')]"
+                ".map(e => e.getAttribute('data-value'))"
+                ".filter(v => v && v.startsWith('#')).slice(0, 30)"
+            )
+            if palette:
+                logger.info(f"[색상팔레트 실측] {palette}")
+                _color_palette_logged = True
+        except Exception:
+            pass
+    # 파랑 계열 색 클릭 시도(여러 후보 hex)
+    for sel in ["[data-value='#1f78ff']", "[data-value='#0068c8']", "[data-value='#1e88e5']",
+                "[data-value='#2196f3']", "[data-value='#3a5fcd']", "[data-value='#0000ff']"]:
+        try:
+            c = target.locator(sel).first
+            if await c.count() and await c.is_visible(timeout=400):
+                await c.click(timeout=1000)
+                logger.info(f"소제목 색상 적용: {sel}")
+                return True
+        except Exception:
+            continue
+    # 못 찾으면 팔레트 닫기(발행 안전)
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+    return False
+
+
 async def _style_paragraphs(
     page: Page,
     texts: list[str],
@@ -793,6 +841,12 @@ async def _style_paragraphs(
                         await _delay(120, 200)
                         await page.keyboard.press("Control+b")
                         await _delay(150, 250)
+                        # 소제목 색상 강조(파랑) — 선택 유지 상태에서 글자색 적용(best-effort).
+                        # 벤치마킹(너부리): 소제목 색상으로 스캔성↑. 실패해도 볼드는 유지.
+                        try:
+                            await _apply_subheading_color(page, target)
+                        except Exception as _ce:
+                            logger.info(f"소제목 색상 스킵: {_ce.__class__.__name__}")
                     await page.keyboard.press("Escape")
                     await _delay(150, 250)
                 
