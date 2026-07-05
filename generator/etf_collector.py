@@ -437,16 +437,15 @@ class EtfDataCollector:
             pr = stock.history(period="max", auto_adjust=False)["Close"]
             if len(tr) > 300 and len(pr) == len(tr):
                 bt: dict = {}
-                periods = [("5년", 5), ("10년", 10)]
                 inception_years = len(tr) / 252
-                if inception_years > 11:
-                    periods.append((f"상장후 약{inception_years:.0f}년", int(inception_years)))
-                for label, years in periods:
-                    n = years * 252
-                    if n >= len(tr):
-                        n = len(tr) - 1
-                        if n < 300:
-                            continue
+                # ★데이터가 실제로 커버하는 기간만 포함 — 상장 3년차 ETF를 상장일로 잘라
+                #   '5년/10년' 라벨을 붙이면 팩트 왜곡("10년 전 투자 시에도 동일한 결과"
+                #   같은 문장 발생, JEPQ 실발행에서 확인). 짧은 상품은 '상장후 약N년'만.
+                periods = [(label, years * 252) for label, years in (("5년", 5), ("10년", 10))
+                           if years * 252 < len(tr)]
+                if not periods or inception_years > 11:
+                    periods.append((f"상장후 약{inception_years:.0f}년", len(tr) - 1))
+                for label, n in periods:
                     t_ret = (float(tr.iloc[-1]) / float(tr.iloc[-n]) - 1) * 100
                     p_ret = (float(pr.iloc[-1]) / float(pr.iloc[-n]) - 1) * 100
                     cagr = ((float(tr.iloc[-1]) / float(tr.iloc[-n])) ** (252 / n) - 1) * 100
