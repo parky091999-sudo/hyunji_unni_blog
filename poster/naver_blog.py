@@ -773,10 +773,9 @@ async def _apply_subheading_color(page: Page, target) -> bool:
                     break
             except Exception:
                 continue
-    # 파랑 계열 색 클릭 시도(여러 후보 hex, 대소문자)
-    for sel in ["[data-value='#1f78ff']", "[data-value='#1F78FF']", "[data-value='#0068c8']",
-                "[data-value='#1e88e5']", "[data-value='#2196f3']", "[data-value='#0000ff']",
-                "[data-color='#1f78ff']", "button[title*='파랑']"]:
+    # 파랑 계열 색 클릭 — 네이버 SE ONE 팔레트 실측값(2026-07-05 DRAFT probe): 진한 파랑 우선
+    for sel in ["[data-value='#0095e9']", "[data-value='#00cdff']", "[data-value='#5bc7ff']",
+                "[data-value='#28e1ff']"]:
         try:
             c = btn_ctx.locator(sel).first
             if await c.count() and await c.is_visible(timeout=400):
