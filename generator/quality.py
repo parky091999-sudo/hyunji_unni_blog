@@ -513,15 +513,14 @@ def score_stock_content(
     else:
         critical.append("FAQ 없음 — 재생성")
 
+    # 강조 마커는 폐지(2026-07-05) — 마커 0개가 정상(만점). 남아 있어도 타이핑 단계에서
+    # 텍스트로 벗겨지므로 발행엔 무해 → 재생성(critical) 대신 소폭 감점만.
     emphasis_count = len(_INLINE_EMPHASIS.findall(body))
-    if emphasis_count <= 5:
+    if emphasis_count == 0:
         score += 10
-    elif emphasis_count <= 10:
-        score += 5
-        issues.append(f"[[강조]] 마커 과다 ({emphasis_count}개, 권장 3~5)")
     else:
-        issues.append(f"[[강조]] 마커 과다 ({emphasis_count}개)")
-        critical.append(f"[[강조]] {emphasis_count}개 — 3~5개로 줄이기")
+        score += max(0, 10 - emphasis_count * 3)
+        issues.append(f"강조 마커 {emphasis_count}개 — 마커 금지(텍스트로만 작성)")
 
     tag_count = len(tags)
     if tag_count >= 5:

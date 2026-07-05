@@ -439,12 +439,14 @@ async def _type_in_editor(page: Page, text: str):
                 if is_centered:
                     await page.keyboard.press("Control+e")  # 가운데 정렬
                     await _delay(80, 150)
-                # [[강조]] 마커 → 타이핑 시점에 **볼드**와 동일 경로로 처리.
-                # 과거 후처리(_apply_inline_emphasis: Home+ArrowRight 커서 이동+Shift+Delete)는
-                # SE ONE의 ZWSP·키 유실로 커서가 어긋나 엉뚱한 본문 글자를 삭제(문자 유실)하고
-                # 마커도 못 지운 채 guard 상한까지 반복하는 실사고가 확인돼 폐기(2026-07-05 SCHD 글).
+                # [[강조]] 마커 → 볼드 없이 텍스트만 남긴다(2026-07-05 폐기).
+                # 인라인 볼드는 두 방식 모두 실사고를 냈다: ①후처리(_apply_inline_emphasis)는
+                # 커서 어긋남으로 본문 글자 유실, ②타이핑 시점 Ctrl+B 토글은 마커가 단어 중간
+                # ('영향을 미'치므로)을 감쌀 때 한글 조합+볼드토글 경계에서 글자 중복 삽입
+                # ('영향을 미 미치므로', JEPI 실발행 224337094955). 자동 발행이라 매 건 검수가
+                # 불가하므로 강조 3개보다 오타 0을 택함 — 강조는 소제목·표·차트·불릿이 담당.
                 if "[[" in stripped_line:
-                    stripped_line = _EMPHASIS_RE.sub(r"**\1**", stripped_line)
+                    stripped_line = _EMPHASIS_RE.sub(r"\1", stripped_line)
                 # **bold** 파싱: **텍스트** → Ctrl+B 토글
                 if "**" in stripped_line:
                     parts = re.split(r"(\*\*[^*]+\*\*)", stripped_line)
