@@ -440,3 +440,142 @@ def create_infographic_via_html(
     tmp.close()
     logger.info(f"HTML 인포그래픽 생성: {display!r} [{category}] → {tmp.name}")
     return tmp.name
+
+
+# ─────────────────────────────────────────────────────────────
+# 비교 인포그래픽 (섹터·테마 ETF 항목별 비교 카드) — 월부 벤치마킹(2026-07-05)
+# 밋밋한 텍스트 표 대신 '한눈에 비교되는 디자인 카드'로. 본문 [사진2]에 삽입.
+# ─────────────────────────────────────────────────────────────
+
+_CMP_ROWS = [
+    ("성격", "성격", "text"),
+    ("배당수익률(%)", "배당수익률", "pct_high"),   # 높을수록 강조(초록)
+    ("총보수(%)", "총보수", "pct_low"),            # 낮을수록 강조(초록)
+    ("3개월수익률(%)", "3개월 수익률", "pct_high"),
+    ("지급주기", "배당 주기", "text"),
+]
+
+
+async def _pw_screenshot_element(html: str, width: int = 1080) -> bytes:
+    """HTML의 .cardwrap 요소만 스크린샷(높이 가변) — 본문 삽입용 인포그래픽."""
+    from playwright.async_api import async_playwright
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--font-render-hinting=none"],
+        )
+        try:
+            ctx = await browser.new_context(
+                viewport={"width": width, "height": 900}, device_scale_factor=2
+            )
+            page = await ctx.new_page()
+            await page.set_content(html, wait_until="networkidle", timeout=18000)
+            await page.wait_for_timeout(350)
+            el = await page.query_selector(".cardwrap")
+            data = await (el.screenshot(type="png") if el else page.screenshot(type="png"))
+            return data
+        finally:
+            await browser.close()
+
+
+def _fmt_val(raw, kind: str) -> str:
+    if raw is None or str(raw).strip() in ("", "-", "None"):
+        return "-"
+    if kind in ("pct_high", "pct_low"):
+        try:
+            return f"{float(raw):g}%"
+        except (ValueError, TypeError):
+            return str(raw)
+    return str(raw)
+
+
+def _build_compare_html(group_name: str, tickers: list, targets: dict, style: dict) -> str:
+    accent = style["accent"]
+    color = style.get("color", "#1357C0")
+    label = style.get("label", "ETF")
+    n = len(tickers)
+    W = 1080
+
+    # 강조(초록) 대상 셀 계산: pct_high=최댓값, pct_low=최솟값
+    best: dict = {}
+    for key, _, kind in _CMP_ROWS:
+        if kind not in ("pct_high", "pct_low"):
+            continue
+        vals = []
+        for t in tickers:
+            v = targets.get(t, {}).get(key)
+            try:
+                vals.append((float(v), t))
+            except (ValueError, TypeError):
+                pass
+        if vals:
+            best[key] = (max if kind == "pct_high" else min)(vals)[1]
+
+    # 헤더 행(ETF 티커)
+    head_cols = "".join(
+        f'<th class="etf">{escape(t)}<span class="etfname">'
+        f'{escape(str(targets.get(t, {}).get("이름", ""))[:16])}</span></th>'
+        for t in tickers
+    )
+    # 데이터 행
+    body_rows = ""
+    for key, disp, kind in _CMP_ROWS:
+        if not any(targets.get(t, {}).get(key) not in (None, "", "-") for t in tickers):
+            continue
+        cells = ""
+        for t in tickers:
+            raw = targets.get(t, {}).get(key)
+            val = _fmt_val(raw, kind)
+            hot = " hot" if best.get(key) == t else ""
+            cells += f'<td class="v{hot}">{escape(val)}</td>'
+        body_rows += f'<tr><td class="lbl">{escape(disp)}</td>{cells}</tr>'
+
+    return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;}}
+body{{width:{W}px;background:#fff;}}
+.cardwrap{{width:{W}px;padding:38px 36px 34px;background:#fff;}}
+.chip{{display:inline-block;background:{accent};color:{style.get('tag_color','#0D1B3E')};
+  font-size:26px;font-weight:800;padding:8px 26px;border-radius:999px;margin-bottom:16px;}}
+.htitle{{font-size:46px;font-weight:900;color:#1A1A1A;letter-spacing:-1.5px;margin-bottom:6px;line-height:1.2;}}
+.hsub{{font-size:25px;color:#888;font-weight:500;margin-bottom:26px;}}
+table{{width:100%;border-collapse:separate;border-spacing:0;border-radius:16px;overflow:hidden;
+  box-shadow:0 4px 22px rgba(0,0,0,.08);}}
+th,td{{padding:20px 14px;text-align:center;font-size:27px;border-bottom:1px solid #EEE;}}
+thead th{{background:{color};color:#fff;font-size:30px;font-weight:900;padding:22px 12px;}}
+th.etf .etfname{{display:block;font-size:18px;font-weight:500;color:rgba(255,255,255,.8);margin-top:4px;}}
+td.lbl{{background:#F6F8FC;font-weight:800;color:#333;font-size:25px;text-align:left;padding-left:24px;width:210px;}}
+td.v{{font-weight:700;color:#2A2A2A;}}
+td.v.hot{{background:#E3FBEE;color:#0C8A44;font-weight:900;}}
+tbody tr:last-child td{{border-bottom:none;}}
+.foot{{margin-top:18px;font-size:21px;color:#AAA;text-align:right;}}
+</style></head><body>
+<div class="cardwrap">
+  <span class="chip">{escape(label)} 비교</span>
+  <div class="htitle">{escape(group_name)} 한눈에 비교</div>
+  <div class="hsub">초록 = 항목별 가장 유리한 값 · 야후파이낸스 마지막 거래일 기준</div>
+  <table>
+    <thead><tr><th class="lblhead"></th>{head_cols}</tr></thead>
+    <tbody>{body_rows}</tbody>
+  </table>
+  <div class="foot">현지언니 · 수치는 시점따라 변동</div>
+</div></body></html>"""
+
+
+def create_comparison_infographic(group_name: str, targets: dict, category: str = "주식etf") -> str | None:
+    """섹터·테마 ETF 비교 인포그래픽(월부 스타일). targets={티커:{지표..}}. 실패 시 None."""
+    if not targets or len(targets) < 2:
+        return None
+    style = _STYLES.get(category, _DEFAULT)
+    tickers = list(targets.keys())[:4]
+    html = _build_compare_html(group_name, tickers, targets, style)
+    try:
+        png = asyncio.run(_pw_screenshot_element(html))
+    except Exception as e:
+        logger.warning(f"비교 인포그래픽 스크린샷 실패: {e}")
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp.write(png)
+    tmp.close()
+    logger.info(f"비교 인포그래픽 생성: {group_name} ({len(tickers)}종) → {tmp.name}")
+    return tmp.name
