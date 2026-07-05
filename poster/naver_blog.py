@@ -2068,7 +2068,7 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
 async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
     """table_str(파이프 구분 행) → 네이버 SE 진짜 표 삽입. best-effort + 디버그 DOM 로그."""
     # 표 셀도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지
-    table_str = _EMPHASIS_RE.sub(r"", table_str)
+    table_str = _EMPHASIS_RE.sub(r"\1", table_str)
     rows = _parse_table_rows(table_str)
     if not rows:
         return False
@@ -2247,6 +2247,8 @@ async def _insert_table(page: Page, table_str: str, anchor_text: str) -> bool:
                 await page.keyboard.press("Control+a")
                 if text:
                     await page.keyboard.type(text, delay=12)
+                    # 셀 내용 가운데 정렬 — 모바일 표 가독성(2026-07-05 사용자 요청)
+                    await page.keyboard.press("Control+e")
                 else:
                     await page.keyboard.press("Delete")
                 filled += 1
@@ -2292,7 +2294,7 @@ async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor
     if not faq_pairs:
         return False
     # FAQ도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지
-    faq_pairs = [(_EMPHASIS_RE.sub(r"", q), _EMPHASIS_RE.sub(r"", a)) for q, a in faq_pairs]
+    faq_pairs = [(_EMPHASIS_RE.sub(r"\1", q), _EMPHASIS_RE.sub(r"\1", a)) for q, a in faq_pairs]
     logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커텍스트: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
     
@@ -2317,8 +2319,9 @@ async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor
                 await page.keyboard.type(q_text, delay=random.randint(10, 20))
                 await _delay(200, 400)
                 
-                # 3. Shift+Enter 로 인용구 내 강제 개행
+                # 3. Shift+Enter 2회 — 인용구 내 강제 개행 + 빈 줄(Q와 A 사이 간격, 가독성)
                 await page.keyboard.down("Shift")
+                await page.keyboard.press("Enter")
                 await page.keyboard.press("Enter")
                 await page.keyboard.up("Shift")
                 await _delay(200, 400)
@@ -2518,6 +2521,7 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
     # 요약 블록은 본문과 별도 타이핑 경로 — [[강조]] 마커가 그대로 노출되므로 텍스트만 남김
     # (2026-07-05 SCHD 글에서 '· 비용·수익률: [[총보수 0.06%]]' 리터럴 노출 실사고)
     summary_text = _EMPHASIS_RE.sub(r"\1", summary_text)
+    target = await _get_editor_frame(page)
     try:
         if anchor_text:
             await _move_cursor_after_text(page, anchor_text)
@@ -2528,12 +2532,37 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
         await _delay(300, 500)
         ok = await _apply_quotation(page, quote_type="버티컬 라인")
         if ok:
-            await page.keyboard.type(summary_text, delay=random.randint(10, 20))
-            await _delay(400, 600)
+            # 요약 불릿을 네이티브 글머리 리스트로 넣어 둘째 줄 내어쓰기(hanging indent) 적용.
+            # (2026-07-05 사용자 요청: 인용구 안 '· ' 텍스트는 둘째 줄이 왼쪽 끝에 붙어 안 예쁨)
+            # 리스트 적용이 실패하면 리터럴 '· '로 폴백해 최소한 글머리는 남긴다.
+            bullets_ = [
+                (l.strip()[2:].strip() if l.strip().startswith(("· ", "• ")) else l.strip())
+                for l in summary_text.split("\n") if l.strip()
+            ]
+            list_ok = False
+            for idx, txt in enumerate(bullets_):
+                if idx == 0:
+                    await page.keyboard.type(txt, delay=random.randint(10, 20))
+                    list_ok = await _apply_bullet_list_to_caret(page, target, list_type="bullet")
+                    if not list_ok:
+                        await page.keyboard.press("Home")
+                        await page.keyboard.type("· ")
+                        await page.keyboard.press("End")
+                else:
+                    await page.keyboard.press("Enter")   # 리스트면 항목 상속, 아니면 새 줄
+                    await _delay(120, 200)
+                    if not list_ok:
+                        await page.keyboard.type("· ")
+                    await page.keyboard.type(txt, delay=random.randint(10, 20))
+                await _delay(90, 160)
+            await _delay(300, 500)
             await page.keyboard.press("Escape")
             await _delay(200, 350)
             await page.keyboard.press("Control+End")
-            logger.info(f"요약 블록 삽입 성공 (앵커: {anchor_text[:25] if anchor_text else '없음'})")
+            logger.info(
+                f"요약 블록 삽입 성공 (앵커: {anchor_text[:25] if anchor_text else '없음'}, "
+                f"네이티브리스트={'O' if list_ok else 'X(· 폴백)'})"
+            )
             return True
         logger.warning("인용구 적용 실패로 요약 블록 미삽입")
     except Exception as e:
