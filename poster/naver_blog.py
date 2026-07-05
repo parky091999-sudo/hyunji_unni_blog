@@ -2600,28 +2600,21 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
         await _delay(300, 500)
         ok = await _apply_quotation(page, quote_type="버티컬 라인")
         if ok:
-            # 요약 불릿을 네이티브 글머리 리스트로 넣어 둘째 줄 내어쓰기(hanging indent) 적용.
-            # (2026-07-05 사용자 요청: 인용구 안 '· ' 텍스트는 둘째 줄이 왼쪽 끝에 붙어 안 예쁨)
-            # 리스트 적용이 실패하면 리터럴 '· '로 폴백해 최소한 글머리는 남긴다.
-            bullets_ = [
-                (l.strip()[2:].strip() if l.strip().startswith(("· ", "• ")) else l.strip())
-                for l in summary_text.split("\n") if l.strip()
-            ]
-            list_ok = False
-            for idx, txt in enumerate(bullets_):
-                if idx == 0:
-                    await page.keyboard.type(txt, delay=random.randint(10, 20))
-                    list_ok = await _apply_bullet_list_to_caret(page, target, list_type="bullet")
-                    if not list_ok:
-                        await page.keyboard.press("Home")
-                        await page.keyboard.type("· ")
-                        await page.keyboard.press("End")
-                else:
-                    await page.keyboard.press("Enter")   # 리스트면 항목 상속, 아니면 새 줄
+            # ★요약 불릿을 '✓ '로 통일(2026-07-05 사용자 지시). 카테고리마다 마커가 달랐고
+            # (info/gov=✓, stock=·), 내어쓰기 폴백이 '✓' 위에 '· '를 덧붙여 '· ✓' 중복 +
+            # 끝에 '·'가 붙는 오류가 있었다. 각 줄의 앞뒤 글머리(·•✓✔☑ 공백)를 모두 벗기고
+            # '✓ '를 재부착해 서식을 통일한다. (인용구 안 네이티브 리스트는 불가라 내어쓰기는 포기)
+            lines_ = []
+            for l in summary_text.split("\n"):
+                t = re.sub(r"^[\s·•✓✔☑\-]+", "", l)
+                t = re.sub(r"[\s·•]+$", "", t).strip()
+                if t:
+                    lines_.append(t)
+            for idx, txt in enumerate(lines_):
+                if idx:
+                    await page.keyboard.press("Enter")
                     await _delay(120, 200)
-                    if not list_ok:
-                        await page.keyboard.type("· ")
-                    await page.keyboard.type(txt, delay=random.randint(10, 20))
+                await page.keyboard.type(f"✓ {txt}", delay=random.randint(10, 20))
                 await _delay(90, 160)
             await _delay(300, 500)
             await page.keyboard.press("Escape")
@@ -2629,7 +2622,7 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
             await page.keyboard.press("Control+End")
             logger.info(
                 f"요약 블록 삽입 성공 (앵커: {anchor_text[:25] if anchor_text else '없음'}, "
-                f"네이티브리스트={'O' if list_ok else 'X(· 폴백)'})"
+                f"✓통일 {len(lines_)}줄)"
             )
             return True
         logger.warning("인용구 적용 실패로 요약 블록 미삽입")
