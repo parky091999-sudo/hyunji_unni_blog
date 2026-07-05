@@ -739,39 +739,53 @@ async def _apply_subheading_color(page: Page, target) -> bool:
     SE ONE 글자색: [data-name='font-color'] 버튼 클릭 → 팔레트 → 색 셀 클릭.
     팔레트 색상값은 실측 로그로 확인(첫 1회만 덤프). 실패 시 볼드만 유지."""
     global _color_palette_logged
-    btn = target.locator("[data-name='font-color']").first
-    try:
-        if not await btn.count():
-            return False
-        await btn.click(timeout=1500)
-        await _delay(350, 550)
-    except Exception:
-        return False
-    # 팔레트 색상값 실측(첫 1회) — 이후 정확한 셀렉터로 좁히기 위함
-    if not _color_palette_logged:
+    # font-color 버튼: 에디터 프레임(target)·페이지(page) 둘 다 탐색 + 진단 로그
+    btn = None
+    for ctx, name in ((target, "frame"), (page, "page")):
         try:
-            palette = await target.evaluate(
-                "() => [...document.querySelectorAll('[data-value]')]"
-                ".map(e => e.getAttribute('data-value'))"
-                ".filter(v => v && v.startsWith('#')).slice(0, 30)"
-            )
-            if palette:
-                logger.info(f"[색상팔레트 실측] {palette}")
-                _color_palette_logged = True
+            b = ctx.locator("[data-name='font-color']").first
+            if await b.count() and await b.is_visible(timeout=500):
+                btn, btn_ctx = b, ctx
+                break
         except Exception:
-            pass
-    # 파랑 계열 색 클릭 시도(여러 후보 hex)
-    for sel in ["[data-value='#1f78ff']", "[data-value='#0068c8']", "[data-value='#1e88e5']",
-                "[data-value='#2196f3']", "[data-value='#3a5fcd']", "[data-value='#0000ff']"]:
+            continue
+    if btn is None:
+        logger.info("소제목 색상: font-color 버튼 없음(스킵)")
+        return False
+    try:
+        await btn.click(timeout=1500)
+        await _delay(400, 650)
+    except Exception as e:
+        logger.info(f"소제목 색상: 버튼 클릭 실패 {e.__class__.__name__}")
+        return False
+    # 팔레트 색상값 실측(첫 1회) — frame·page 양쪽에서 hex 후보 덤프
+    if not _color_palette_logged:
+        for ctx, name in ((btn_ctx, "btn_ctx"), (target, "frame"), (page, "page")):
+            try:
+                palette = await ctx.evaluate(
+                    "() => [...document.querySelectorAll('[data-value],[data-color],button')]"
+                    ".map(e => e.getAttribute('data-value')||e.getAttribute('data-color')||'')"
+                    ".filter(v => v && v.startsWith('#')).slice(0, 40)"
+                )
+                if palette:
+                    logger.info(f"[색상팔레트 실측:{name}] {palette}")
+                    _color_palette_logged = True
+                    break
+            except Exception:
+                continue
+    # 파랑 계열 색 클릭 시도(여러 후보 hex, 대소문자)
+    for sel in ["[data-value='#1f78ff']", "[data-value='#1F78FF']", "[data-value='#0068c8']",
+                "[data-value='#1e88e5']", "[data-value='#2196f3']", "[data-value='#0000ff']",
+                "[data-color='#1f78ff']", "button[title*='파랑']"]:
         try:
-            c = target.locator(sel).first
+            c = btn_ctx.locator(sel).first
             if await c.count() and await c.is_visible(timeout=400):
                 await c.click(timeout=1000)
                 logger.info(f"소제목 색상 적용: {sel}")
                 return True
         except Exception:
             continue
-    # 못 찾으면 팔레트 닫기(발행 안전)
+    logger.info("소제목 색상: 팔레트에서 파랑 색 못 찾음(볼드만 유지)")
     try:
         await page.keyboard.press("Escape")
     except Exception:
