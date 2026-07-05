@@ -862,12 +862,10 @@ async def _style_paragraphs(
                         await _delay(120, 200)
                         await page.keyboard.press("Control+b")
                         await _delay(150, 250)
-                        # 소제목 색상 강조(파랑) — 선택 유지 상태에서 글자색 적용(best-effort).
-                        # 벤치마킹(너부리): 소제목 색상으로 스캔성↑. 실패해도 볼드는 유지.
-                        try:
-                            await _apply_subheading_color(page, target)
-                        except Exception as _ce:
-                            logger.info(f"소제목 색상 스킵: {_ce.__class__.__name__}")
+                        # ※소제목 색상(파랑) 자동화 보류(2026-07-05): SE ONE color-picker 팔레트는
+                        # 실제 마우스 제스처가 필요한 UI라 합성 클릭(locator/force/JS)이 모두 실패
+                        # (표 열삭제 자동화 불가와 동일 부류). 볼드+버티컬라인으로 소제목 구분은 충분.
+                        # _apply_subheading_color 함수는 향후 재시도 위해 보존(호출만 제거).
                     await page.keyboard.press("Escape")
                     await _delay(150, 250)
                 
