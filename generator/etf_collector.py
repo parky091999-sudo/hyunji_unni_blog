@@ -142,6 +142,22 @@ US_THEME_GROUPS: dict[str, list[str]] = {
     "채권형": ["AGG", "TLT", "BND", "SHY"],
 }
 
+# 유형 코드(구조·강조 분기용) — US_THEME_GROUPS 그룹명 → 짧은 코드
+_TYPE_CODE = {
+    "배당·인컴형": "dividend",
+    "시장지수·성장형": "growth",
+    "레버리지형": "leverage",
+    "채권형": "bond",
+}
+
+
+def etf_type_of(ticker: str) -> str:
+    """미국 ETF의 유형 코드(dividend/growth/leverage/bond). 미분류 시 'growth'."""
+    for group, members in US_THEME_GROUPS.items():
+        if ticker in members:
+            return _TYPE_CODE[group]
+    return "growth"
+
 _US_WATCHLIST_ALL = list(US_ETF_PROFILE.keys())
 
 _TAX_ANGLES = ["ISA", "연금저축펀드", "퇴직연금DC"]
@@ -367,18 +383,49 @@ class EtfDataCollector:
                 logger.warning(f"{ticker} 데이터 수집 실패: {e}")
         return etf_data
 
+    # ── 위험·변동성 지표 (베타·연율변동성·S&P500 상관 — 유형별 심화 분석용) ──
+    @staticmethod
+    def get_us_etf_risk_metrics(ticker: str) -> dict:
+        """S&P500(SPY) 대비 베타·연율변동성·상관계수(최근 6개월 일간수익률).
+        레버리지=변동성/베타 강조, 채권=낮은 상관(방어) 근거로 쓰인다. 실패 시 빈 dict."""
+        try:
+            import numpy as np
+
+            etf = yf.Ticker(ticker).history(period="6mo")["Close"].pct_change().dropna()
+            spy = yf.Ticker("SPY").history(period="6mo")["Close"].pct_change().dropna()
+            common = etf.index.intersection(spy.index)
+            e, s = etf.loc[common], spy.loc[common]
+            if len(e) < 30:
+                return {}
+            var_s = float(np.var(s))
+            out = {"연율변동성(%)": round(float(e.std()) * (252 ** 0.5) * 100, 1)}
+            if var_s > 0:
+                out["베타(S&P500대비)"] = round(float(np.cov(e, s)[0, 1]) / var_s, 2)
+            out["S&P500상관계수"] = round(float(np.corrcoef(e, s)[0, 1]), 2)
+            return out
+        except Exception as ex:
+            logger.warning(f"{ticker} 위험지표 계산 실패(무시): {ex}")
+            return {}
+
     # ── 미국 ETF 심층 데이터 (구성종목·배당·백테스트, 전부 실데이터) ──
     @staticmethod
-    def get_us_etf_enrichment(ticker: str) -> dict:
-        """us_individual 심층분석용 추가 팩트: 구성종목 TOP10·섹터구성·연도별 배당·
-        배당재투자 백테스트. 항목별 개별 실패 허용 — 수집된 것만 담아 반환.
-        (2026-07-05 지시: 실제 top10 종목·비중, 배당 이력·재투자 성과, 10년+ 백테스트 반영)"""
+    def get_us_etf_enrichment(ticker: str, etf_type: str = "dividend") -> dict:
+        """us_individual 심층분석용 추가 팩트. 유형별로 수집 항목이 다르다:
+        - 공통: 구성종목 TOP10·섹터구성 + 위험지표(베타·변동성·상관)
+        - dividend: + 연도별 배당·배당재투자 백테스트
+        - growth: + 배당(소액이라 참고)·백테스트(재투자 효과 작음)
+        - leverage: 배당 수집 안 함(무의미). 변동성·베타가 핵심.
+        - bond: + 배당(이자분배) 이력
+        항목별 개별 실패 허용."""
         out: dict = {}
         try:
             stock = yf.Ticker(ticker)
         except Exception as e:
             logger.warning(f"{ticker} enrichment 초기화 실패: {e}")
             return out
+        # 위험지표는 모든 유형 공통(특히 레버리지·채권에 핵심)
+        out.update(EtfDataCollector.get_us_etf_risk_metrics(ticker))
+        collect_dividend = etf_type in ("dividend", "growth", "bond")
 
         # ① 구성종목 TOP10 + 섹터 구성 (야후 집계 — 운용사 공시와 시차 가능)
         try:
@@ -399,8 +446,9 @@ class EtfDataCollector:
             logger.warning(f"{ticker} 구성종목 수집 실패(무시): {e}")
 
         # ② 연도별 배당 이력 (완결 연도만 — 진행 중인 올해는 합계가 부분값이라 왜곡됨)
+        # 레버리지형은 배당이 무의미하므로 수집 자체를 건너뛴다(억지 배당 섹션 방지).
         try:
-            div = stock.dividends
+            div = stock.dividends if collect_dividend else None
             if div is not None and len(div) >= 8:
                 yearly = div.groupby(div.index.year).sum()
                 cur_year = datetime.now(KST).year
@@ -433,6 +481,8 @@ class EtfDataCollector:
 
         # ③ 배당재투자 백테스트 — auto_adjust=True(수정주가)=배당 재투자 총수익 근사
         try:
+            if not collect_dividend:
+                raise StopIteration  # 레버리지형은 백테스트 스킵(아래 except가 조용히 처리)
             tr = stock.history(period="max", auto_adjust=True)["Close"]
             pr = stock.history(period="max", auto_adjust=False)["Close"]
             if len(tr) > 300 and len(pr) == len(tr):
@@ -461,6 +511,8 @@ class EtfDataCollector:
                 if bt:
                     out["백테스트(배당재투자, 마지막거래일 기준)"] = bt
                     out["백테스트주의"] = "과거 성과는 미래 수익을 보장하지 않음 — 본문에 반드시 명시"
+        except StopIteration:
+            pass  # 레버리지형 — 배당 백테스트 스킵(정상)
         except Exception as e:
             logger.warning(f"{ticker} 백테스트 계산 실패(무시): {e}")
 
@@ -566,10 +618,12 @@ class EtfDataCollector:
         row = data.get(ticker)
         if not row:
             return None
-        # 심층 팩트(구성종목 TOP10·섹터·배당이력·백테스트) — 실패해도 기본 데이터로 진행
-        row.update(EtfDataCollector.get_us_etf_enrichment(ticker))
+        etf_type = etf_type_of(ticker)
+        # 심층 팩트(구성종목·위험지표, 배당형은 배당이력·백테스트) — 유형별. 실패해도 기본 진행
+        row.update(EtfDataCollector.get_us_etf_enrichment(ticker, etf_type=etf_type))
         return {
             "_etf_content_type": "us_individual",
+            "_etf_type": etf_type,
             "_etf_subject": ticker,
             "_chart_mode": "single",
             "_chart_tickers": [ticker],
