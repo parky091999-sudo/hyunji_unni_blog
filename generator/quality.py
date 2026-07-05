@@ -487,6 +487,21 @@ def score_stock_content(
     else:
         issues.append(f"소제목 부족 ({sh_count}개)")
 
+    # 모바일 가독성 — 덩어리 문단 감지 (WRITING_SYSTEM §6: 한 문장 50자 내외, 문단 1~2문장).
+    # 한 줄(=한 문단)이 150자를 넘으면 모바일에서 5줄+ 벽글이 돼 스캔 독자가 이탈한다.
+    long_lines = [
+        ln for ln in (l.strip() for l in body.splitlines())
+        if len(ln) > 150 and not ln.startswith("[")
+    ]
+    if long_lines:
+        score -= min(len(long_lines) * 3, 12)
+        issues.append(f"덩어리 문단 {len(long_lines)}개 (150자+) — 문장 분리·'· ' 불릿화 필요")
+        if len(long_lines) >= 4 or any(len(ln) > 260 for ln in long_lines):
+            critical.append(
+                f"덩어리 문단 과다({len(long_lines)}개, 최장 {max(len(ln) for ln in long_lines)}자) "
+                "— 한 문단 1~2문장, 불릿은 '· '로 시작해 60자 이내로 분해"
+            )
+
     has_table = bool(table_str) or bool(_TABLE_MARKER.search(body))
     has_faq = bool(faq_str) or bool(_FAQ_MARKER.search(body))
     if has_table:

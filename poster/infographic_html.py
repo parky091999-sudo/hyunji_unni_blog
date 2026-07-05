@@ -7,7 +7,8 @@ HTML/CSS 템플릿 + Playwright 스크린샷으로 고품질 인포그래픽 생
   → 150px 축소 썸네일에서도 제목이 읽히는 것이 목표.
 - 크롭 영역(가운데 900×900) 안에는 핵심 키워드·작은 브랜드·카테고리 칩만.
   차트 막대 장식은 저투명도 배경 요소로 깔림(텍스트가 항상 위).
-- 불릿(핵심 요약)은 크롭 바깥 오른쪽 날개에만 작게 표시 — 전체보기 전용.
+- 불릿 날개(오른쪽 작은 요약 텍스트)는 제거(2026-07-05 피드백) — 본문 표시 크기에서
+  읽히지 않고 헤더 바로 아래 요약블록과 중복이라 제목 중심 구성만 유지.
 - 카테고리별 강조색 시스템(빨강/보라/파랑 등)은 유지.
 """
 import asyncio
@@ -237,24 +238,10 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
         f'<div class="bar" style="height:{h}%;"></div>' for h in bar_heights
     )
 
-    # ── 불릿: 크롭 영역 바깥 오른쪽 날개(전체보기 전용) — 썸네일 가독성엔 영향 없음 ──
-    def _short_bullet(b: str, limit: int = 26) -> str:
-        if len(b) <= limit:
-            return b
-        cut = b[:limit]
-        sp = cut.rfind(" ")
-        if sp >= limit - 8:
-            cut = cut[:sp]
-        return cut.rstrip() + "…"
-
-    n = min(len(bullets) if bullets else 0, 4)
-    wing_html = ""
-    if n > 0:
-        items = "".join(
-            f'<div class="witem"><span class="wdot"></span>{escape(_short_bullet(b))}</div>'
-            for b in bullets[:n]
-        )
-        wing_html = f'<div class="wing">{items}</div>'
+    # 불릿 날개 제거(2026-07-05 사용자 피드백): 21px 텍스트는 본문 표시 크기에서
+    # 읽히지 않고, 같은 내용이 헤더 바로 아래 요약블록에 크게 나와 중복 — 제목 중심 유지.
+    # (bullets 인자는 호출부 호환을 위해 유지하되 렌더하지 않음)
+    _ = bullets
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -348,25 +335,6 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
   letter-spacing:2px;
 }}
 
-/* ── 불릿 날개(크롭 오른쪽 바깥, 전체보기 전용) ── */
-.wing{{
-  position:absolute;
-  right:44px;top:50%;transform:translateY(-50%);
-  width:{(W - H) // 2 - 90}px;
-  display:flex;flex-direction:column;gap:22px;
-}}
-.witem{{
-  display:flex;align-items:flex-start;gap:10px;
-  font-size:21px;font-weight:500;
-  color:rgba(255,255,255,.88);
-  line-height:1.4;word-break:keep-all;
-}}
-.wdot{{
-  flex-shrink:0;
-  width:10px;height:10px;border-radius:50%;
-  background:{accent};
-  margin-top:9px;
-}}
 </style>
 </head>
 <body>
@@ -382,7 +350,6 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
     <div class="brand">현지언니</div>
   </div>
 
-  {wing_html}
 
   <div class="edge"></div>
 </div>

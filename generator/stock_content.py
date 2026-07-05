@@ -35,6 +35,47 @@ STOCK_TOPICS: dict[str, dict] = {
 
 _WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 종결어미 뒤 공백에서 문장 분리 ("~다. ", "~요. ", "~죠. ") — 소수점(4.72) 오분리 방지
+_SENT_BOUNDARY = re.compile(r"(?<=[다요죠]\.)\s+")
+
+
+def _split_long_paragraphs(body: str, limit: int = 150, target: int = 110) -> str:
+    """모바일 가독성 후처리(§6): 여러 문장이 한 줄에 붙은 덩어리 문단을 문장 경계에서 분리.
+    프롬프트 지시(한 문단 1~2문장)를 모델이 어겨도 결정적으로 교정한다.
+    - 일반 줄: 문장들을 target자 이내 그룹으로 묶어 빈 줄(새 문단)로 분리
+    - '· ' 불릿 줄: 각 문장을 각각의 불릿으로 분리
+    - 구조 마커([...]) 줄은 건드리지 않음"""
+    out: list[str] = []
+    for line in body.splitlines():
+        s = line.strip()
+        if len(s) <= limit or s.startswith("["):
+            out.append(line)
+            continue
+        is_bullet = s.startswith("· ")
+        sentences = [p.strip() for p in _SENT_BOUNDARY.split(s[2:] if is_bullet else s) if p.strip()]
+        if len(sentences) < 2:
+            out.append(line)
+            continue
+        if is_bullet:
+            out.extend(f"· {sent}" for sent in sentences)
+        else:
+            groups: list[str] = []
+            cur = ""
+            for sent in sentences:
+                if cur and len(cur) + len(sent) + 1 > target:
+                    groups.append(cur)
+                    cur = sent
+                else:
+                    cur = f"{cur} {sent}".strip()
+            if cur:
+                groups.append(cur)
+            # 빈 줄로 구분해 각 그룹을 별도 문단으로
+            for gi, g in enumerate(groups):
+                if gi:
+                    out.append("")
+                out.append(g)
+    return "\n".join(out)
+
 
 def _today_str() -> str:
     return datetime.now(KST).strftime("%Y년 %m월 %d일")
@@ -104,6 +145,14 @@ _COMMON_RULES = (
     "10. ★최근 뉴스 활용: 팩트 데이터에 '최근뉴스'가 있으면 헤드라인·요약을 근거로 지금 시장 이슈를 "
     "구체적으로 반영하라(날짜가 있으면 최신 것 우선). 단, 뉴스에 나온 수치·사실을 과장하거나 "
     "재해석해 단정하지 말고 '이런 보도가 있었다' 수준으로 중립 인용. 뉴스 없으면 이 항목 무시.\n"
+    "11. ★★★모바일 가독성(스캔 최적화) — 독자는 읽지 않고 스캔한다:\n"
+    "  ① 한 문장 50자 내외, 최대 70자. 두 가지 정보를 한 문장에 욱여넣지 말고 문장을 나눠라.\n"
+    "  ② 한 문단은 1~2문장까지만. 3문장 이상 이어붙인 덩어리 문단 금지 — 문단 사이 빈 줄.\n"
+    "  ③ '불릿 N줄' 지시가 있는 섹션은 각 줄을 반드시 '· '로 시작하라(글머리표로 변환됨). "
+    "'라벨: 긴 설명 문단' 형태로 늘어놓지 마라 — '· 라벨: 한 문장' 형태로 짧게.\n"
+    "  ④ 불릿 한 줄은 60자 이내. 넘치면 불릿을 하나 더 만들어 나눠라.\n"
+    "  ⑤ 용어 괄호 풀이는 15자 이내로 짧게(예: '괴리율(시장가와 실제가치의 차이)').\n"
+    "  ⑥ 각 소제목 아래 첫 문장이 그 섹션의 결론 — 첫 문장만 읽어도 핵심이 전달되게.\n"
 )
 
 _OUTPUT_FORMAT = (
@@ -612,6 +661,8 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
 
             parsed["title"] = strip_title_emphasis_markers(parsed.get("title", ""))
             parsed["body"] = strip_body_emphasis_markers(parsed.get("body", ""))
+            # 덩어리 문단 결정적 분리(§6 모바일 가독성) — 품질 채점 전에 적용
+            parsed["body"] = _split_long_paragraphs(parsed["body"])
 
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
             if body_len < 700:
