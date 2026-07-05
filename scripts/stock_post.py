@@ -308,6 +308,25 @@ def run():
         images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
         logger.info(f"주식 헤더 카드 생성: {header_path}")
 
+    # ── 섹터·테마 비교: 헤더 다음 [사진2]에 비교 인포그래픽(월부 벤치마킹) ──
+    if (STOCK_TOPIC == "etf포트폴리오" and isinstance(fact_data, dict)
+            and fact_data.get("_etf_content_type") in ("sector_compare_kr", "sector_compare_us")):
+        try:
+            targets = fact_data.get("비교대상")
+            group = fact_data.get("그룹명")
+            if targets and group:
+                from poster.infographic_html import create_comparison_infographic
+
+                cmp_path = create_comparison_infographic(group, targets, category=card_cat)
+                if cmp_path:
+                    images.append({
+                        "local_path": cmp_path, "url": "",
+                        "alt_text": f"{group} ETF 비교", "label": f"{group} 비교",
+                    })
+                    logger.info(f"비교 인포그래픽 생성: {cmp_path}")
+        except Exception as e:
+            logger.warning(f"비교 인포그래픽 생성 실패(무시): {e}")
+
     if STOCK_TOPIC == "etf포트폴리오" and isinstance(fact_data, dict):
         try:
             chart_mode = fact_data.get("_chart_mode")

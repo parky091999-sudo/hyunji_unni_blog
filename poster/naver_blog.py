@@ -778,8 +778,9 @@ async def _apply_subheading_color(page: Page, target) -> bool:
                 "[data-value='#28e1ff']"]:
         try:
             c = btn_ctx.locator(sel).first
-            if await c.count() and await c.is_visible(timeout=400):
-                await c.click(timeout=1000)
+            if await c.count():
+                # 팔레트 색 셀은 오버레이/애니메이션으로 is_visible이 지연됨 → force 클릭
+                await c.click(timeout=1200, force=True)
                 logger.info(f"소제목 색상 적용: {sel}")
                 return True
         except Exception:
