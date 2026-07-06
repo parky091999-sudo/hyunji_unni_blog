@@ -1041,11 +1041,21 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
         if best_loc is not None:
             logger.info(f"앵커 단락 발견: {clean_anchor[:40]}")
+            # 직전 이미지/표 삽입이 남긴 선택 상태·플로팅 툴바가 클릭 지점을 가로채
+            # 클릭이 30초 타임아웃되던 사고 방지(2026-07-06 로그로 확정) — 먼저 해제.
+            try:
+                await page.keyboard.press("Escape")
+                await _delay(150, 300)
+            except Exception:
+                pass
             clicked = False
             try:
                 box = await best_loc.bounding_box()
                 if box and box["width"] > 6 and box["height"] > 6:
-                    await best_loc.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                    await best_loc.click(
+                        position={"x": box["width"] - 3, "y": box["height"] - 3},
+                        timeout=5000,
+                    )
                     clicked = True
             except Exception as e:
                 logger.warning(f"단락 박스 클릭 실패: {e}")
@@ -1055,31 +1065,29 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
             await _delay(200, 400)
             # 랩된 긴 문단에선 클릭+End가 첫 시각줄 끝에 떨어질 수 있음 → 이미지/표가
             # 문장 한가운데 삽입되는 사고(2026-07-06 삼성전자 라이브에서 2건 확인).
-            # 캐럿이 문단 '진짜 끝'인지 읽기전용 selection으로 검증, 아니면 줄 내려가며 보정.
+            # 검증: '캐럿 뒤에 문단 텍스트가 남아있는가'를 Range로 측정(span/ZWSP 구조 무관).
             _CARET_AT_END_JS = """
             (el) => {
-              const sel = el.ownerDocument.getSelection();
-              if (!sel || !sel.anchorNode) return 'none';
-              if (!el.contains(sel.anchorNode)) return 'outside';
-              if (sel.anchorNode === el && sel.anchorOffset >= el.childNodes.length) return 'end';
-              const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-              let last = null, n;
-              while ((n = walker.nextNode())) { if (n.textContent.length) last = n; }
-              if (!last) return 'end';
-              const eff = last.textContent.replace(/\\u200B+$/, '').length;
-              if (sel.anchorNode === last && sel.anchorOffset >= eff) return 'end';
-              return 'inside';
+              const doc = el.ownerDocument;
+              const sel = doc.getSelection();
+              if (!sel || !sel.rangeCount) return 'none';
+              const r = sel.getRangeAt(0);
+              if (!el.contains(r.startContainer)) return 'outside';
+              const tail = doc.createRange();
+              tail.setStart(r.startContainer, r.startOffset);
+              tail.setEndAfter(el.lastChild || el);
+              const rest = tail.toString().replace(/[\\u200B\\s]/g, '');
+              return rest.length === 0 ? 'end' : 'inside';
             }
             """
             try:
                 for attempt in range(6):
                     state = await best_loc.evaluate(_CARET_AT_END_JS)
                     if state in ("end", "none"):
-                        if attempt:
-                            logger.info(f"문단끝 캐럿 보정 {attempt}회 (앵커: {clean_anchor[:20]})")
+                        logger.info(f"문단끝 캐럿 확인: {state} (보정 {attempt}회, 앵커: {clean_anchor[:20]})")
                         break
                     if state == "outside":
-                        # 아래 블록으로 넘어감 — 한 줄 올라와 그 줄 끝 = 문단 끝
+                        # 아래 블록으로 넘어감 — 한 줄 올라와 그 줄 끝에서 멈춤
                         await page.keyboard.press("ArrowUp")
                         await page.keyboard.press("End")
                         await _delay(100, 200)
