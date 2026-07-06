@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+import requests
 import yfinance as yf
 
 logger = logging.getLogger("stock_chart")
@@ -193,4 +194,21 @@ def generate_price_chart(ticker: str, label: str = "", period: str = "6mo") -> s
         return _save(fig)
     except Exception as e:
         logger.error(f"{ticker} 가격 차트 생성 실패: {e}")
+        return None
+
+
+def get_naver_official_chart(code: str) -> str | None:
+    """네이버금융이 제공하는 국내 종목 실시간 차트(정적 PNG)를 그대로 다운로드.
+    (finance.naver.com 종목 상세페이지가 렌더하는 원본 이미지 — 신뢰도용 실측 캡처 대체)"""
+    url = f"https://ssl.pstatic.net/imgfinance/chart/item/area/day/{code}.png"
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200 or len(resp.content) < 2000:
+            return None
+        fd, path = tempfile.mkstemp(suffix=".png", prefix="naver_chart_")
+        with os.fdopen(fd, "wb") as f:
+            f.write(resp.content)
+        return path
+    except Exception as e:
+        logger.error(f"{code} 네이버금융 공식 차트 다운로드 실패: {e}")
         return None

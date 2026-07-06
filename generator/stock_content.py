@@ -448,19 +448,41 @@ def _struct_ipo(cfg: dict) -> str:
     )
 
 
-def _financials_photo_block(has_financials: bool) -> str:
-    """[사진3] 연간 실적 추이 차트 블록 — '연간실적' 팩트가 있을 때만 구조에 포함."""
-    if not has_financials:
-        return ""
+def _financials_photo_block(idx: int) -> str:
+    """연간 실적 추이 차트 블록 — '연간실적' 팩트가 있을 때만 호출측에서 포함."""
     return (
-        "\n[사진3]\n"
-        "(★위 [사진3]은 이 종목의 연간 매출·영업이익 추이 차트다. "
+        f"\n[사진{idx}]\n"
+        f"(★위 [사진{idx}]은 이 종목의 연간 매출·영업이익 추이 차트다. "
         "팩트 데이터의 '연간실적' 수치만 근거로 실적이 성장·정체·역성장 중 어디에 가까운지 "
         "바로 다음 문장에서 한 줄로 짚어라.)\n"
     )
 
 
-def _struct_single_stock(cfg: dict, has_financials: bool = False) -> str:
+def _naver_chart_photo_block(idx: int) -> str:
+    """네이버금융 공식 실시간 차트(정적 이미지 그대로) 블록 — 국내 종목만, 신뢰도 보강용."""
+    return (
+        f"\n[사진{idx}]\n"
+        f"(★위 [사진{idx}]은 네이버금융이 제공하는 이 종목의 실제 차트 화면이다. "
+        "바로 다음 문장에서 '네이버금융에서 실제로 확인해보면' 같은 자연스러운 말로 "
+        "공식 출처를 짧게 한 번만 언급하라(과도한 설명 금지, 한 줄).)\n"
+    )
+
+
+def _stock_photo_blocks(has_financials: bool, has_naver_chart: bool) -> str:
+    """[사진2](자체 차트) 다음에 올 블록들을 동적 번호로 순서대로 조립.
+    순서: 네이버금융 공식 차트(국내만) → 연간 실적 차트(재무 팩트 있을 때만)."""
+    idx = 3
+    out = ""
+    if has_naver_chart:
+        out += _naver_chart_photo_block(idx)
+        idx += 1
+    if has_financials:
+        out += _financials_photo_block(idx)
+        idx += 1
+    return out
+
+
+def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_chart: bool = False) -> str:
     return (
         "\n★★★ 본문(---다음)의 맨 첫 줄은 반드시 '[사진1]' 단독 한 줄이어야 한다. "
         "절대 다른 문장·제목으로 본문을 시작하지 마라. 이 규칙을 어기면 전체 재작성이다.\n"
@@ -486,7 +508,7 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False) -> str:
         "(★위 [사진2]는 이 종목의 최근 6개월 가격 추이 차트(20일 이동평균선 포함)다. "
         "바로 다음 문장에서 차트를 짧게 언급하며 최근 추세가 상승·하락·횡보 중 어디에 가까운지 "
         "표에 있는 등락률·52주최고/최저 수치로만 근거를 들어 한 줄로 짚어라.)\n"
-        + _financials_photo_block(has_financials) +
+        + _stock_photo_blocks(has_financials, has_naver_chart) +
         "\n[소제목] 왜 지금 이 종목이 화제인가\n"
         "(★핵심 섹션 — '공시·뉴스로 확인하세요' 같은 무성의한 회피 금지. "
         "팩트 데이터에 '최근뉴스'(제목 리스트)가 있으면 그 실제 헤드라인들을 근거로 무슨 이슈인지 구체적으로 설명하고, "
@@ -536,7 +558,7 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False) -> str:
     )
 
 
-def _struct_single_stock_weekend(cfg: dict, has_financials: bool = False) -> str:
+def _struct_single_stock_weekend(cfg: dict, has_financials: bool = False, has_naver_chart: bool = False) -> str:
     """주말판 종목분석 — 당일 시황이 없으므로 '이번 주 리뷰 + 주말 이슈 + 월요일 관전포인트' 구조.
     (2026-07-05 지시: 종목분석은 주말에도 발행 — 최근 동향·주말 이슈 기업·월요일 흐름 예상)"""
     return (
@@ -562,7 +584,7 @@ def _struct_single_stock_weekend(cfg: dict, has_financials: bool = False) -> str
         "\n[사진2]\n"
         "(★위 [사진2]는 이 종목의 최근 6개월 가격 추이 차트다. 바로 다음 문장에서 차트 추세를 "
         "표의 수치로만 근거를 들어 한 줄로 짚어라.)\n"
-        + _financials_photo_block(has_financials) +
+        + _stock_photo_blocks(has_financials, has_naver_chart) +
         "\n[소제목] 이번 주 왜 화제였나\n"
         "(★핵심 섹션. 팩트 데이터의 '최근뉴스' 헤드라인들을 근거로 이번 주 이 종목을 움직인 "
         "재료·이슈를 구체적으로 설명. 뉴스가 없으면 등락률·거래량 등 있는 팩트로 화제성을 설명하고 "
@@ -643,6 +665,7 @@ def _build_stock_system(
     # 심층 팩트 유무에 따라 구조(섹션·이미지 슬롯)가 달라진다 — 차트는 stock_post가 같은 조건으로 생성
     has_dividend = bool(fact.get("연도별배당(주당USD)"))
     has_financials = any(k.startswith("연간실적") for k in fact)
+    has_naver_chart = fact.get("시장") == "국내" and bool(fact.get("_code"))
     etf_type = fact.get("_etf_type", "dividend")
 
     n_imgs = 1
@@ -663,12 +686,12 @@ def _build_stock_system(
     elif topic_id == "종목분석":
         if _is_weekend():
             # 주말엔 당일 시황이 없으므로 주간 리뷰+월요일 관전포인트 구조로 전환
-            struct_fn = lambda c: _struct_single_stock_weekend(c, has_financials)
+            struct_fn = lambda c: _struct_single_stock_weekend(c, has_financials, has_naver_chart)
             checklist = _CHECKLIST_WEEKEND_STOCK
         else:
-            struct_fn = lambda c: _struct_single_stock(c, has_financials)
+            struct_fn = lambda c: _struct_single_stock(c, has_financials, has_naver_chart)
             checklist = _CHECKLIST["종목분석"]
-        n_imgs = 3 if has_financials else 2
+        n_imgs = 2 + (1 if has_naver_chart else 0) + (1 if has_financials else 0)
     else:
         struct_fn = _STRUCT_BUILDERS.get(topic_id, _struct_ipo)
         checklist = _CHECKLIST.get(topic_id, "- [소제목] 6개\n")

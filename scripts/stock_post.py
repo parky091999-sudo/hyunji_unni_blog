@@ -405,7 +405,22 @@ def run():
                 })
                 logger.info(f"종목 가격 차트 생성: {chart_path}")
 
-            # ── [사진3] 연간 실적 추이 차트 — 가격차트 성공 + 재무 팩트 존재 시에만(인덱스 밀림 방지) ──
+            # ── 네이버금융 공식 실시간 차트(국내 종목만) — 가격차트 성공 시에만(인덱스 밀림 방지) ──
+            # 프롬프트(_stock_photo_blocks)가 has_naver_chart를 같은 조건(시장=국내+_code)으로
+            # 판단해 [사진N] 자리를 미리 잡아두므로, 여기서도 같은 조건으로 삽입해야 순서가 맞는다.
+            if chart_path and fact_data.get("시장") == "국내" and fact_data.get("_code"):
+                from generator.stock_chart import get_naver_official_chart
+
+                naver_chart_path = get_naver_official_chart(fact_data["_code"])
+                if naver_chart_path:
+                    images.append({
+                        "local_path": naver_chart_path, "url": "",
+                        "alt_text": f"{stock_name} 네이버금융 실시간 차트",
+                        "label": f"{stock_name} 네이버금융 차트",
+                    })
+                    logger.info(f"네이버금융 공식 차트 다운로드: {naver_chart_path}")
+
+            # ── [사진N] 연간 실적 추이 차트 — 가격차트 성공 + 재무 팩트 존재 시에만(인덱스 밀림 방지) ──
             if chart_path and fact_data.get("_fin_ticker"):
                 from generator.stock_chart import generate_financials_chart
 
