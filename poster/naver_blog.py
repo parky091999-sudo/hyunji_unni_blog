@@ -1057,7 +1057,7 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
               const tail = doc.createRange();
               tail.setStart(r.startContainer, r.startOffset);
               tail.setEndAfter(el.lastChild || el);
-              const rest = tail.toString().replace(/[\\u200B\\s]/g, '');
+              const rest = tail.toString().replace(/[\\u200B\\uFEFF\\s]/g, '');
               return rest.length === 0 ? 'end' : 'inside';
             }
             """
@@ -1066,22 +1066,49 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                 await _delay(150, 300)
             except Exception:
                 pass
-            try:
-                await best_loc.evaluate("el => el.scrollIntoView({block: 'center'})")
-                await _delay(200, 350)
-            except Exception:
-                pass
+            # ★문단 '마지막 글자'의 실제 화면 좌표를 구해 page.mouse로 직접 클릭.
+            # locator.click은 액셔너빌리티 검사에서 SE 플로팅 오버레이(이미지 툴바·글감바)에
+            # 계속 가로채여 타임아웃→폴백 클릭이 엉뚱한 줄에 캐럿을 놓았음(2026-07-06 4회 검증).
+            # page.mouse는 검사 없이 좌표를 클릭하고, 진짜 마우스 이벤트라 SE 내부 캐럿도 움직임.
             clicked = False
             try:
-                box = await best_loc.bounding_box()
-                if box and box["width"] > 6 and box["height"] > 6:
-                    await best_loc.click(
-                        position={"x": box["width"] - 3, "y": box["height"] - 3},
-                        timeout=5000,
-                    )
-                    clicked = True
+                pt = await best_loc.evaluate("""
+                (el) => {
+                  el.scrollIntoView({block: 'center'});
+                  const doc = el.ownerDocument;
+                  const r = doc.createRange();
+                  r.selectNodeContents(el);
+                  r.collapse(false);
+                  let rect = r.getBoundingClientRect();
+                  if (!rect || (rect.width === 0 && rect.height === 0 && rect.x === 0 && rect.y === 0)) {
+                    const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                    let last = null, n;
+                    while ((n = walker.nextNode())) { if (n.textContent.trim().length) last = n; }
+                    if (last) {
+                      const rr = doc.createRange();
+                      rr.setStart(last, Math.max(0, last.textContent.length - 1));
+                      rr.setEnd(last, last.textContent.length);
+                      rect = rr.getBoundingClientRect();
+                    } else {
+                      rect = el.getBoundingClientRect();
+                    }
+                  }
+                  return {x: Math.max(1, rect.right - 2), y: rect.top + rect.height / 2};
+                }
+                """)
+                off_x, off_y = 0.0, 0.0
+                try:
+                    fe = await target.frame_element()
+                    fbox = await fe.bounding_box()
+                    if fbox:
+                        off_x, off_y = fbox["x"], fbox["y"]
+                except Exception:
+                    pass  # 메인 프레임이면 오프셋 0
+                await _delay(120, 250)
+                await page.mouse.click(off_x + pt["x"], off_y + pt["y"])
+                clicked = True
             except Exception as e:
-                logger.warning(f"단락 박스 클릭 실패: {e}")
+                logger.warning(f"문단끝 좌표 클릭 실패: {e}")
             if not clicked:
                 try:
                     await best_loc.click(timeout=5000)
