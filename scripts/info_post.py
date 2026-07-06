@@ -161,7 +161,7 @@ def run():
         return
 
     # ── 1. 키워드 선정 ──
-    from generator.keyword import pick_keyword_for_blog_category
+    from generator.keyword import pick_keyword_for_blog_category, keyword_cluster
     recent_kws = _get_recent_posted_keywords(history)
     # ★exclude 필수: 풀 필터 없이 재선정만 돌리면 DataLab 트렌딩이 같은 고검색량
     # 키워드를 반복 반환해 3회 소진 후 중복 발행됨(보험 국민연금 2연속 실사고).
@@ -172,6 +172,21 @@ def run():
             break
         logger.info(f"최근 발행 키워드 중복 ({keyword!r}) — 재선정")
         kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
+        keyword = kw_result["keyword"]
+
+    # 주제 클러스터 3일 쿨다운 — 키워드가 달라도 같은 계열(자동차보험 등) 연속 발행 방지
+    recent3_clusters = {
+        keyword_cluster(kw_result["category"], k)
+        for k in _get_recent_posted_keywords(history, days=3)
+    } - {None}
+    exclude_more = set(recent_kws)
+    for _ in range(5):
+        cluster = keyword_cluster(kw_result["category"], keyword)
+        if cluster is None or cluster not in recent3_clusters:
+            break
+        logger.info(f"주제 클러스터 연속 회피 ({keyword!r} ∈ '{cluster}') — 재선정")
+        exclude_more.add(keyword)
+        kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=exclude_more)
         keyword = kw_result["keyword"]
     logger.info(f"선정 키워드: {keyword!r} | 카테고리: {BLOG_CATEGORY}")
 

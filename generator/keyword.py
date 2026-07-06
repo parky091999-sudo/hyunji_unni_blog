@@ -532,6 +532,29 @@ _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "data", "post_history.json"
 )
 
+# 주제 클러스터 — 같은 계열 키워드가 짧은 간격으로 연속 발행되는 것 방지
+# (2026-07-06 실사고: 보험 자동차보험 2연속 — 키워드가 서로 달라 30일 회피를 통과함.
+#  클러스터 미매칭 키워드는 제한 없음. 현재 보험만, 필요 시 카테고리 추가.)
+TOPIC_CLUSTERS: dict[str, dict[str, list[str]]] = {
+    "보험": {
+        "실손": ["실손", "실비", "도수치료", "비급여"],
+        "자동차": ["자동차보험", "운전자보험", "침수", "신차"],
+        "진단비": ["암", "진단비", "유사암", "뇌 심장"],
+        "연금저축성": ["연금", "종신", "정기보험", "저해지", "무해지", "해지", "감액완납"],
+        "생활배상": ["일상생활배상", "화재보험", "여행자보험", "휴대품", "펫보험"],
+        "가족": ["태아보험", "어린이보험"],
+        "청구관리": ["청구", "숨은 보험금", "내보험찾아줌", "소멸시효", "리모델링", "포트폴리오", "첫 보험"],
+    },
+}
+
+
+def keyword_cluster(cat_id: str, keyword: str) -> str | None:
+    """키워드가 속한 주제 클러스터 반환 (미매칭이면 None = 제한 없음)."""
+    for cluster, subs in TOPIC_CLUSTERS.get(cat_id, {}).items():
+        if any(s in keyword for s in subs):
+            return cluster
+    return None
+
 
 def _get_recent_keywords(days: int = 30) -> set[str]:
     """최근 N일 이내 사용한 키워드 반환"""

@@ -12,6 +12,9 @@ from generator.quality import strip_title_emphasis_markers, validate_info_dates
 
 logger = logging.getLogger("info_content")
 
+# 무근거 인용("~로 알려져 있어요"류) 탐지 — 좁게 잡아 오탐 방지
+_UNSOURCED_RE = re.compile(r"(알려져 있|전해지고 있|라는 말이 있)")
+
 
 INFO_CATEGORIES: dict[str, dict] = {
     "금융재테크": {
@@ -257,6 +260,12 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             if bullet_cnt > 25 or not faq_ok or sub_cnt < 5:
                 logger.warning(f"{cfg['name']}글 구조 불량(불릿 {bullet_cnt}/FAQ {faq_ok}/소제목 {sub_cnt}) — 재생성")
                 continue
+            # 무근거 수치/카더라 하드 게이트 — 프롬프트 금지는 소프트라 어기면 그대로 발행됨
+            # (보험 라이브 "평균 15% 저렴한 것으로 알려져 있어요" 실사고, 2026-07-06)
+            unsourced = _UNSOURCED_RE.findall(parsed.get("body", ""))
+            if unsourced:
+                logger.warning(f"{cfg['name']}글 무근거 인용 표현 {len(unsourced)}건({unsourced[0]!r} 등) — 재생성")
+                continue
             logger.info(
                 f"{cfg['name']}글 생성 완료: {parsed.get('title')!r} "
                 f"(본문 {body_len}자, 표={bool(parsed.get('table_strs'))}, "
@@ -273,7 +282,8 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                             and len(refined.get("subheadings", [])) >= len(parsed.get("subheadings", []))
                             and bool(refined.get("table_strs")) >= bool(parsed.get("table_strs"))
                             and bool(refined.get("faq_pairs")) >= bool(parsed.get("faq_pairs"))
-                            and ref_bullets <= 25):
+                            and ref_bullets <= 25
+                            and not _UNSOURCED_RE.search(refined.get("body", ""))):
                         return refined
                     logger.info(f"{cfg['name']}글 퇴고 거부(소제목 {len(refined.get('subheadings', [])) if refined else 0}, 불릿 {ref_bullets}, FAQ {bool(refined.get('faq_pairs')) if refined else False}) — 원본 사용")
             except Exception as e:
