@@ -1053,6 +1053,43 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                 await best_loc.click()
             await page.keyboard.press("End")
             await _delay(200, 400)
+            # 랩된 긴 문단에선 클릭+End가 첫 시각줄 끝에 떨어질 수 있음 → 이미지/표가
+            # 문장 한가운데 삽입되는 사고(2026-07-06 삼성전자 라이브에서 2건 확인).
+            # 캐럿이 문단 '진짜 끝'인지 읽기전용 selection으로 검증, 아니면 줄 내려가며 보정.
+            _CARET_AT_END_JS = """
+            (el) => {
+              const sel = el.ownerDocument.getSelection();
+              if (!sel || !sel.anchorNode) return 'none';
+              if (!el.contains(sel.anchorNode)) return 'outside';
+              if (sel.anchorNode === el && sel.anchorOffset >= el.childNodes.length) return 'end';
+              const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+              let last = null, n;
+              while ((n = walker.nextNode())) { if (n.textContent.length) last = n; }
+              if (!last) return 'end';
+              const eff = last.textContent.replace(/\\u200B+$/, '').length;
+              if (sel.anchorNode === last && sel.anchorOffset >= eff) return 'end';
+              return 'inside';
+            }
+            """
+            try:
+                for attempt in range(6):
+                    state = await best_loc.evaluate(_CARET_AT_END_JS)
+                    if state in ("end", "none"):
+                        if attempt:
+                            logger.info(f"문단끝 캐럿 보정 {attempt}회 (앵커: {clean_anchor[:20]})")
+                        break
+                    if state == "outside":
+                        # 아래 블록으로 넘어감 — 한 줄 올라와 그 줄 끝 = 문단 끝
+                        await page.keyboard.press("ArrowUp")
+                        await page.keyboard.press("End")
+                        await _delay(100, 200)
+                        logger.info(f"문단끝 캐럿 보정(위로 복귀) (앵커: {clean_anchor[:20]})")
+                        break
+                    await page.keyboard.press("ArrowDown")
+                    await page.keyboard.press("End")
+                    await _delay(80, 160)
+            except Exception as e:
+                logger.warning(f"문단끝 캐럿 검증 실패(현 위치 사용): {e}")
             return True
 
         logger.warning(f"앵커 텍스트 매칭 단락을 찾지 못함: {clean_anchor[:40]}")
