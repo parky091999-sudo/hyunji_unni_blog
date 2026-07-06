@@ -30,7 +30,9 @@ on:
         default: "false"
 
 concurrency:
-  group: naver-info-post
+  # DRAFT 검증 런은 run_id로 독립 그룹 → 스케줄 실발행 큐를 막지 않음.
+  # 스케줄·실발행(비draft) dispatch는 공용 그룹 유지(중복발행 방지 직렬화).
+  group: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true') && format('naver-info-draft-{0}', github.run_id) || 'naver-info-post' }}
   cancel-in-progress: false
 
 jobs:

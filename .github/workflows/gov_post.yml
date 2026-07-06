@@ -16,7 +16,8 @@ on:
         default: "false"
 
 concurrency:
-  group: naver-gov-post
+  # DRAFT 검증 런은 run_id로 독립 그룹 → 스케줄 실발행 큐를 막지 않음.
+  group: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true') && format('naver-gov-draft-{0}', github.run_id) || 'naver-gov-post' }}
   cancel-in-progress: false
 
 jobs:
