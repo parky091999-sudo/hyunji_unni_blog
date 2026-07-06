@@ -1041,102 +1041,34 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
         if best_loc is not None:
             logger.info(f"앵커 단락 발견: {clean_anchor[:40]}")
-            # ★SE ONE의 내부 캐럿은 '실제 클릭/키입력'으로만 움직인다 — JS로 DOM selection을
-            # 옮겨도 사진 삽입은 내부 캐럿 위치를 쓴다(2026-07-06 DRAFT 3회로 확정, 이미지가
-            # 직전 이미지 뒤에 연쇄로 붙음). 반드시 진짜 클릭으로 캐럿을 놓는다.
-            # 클릭 가로채기의 진범 = 하단 중앙 '글감' 플로팅 바: Playwright의 최소 스크롤이
-            # 앵커 문단을 뷰포트 맨 아래(바 위치)에 걸치게 함 → 클릭 타임아웃 → 폴백이
-            # 엉뚱한 줄에 캐럿. 클릭 전 문단을 뷰포트 세로 중앙으로 스크롤해 바를 피한다.
-            _CARET_AT_END_JS = """
-            (el) => {
-              const doc = el.ownerDocument;
-              const sel = doc.getSelection();
-              if (!sel || !sel.rangeCount) return 'none';
-              const r = sel.getRangeAt(0);
-              if (!el.contains(r.startContainer)) return 'outside';
-              const tail = doc.createRange();
-              tail.setStart(r.startContainer, r.startOffset);
-              tail.setEndAfter(el.lastChild || el);
-              const rest = tail.toString().replace(/[\\u200B\\uFEFF\\s]/g, '');
-              return rest.length === 0 ? 'end' : 'inside';
-            }
-            """
+            # ★2026-07-06 검증 결과(DRAFT 5회): JS selection·page.mouse 좌표클릭·ArrowDown
+            # 보정루프 전부 SE ONE 내부 캐럿과 어긋나 오히려 악화 → 검증된 원래 클릭 로직 유지.
+            # 오늘 남긴 완화책 2개만 추가: ①Escape(직전 이미지 선택/툴바 해제) ②클릭 전
+            # 뷰포트 중앙 스크롤(하단 '글감' 플로팅바가 클릭을 가로채던 문제 — 랩된 긴 앵커
+            # 문단에서 문장 중간 삽입 사고의 트리거였음). 긴 앵커 자체는 프롬프트 에코 금지
+            # (_COMMON_RULES 12)로 원천 감소.
             try:
-                await page.keyboard.press("Escape")  # 직전 이미지 선택/툴바 해제
+                await page.keyboard.press("Escape")
                 await _delay(150, 300)
             except Exception:
                 pass
-            # ★문단 '마지막 글자'의 실제 화면 좌표를 구해 page.mouse로 직접 클릭.
-            # locator.click은 액셔너빌리티 검사에서 SE 플로팅 오버레이(이미지 툴바·글감바)에
-            # 계속 가로채여 타임아웃→폴백 클릭이 엉뚱한 줄에 캐럿을 놓았음(2026-07-06 4회 검증).
-            # page.mouse는 검사 없이 좌표를 클릭하고, 진짜 마우스 이벤트라 SE 내부 캐럿도 움직임.
+            try:
+                await best_loc.evaluate("el => el.scrollIntoView({block: 'center'})")
+                await _delay(200, 350)
+            except Exception:
+                pass
             clicked = False
             try:
-                pt = await best_loc.evaluate("""
-                (el) => {
-                  el.scrollIntoView({block: 'center'});
-                  const doc = el.ownerDocument;
-                  const r = doc.createRange();
-                  r.selectNodeContents(el);
-                  r.collapse(false);
-                  let rect = r.getBoundingClientRect();
-                  if (!rect || (rect.width === 0 && rect.height === 0 && rect.x === 0 && rect.y === 0)) {
-                    const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-                    let last = null, n;
-                    while ((n = walker.nextNode())) { if (n.textContent.trim().length) last = n; }
-                    if (last) {
-                      const rr = doc.createRange();
-                      rr.setStart(last, Math.max(0, last.textContent.length - 1));
-                      rr.setEnd(last, last.textContent.length);
-                      rect = rr.getBoundingClientRect();
-                    } else {
-                      rect = el.getBoundingClientRect();
-                    }
-                  }
-                  return {x: Math.max(1, rect.right - 2), y: rect.top + rect.height / 2};
-                }
-                """)
-                off_x, off_y = 0.0, 0.0
-                try:
-                    fe = await target.frame_element()
-                    fbox = await fe.bounding_box()
-                    if fbox:
-                        off_x, off_y = fbox["x"], fbox["y"]
-                except Exception:
-                    pass  # 메인 프레임이면 오프셋 0
-                await _delay(120, 250)
-                await page.mouse.click(off_x + pt["x"], off_y + pt["y"])
-                clicked = True
+                box = await best_loc.bounding_box()
+                if box and box["width"] > 6 and box["height"] > 6:
+                    await best_loc.click(position={"x": box["width"] - 3, "y": box["height"] - 3})
+                    clicked = True
             except Exception as e:
-                logger.warning(f"문단끝 좌표 클릭 실패: {e}")
+                logger.warning(f"단락 박스 클릭 실패: {e}")
             if not clicked:
-                try:
-                    await best_loc.click(timeout=5000)
-                except Exception as e:
-                    logger.warning(f"단락 중앙 클릭도 실패(현 캐럿 위치 사용): {e}")
+                await best_loc.click()
             await page.keyboard.press("End")
             await _delay(200, 400)
-            # 랩된 문단에서 클릭이 첫 시각줄에 떨어졌을 때의 보정 — 실제 키입력(ArrowDown/End)
-            # 이므로 SE 내부 캐럿도 함께 움직인다. 검증은 DOM selection(실제 입력 후엔 동기화됨).
-            try:
-                for attempt in range(6):
-                    state = await best_loc.evaluate(_CARET_AT_END_JS)
-                    if state in ("end", "none"):
-                        logger.info(f"문단끝 캐럿 확인: {state} (보정 {attempt}회, 앵커: {clean_anchor[:20]})")
-                        break
-                    if state == "outside":
-                        await page.keyboard.press("ArrowUp")
-                        await page.keyboard.press("End")
-                        await _delay(100, 200)
-                        logger.info(f"문단끝 캐럿 보정(위로 복귀) (앵커: {clean_anchor[:20]})")
-                        break
-                    await page.keyboard.press("ArrowDown")
-                    await page.keyboard.press("End")
-                    await _delay(80, 160)
-                else:
-                    logger.warning(f"문단끝 캐럿 미확정(6회 소진, 마지막={state}) (앵커: {clean_anchor[:20]})")
-            except Exception as e:
-                logger.warning(f"문단끝 캐럿 검증 실패(현 위치 사용): {e}")
             return True
 
         logger.warning(f"앵커 텍스트 매칭 단락을 찾지 못함: {clean_anchor[:40]}")
