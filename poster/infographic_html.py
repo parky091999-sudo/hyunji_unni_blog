@@ -579,3 +579,97 @@ def create_comparison_infographic(group_name: str, targets: dict, category: str 
     tmp.close()
     logger.info(f"비교 인포그래픽 생성: {group_name} ({len(tickers)}종) → {tmp.name}")
     return tmp.name
+
+
+# ─────────────────────────────────────────────────────────────
+# 개념 카드 인포그래픽 (핵심 N가지 '한눈에 보기') — 두번째스물하나 벤치마킹(2026-07-06)
+# 지루한 텍스트 대신 번호배지+라벨+한줄설명의 디자인 카드로. 요약 불릿을 재사용해
+# 자동 생성(모델 추가출력 불필요). 본문 [사진2]에 삽입.
+# ─────────────────────────────────────────────────────────────
+
+def _parse_concept_items(bullets: list[str]) -> list[tuple[str, str]]:
+    """요약 불릿('✓ 라벨: 내용' / '· 라벨: 내용')을 (라벨, 설명) 쌍으로 분해.
+    콜론이 없으면 앞 몇 어절을 라벨로. 빈 항목은 스킵."""
+    import re
+    items: list[tuple[str, str]] = []
+    for b in bullets or []:
+        s = re.sub(r"^[\s✓·•\-–\*①-⑳0-9.]+", "", str(b)).strip()
+        if not s:
+            continue
+        m = re.match(r"\s*([^:：]{1,20})[:：]\s*(.+)$", s)
+        if m:
+            label, desc = m.group(1).strip(), m.group(2).strip()
+        else:
+            words = s.split()
+            label = " ".join(words[:2])[:14]
+            desc = s
+        if label:
+            items.append((label, desc[:60]))
+    return items
+
+
+def _build_concept_html(headline: str, items: list[tuple[str, str]], style: dict) -> str:
+    accent = style["accent"]
+    color = style.get("color", "#1357C0")
+    bg_light = style.get("bg_light", "#EEF3FF")
+    label = style.get("label", "핵심")
+    tag_color = style.get("tag_color", "#0D1B3E")
+    W = 1080
+
+    rows = ""
+    for i, (lbl, desc) in enumerate(items, 1):
+        rows += (
+            f'<div class="row">'
+            f'<div class="num">{i}</div>'
+            f'<div class="txt"><div class="lbl">{escape(lbl)}</div>'
+            f'<div class="desc">{escape(desc)}</div></div>'
+            f'</div>'
+        )
+
+    return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;}}
+body{{width:{W}px;background:#fff;}}
+.cardwrap{{width:{W}px;padding:40px 40px 34px;background:#fff;}}
+.chip{{display:inline-block;background:{accent};color:{tag_color};
+  font-size:26px;font-weight:800;padding:9px 28px;border-radius:999px;margin-bottom:18px;}}
+.htitle{{font-size:47px;font-weight:900;color:#1A1A1A;letter-spacing:-1.5px;
+  margin-bottom:30px;line-height:1.22;}}
+.htitle b{{color:{color};}}
+.row{{display:flex;align-items:flex-start;gap:24px;background:{bg_light};
+  border-radius:18px;padding:26px 30px;margin-bottom:16px;}}
+.num{{flex:none;width:62px;height:62px;border-radius:50%;background:{color};color:#fff;
+  font-size:34px;font-weight:900;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 12px rgba(0,0,0,.14);}}
+.txt{{padding-top:2px;}}
+.lbl{{font-size:32px;font-weight:900;color:#1A1A1A;letter-spacing:-1px;margin-bottom:6px;}}
+.desc{{font-size:27px;font-weight:500;color:#555;line-height:1.4;}}
+.foot{{margin-top:20px;font-size:21px;color:#AAA;text-align:right;}}
+</style></head><body>
+<div class="cardwrap">
+  <span class="chip">{escape(label)} 핵심</span>
+  <div class="htitle">한눈에 보는 <b>핵심 {len(items)}가지</b></div>
+  {rows}
+  <div class="foot">현지언니 · 자세한 내용은 본문 참고</div>
+</div></body></html>"""
+
+
+def create_concept_infographic(bullets: list[str], category: str = "금융재테크",
+                               headline: str = "") -> str | None:
+    """요약 불릿을 '핵심 N가지' 개념 카드로 렌더(두번째스물하나 벤치마킹). 실패 시 None."""
+    items = _parse_concept_items(bullets)
+    if len(items) < 2:  # 2줄 미만이면 카드 실익 없음
+        return None
+    items = items[:4]
+    style = _STYLES.get(category, _DEFAULT)
+    html = _build_concept_html(headline, items, style)
+    try:
+        png = asyncio.run(_pw_screenshot_element(html))
+    except Exception as e:
+        logger.warning(f"개념 카드 인포그래픽 스크린샷 실패: {e}")
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp.write(png)
+    tmp.close()
+    logger.info(f"개념 카드 인포그래픽 생성: {len(items)}항목 [{category}] → {tmp.name}")
+    return tmp.name
