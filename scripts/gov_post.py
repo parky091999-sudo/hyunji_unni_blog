@@ -90,6 +90,24 @@ def _append_internal_links(body: str, history: list) -> tuple:
     return body + links_text, ["함께 보면 좋은 글"]
 
 
+def _inject_concept_card_marker(body: str) -> str | None:
+    """개념 카드용 [사진2] 주입 + 헤더 [사진1] 최상단 보장(info_post와 동일 로직).
+    poster는 img_idx=마커번호-1 매핑이라 [사진1] 없이 [사진2]만 있으면 헤더가 고아화됨."""
+    b = re.sub(r"^\s*\[사진\d+\]\s*$\n?", "", body, flags=re.MULTILINE)
+    b = re.sub(r"\[사진\d+\]", "", b)
+    divs = [m.start() for m in re.finditer(r"^\[구분선\]", b, flags=re.MULTILINE)]
+    if len(divs) >= 2:
+        pos = divs[1]
+        b = b[:pos] + "[사진2]\n\n" + b[pos:]
+    else:
+        ti = b.find("[표삽입]")
+        if ti == -1:
+            return None
+        end = ti + len("[표삽입]")
+        b = b[:end] + "\n\n[사진2]\n" + b[end:]
+    return "[사진1]\n" + b.lstrip("\n")
+
+
 def run():
     run_slot = os.environ.get("RUN_SLOT", datetime.now(KST).strftime("%H"))
     logger.info("=" * 60)
@@ -189,9 +207,30 @@ def run():
         images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
         logger.info(f"정부지원 헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
 
-    # 정부지원 글은 헤더 카드만 사용 — Pexels 스톡사진 미수집(주제와 무관한 엉뚱한 사진 방지, 2026-06-30 사용자 요청).
-    # 정보 전달이 핵심인 카테고리라 본문 사진 없이 표·요약블록·불릿으로 구성.
-    logger.info("정부지원 글: 본문 스톡사진 생략 (헤더 카드만)")
+    # ── 개념 카드([사진2]): 요약 불릿을 '핵심 N가지' 카드로(두번째스물하나 벤치마킹) ──
+    # 정부지원은 스톡사진 대신 생성 인포그래픽이라 이미지 정책과 정합(추상 주제→시각 요약).
+    # ★raw 요약 사용(헤더 bullets는 5~35자 필터라 탈락 위험) — 카드 파서가 라벨:설명 분해.
+    if header_path:
+        try:
+            from poster.infographic_html import create_concept_infographic
+            concept_lines = [l for l in post.get("summary_text", "").splitlines() if l.strip()]
+            concept_path = create_concept_infographic(concept_lines, category="정부지원혜택")
+            new_body = _inject_concept_card_marker(post["body"]) if concept_path else None
+            if concept_path and new_body:
+                post["body"] = new_body
+                images.append({
+                    "local_path": concept_path, "url": "",
+                    "alt_text": f"{keyword} 핵심 정리", "label": f"{keyword} 핵심 정리",
+                })
+                logger.info("개념 카드 삽입: 본문 [사진2] + 헤더 [사진1] 보장")
+            else:
+                logger.info("개념 카드 스킵(앵커 없음/생성 실패) — 헤더 카드만")
+        except Exception as e:
+            logger.warning(f"개념 카드 생성/삽입 실패(무시) — 헤더 카드만: {e}")
+
+    # 정부지원 글은 스톡사진 미수집(주제와 무관한 엉뚱한 사진 방지, 2026-06-30 사용자 요청).
+    # 헤더 브랜드카드 + 개념 카드(생성 인포그래픽) + 표·요약블록·불릿으로 구성.
+    logger.info("정부지원 글: 스톡사진 생략 (헤더 카드 + 개념 카드)")
 
     # 내부 링크 연계
     post["body"], extra_subs = _append_internal_links(post["body"], history)

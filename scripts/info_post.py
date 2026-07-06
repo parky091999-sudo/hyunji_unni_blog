@@ -265,10 +265,13 @@ def run():
 
     # ── 개념 카드([사진2]): 요약 불릿을 '핵심 N가지' 카드로(두번째스물하나 벤치마킹) ──
     # 헤더가 있을 때만. 본문 중간(2번째 소제목 앞)에 삽입. 실패/앵커없으면 헤더카드만으로 폴백.
-    if header_path and bullets and len(bullets) >= 2:
+    # ★raw 요약 사용: 헤더용 bullets는 썸네일 5~35자 필터라 긴 불릿이 탈락함. 카드는 긴 설명도
+    #   담으므로(_parse_concept_items가 라벨:설명 분해·60자 컷) summary_text 원문을 직접 넘긴다.
+    if header_path:
         try:
             from poster.infographic_html import create_concept_infographic
-            concept_path = create_concept_infographic(bullets, category=INFO_CAT_ID)
+            concept_lines = [l for l in post.get("summary_text", "").splitlines() if l.strip()]
+            concept_path = create_concept_infographic(concept_lines, category=INFO_CAT_ID)
             new_body = _inject_concept_card_marker(post["body"]) if concept_path else None
             if concept_path and new_body:
                 post["body"] = new_body
@@ -281,8 +284,6 @@ def run():
                 logger.info("개념 카드 스킵(앵커 없음/생성 실패) — 헤더 카드만")
         except Exception as e:
             logger.warning(f"개념 카드 생성/삽입 실패(무시) — 헤더 카드만: {e}")
-    else:
-        logger.info(f"{BLOG_CATEGORY} 글: 개념 카드 조건 미충족 — 헤더 카드만")
 
     # 내부 링크 연계
     post["body"], extra_subs = _append_internal_links(post["body"], history)

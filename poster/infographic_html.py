@@ -593,7 +593,7 @@ def _parse_concept_items(bullets: list[str]) -> list[tuple[str, str]]:
     import re
     items: list[tuple[str, str]] = []
     for b in bullets or []:
-        s = re.sub(r"^[\s✓·•\-–\*①-⑳0-9.]+", "", str(b)).strip()
+        s = re.sub(r"^[\s✓✔☑√❤·•▪●◦・\-–\*①-⑳]+", "", str(b)).strip()
         if not s:
             continue
         m = re.match(r"\s*([^:：]{1,20})[:：]\s*(.+)$", s)
