@@ -473,6 +473,9 @@ def run():
             return m.group(0)
 
         cleaned = re.sub(r"\[사진(\d+)\]", _strip_marker, post["body"])
+        # 문장 안 마커가 제거되면 "위 [사진3]은 ~" → "위 은 ~"처럼 조사가 남아 문장이 깨진다
+        # (모델이 구조 지시문을 본문에 옮겨 적은 경우) — 자연스러운 표현으로 복구.
+        cleaned = re.sub(r"위\s+[은는]\s+", "위 차트는 ", cleaned)
         if cleaned != post["body"]:
             logger.info("중복/초과 [사진N] 마커 정리됨")
             post["body"] = cleaned
