@@ -423,7 +423,10 @@ def _parse_response(raw: str) -> dict | None:
             # 여러 줄에 걸친 볼드(**\n…\n**)는 위 단일행 정규식이 못 지워 '**'만 남은 줄이 생김.
             # 리터럴 노출 + 표/요약 앵커 오염(→ 헤더 이미지 삽입 실패, 2026-07-04 실라이브)이라 별표만 있는 줄 제거.
             body = re.sub(r"^\s*\*+\s*$\n?", "", body, flags=re.MULTILINE)
-            body = re.sub(r"^[*\-•]\s+", "", body, flags=re.MULTILINE)
+            # 선두 공백 허용: 모델이 중첩 서브불릿을 들여쓰기('    *   1인 가구')로 내면
+            # 비들여쓰기용 '^[*\-•]'가 못 잡아 '*   '가 라이브에 리터럴 노출됨
+            # (2026-07-06 주거급여 224338391607 실사고). 들여쓰기째 제거해 플랫 텍스트화.
+            body = re.sub(r"^\s*[*\-•]\s+", "", body, flags=re.MULTILINE)
             body = re.sub(r"[✔★○□◆◇▶●►✓➡]", "", body)
             # 장식용/구조용 AI 이모지 제거 (소제목 앞 ✅💡 등 — AI틱 핵심)
             body = re.sub(r"[✅💡🛒📌👉🧹🥄💰📦]\s*", "", body)
@@ -437,7 +440,8 @@ def _parse_response(raw: str) -> dict | None:
             def _arabic_to_circled(m: "re.Match[str]") -> str:
                 n = int(m.group(1))
                 return (chr(0x2460 + n - 1) + " ") if 1 <= n <= 20 else m.group(0)
-            body = re.sub(r"^(\d{1,2})\.\s+", _arabic_to_circled, body, flags=re.MULTILINE)
+            # 선두 공백 허용(위 불릿과 동일 이유 — 들여쓰기된 '  2. …'도 원형숫자로 정규화)
+            body = re.sub(r"^\s*(\d{1,2})\.\s+", _arabic_to_circled, body, flags=re.MULTILINE)
             # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤
             # 마커를 [구분선]\n으로 교체 → poster가 소제목 앞에 가로 구분선 자동 삽입
             result["subheadings"] = [
