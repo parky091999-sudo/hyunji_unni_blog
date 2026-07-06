@@ -1041,31 +1041,25 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
         if best_loc is not None:
             logger.info(f"앵커 단락 발견: {clean_anchor[:40]}")
-            # 직전 이미지/표 삽입이 남긴 선택 상태·플로팅 툴바가 클릭 지점을 가로채
-            # 클릭이 30초 타임아웃되던 사고 방지(2026-07-06 로그로 확정) — 먼저 해제.
-            try:
-                await page.keyboard.press("Escape")
-                await _delay(150, 300)
-            except Exception:
-                pass
-            clicked = False
-            try:
-                box = await best_loc.bounding_box()
-                if box and box["width"] > 6 and box["height"] > 6:
-                    await best_loc.click(
-                        position={"x": box["width"] - 3, "y": box["height"] - 3},
-                        timeout=5000,
-                    )
-                    clicked = True
-            except Exception as e:
-                logger.warning(f"단락 박스 클릭 실패: {e}")
-            if not clicked:
-                await best_loc.click()
-            await page.keyboard.press("End")
-            await _delay(200, 400)
-            # 랩된 긴 문단에선 클릭+End가 첫 시각줄 끝에 떨어질 수 있음 → 이미지/표가
-            # 문장 한가운데 삽입되는 사고(2026-07-06 삼성전자 라이브에서 2건 확인).
-            # 검증: '캐럿 뒤에 문단 텍스트가 남아있는가'를 Range로 측정(span/ZWSP 구조 무관).
+            # 직전 이미지 삽입이 남긴 선택 상태·플로팅 툴바가 클릭 지점을 가로채
+            # 클릭이 타임아웃→폴백 클릭이 랩된 문단 중간 줄에 캐럿을 놓던 사고
+            # (2026-07-06 삼성전자 라이브·DRAFT 로그로 확정). 클릭 대신 JS로
+            # selection을 문단 끝에 직접 배치(가로채기 원천 회피) 후 End 키로
+            # SE 내부 캐럿을 동기화하고, Range로 '캐럿 뒤 남은 텍스트 0' 검증.
+            _SET_CARET_END_JS = """
+            (el) => {
+              const doc = el.ownerDocument;
+              const ce = el.closest('[contenteditable="true"]');
+              if (ce && doc.activeElement !== ce) ce.focus();
+              const sel = doc.getSelection();
+              const r = doc.createRange();
+              r.selectNodeContents(el);
+              r.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              return true;
+            }
+            """
             _CARET_AT_END_JS = """
             (el) => {
               const doc = el.ownerDocument;
@@ -1081,13 +1075,48 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
             }
             """
             try:
+                await page.keyboard.press("Escape")  # 이미지 선택/툴바 해제
+                await _delay(150, 300)
+            except Exception:
+                pass
+            state = ""
+            try:
+                await best_loc.evaluate(_SET_CARET_END_JS)
+                await page.keyboard.press("End")  # 실제 키 입력으로 SE 내부 캐럿 동기화
+                await _delay(150, 300)
+                state = await best_loc.evaluate(_CARET_AT_END_JS)
+            except Exception as e:
+                logger.warning(f"JS 캐럿 배치 실패: {e}")
+            if state == "end":
+                logger.info(f"문단끝 캐럿 확정(JS) (앵커: {clean_anchor[:20]})")
+                return True
+            # 폴백: 문단 클릭 + End + 줄단위 보정 (JS 경로 실패 시에만)
+            logger.info(f"JS 캐럿 미확정({state or '예외'}) — 클릭 폴백 (앵커: {clean_anchor[:20]})")
+            clicked = False
+            try:
+                box = await best_loc.bounding_box()
+                if box and box["width"] > 6 and box["height"] > 6:
+                    await best_loc.click(
+                        position={"x": box["width"] - 3, "y": box["height"] - 3},
+                        timeout=5000,
+                    )
+                    clicked = True
+            except Exception as e:
+                logger.warning(f"단락 박스 클릭 실패: {e}")
+            if not clicked:
+                try:
+                    await best_loc.click(timeout=5000)
+                except Exception as e:
+                    logger.warning(f"단락 중앙 클릭도 실패(현 캐럿 위치 사용): {e}")
+            await page.keyboard.press("End")
+            await _delay(200, 400)
+            try:
                 for attempt in range(6):
                     state = await best_loc.evaluate(_CARET_AT_END_JS)
                     if state in ("end", "none"):
                         logger.info(f"문단끝 캐럿 확인: {state} (보정 {attempt}회, 앵커: {clean_anchor[:20]})")
                         break
                     if state == "outside":
-                        # 아래 블록으로 넘어감 — 한 줄 올라와 그 줄 끝에서 멈춤
                         await page.keyboard.press("ArrowUp")
                         await page.keyboard.press("End")
                         await _delay(100, 200)
@@ -1096,6 +1125,8 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                     await page.keyboard.press("ArrowDown")
                     await page.keyboard.press("End")
                     await _delay(80, 160)
+                else:
+                    logger.warning(f"문단끝 캐럿 미확정(6회 소진, 마지막={state}) (앵커: {clean_anchor[:20]})")
             except Exception as e:
                 logger.warning(f"문단끝 캐럿 검증 실패(현 위치 사용): {e}")
             return True
