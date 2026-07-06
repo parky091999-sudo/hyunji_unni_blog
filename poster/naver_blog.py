@@ -1041,25 +1041,12 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
 
         if best_loc is not None:
             logger.info(f"앵커 단락 발견: {clean_anchor[:40]}")
-            # 직전 이미지 삽입이 남긴 선택 상태·플로팅 툴바가 클릭 지점을 가로채
-            # 클릭이 타임아웃→폴백 클릭이 랩된 문단 중간 줄에 캐럿을 놓던 사고
-            # (2026-07-06 삼성전자 라이브·DRAFT 로그로 확정). 클릭 대신 JS로
-            # selection을 문단 끝에 직접 배치(가로채기 원천 회피) 후 End 키로
-            # SE 내부 캐럿을 동기화하고, Range로 '캐럿 뒤 남은 텍스트 0' 검증.
-            _SET_CARET_END_JS = """
-            (el) => {
-              const doc = el.ownerDocument;
-              const ce = el.closest('[contenteditable="true"]');
-              if (ce && doc.activeElement !== ce) ce.focus();
-              const sel = doc.getSelection();
-              const r = doc.createRange();
-              r.selectNodeContents(el);
-              r.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(r);
-              return true;
-            }
-            """
+            # ★SE ONE의 내부 캐럿은 '실제 클릭/키입력'으로만 움직인다 — JS로 DOM selection을
+            # 옮겨도 사진 삽입은 내부 캐럿 위치를 쓴다(2026-07-06 DRAFT 3회로 확정, 이미지가
+            # 직전 이미지 뒤에 연쇄로 붙음). 반드시 진짜 클릭으로 캐럿을 놓는다.
+            # 클릭 가로채기의 진범 = 하단 중앙 '글감' 플로팅 바: Playwright의 최소 스크롤이
+            # 앵커 문단을 뷰포트 맨 아래(바 위치)에 걸치게 함 → 클릭 타임아웃 → 폴백이
+            # 엉뚱한 줄에 캐럿. 클릭 전 문단을 뷰포트 세로 중앙으로 스크롤해 바를 피한다.
             _CARET_AT_END_JS = """
             (el) => {
               const doc = el.ownerDocument;
@@ -1075,23 +1062,15 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
             }
             """
             try:
-                await page.keyboard.press("Escape")  # 이미지 선택/툴바 해제
+                await page.keyboard.press("Escape")  # 직전 이미지 선택/툴바 해제
                 await _delay(150, 300)
             except Exception:
                 pass
-            state = ""
             try:
-                await best_loc.evaluate(_SET_CARET_END_JS)
-                await page.keyboard.press("End")  # 실제 키 입력으로 SE 내부 캐럿 동기화
-                await _delay(150, 300)
-                state = await best_loc.evaluate(_CARET_AT_END_JS)
-            except Exception as e:
-                logger.warning(f"JS 캐럿 배치 실패: {e}")
-            if state == "end":
-                logger.info(f"문단끝 캐럿 확정(JS) (앵커: {clean_anchor[:20]})")
-                return True
-            # 폴백: 문단 클릭 + End + 줄단위 보정 (JS 경로 실패 시에만)
-            logger.info(f"JS 캐럿 미확정({state or '예외'}) — 클릭 폴백 (앵커: {clean_anchor[:20]})")
+                await best_loc.evaluate("el => el.scrollIntoView({block: 'center'})")
+                await _delay(200, 350)
+            except Exception:
+                pass
             clicked = False
             try:
                 box = await best_loc.bounding_box()
@@ -1110,6 +1089,8 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                     logger.warning(f"단락 중앙 클릭도 실패(현 캐럿 위치 사용): {e}")
             await page.keyboard.press("End")
             await _delay(200, 400)
+            # 랩된 문단에서 클릭이 첫 시각줄에 떨어졌을 때의 보정 — 실제 키입력(ArrowDown/End)
+            # 이므로 SE 내부 캐럿도 함께 움직인다. 검증은 DOM selection(실제 입력 후엔 동기화됨).
             try:
                 for attempt in range(6):
                     state = await best_loc.evaluate(_CARET_AT_END_JS)

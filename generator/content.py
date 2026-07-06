@@ -430,6 +430,14 @@ def _parse_response(raw: str) -> dict | None:
             # 모델이 커스텀 [소제목] 마커 대신 마크다운 ATX 헤더(#~######)를 쓰는 경우 대비 —
             # 그대로 두면 "### 텍스트"가 스타일 적용 없이 본문에 리터럴 노출됨(실라이브 확인).
             body = re.sub(r"^#{1,6}\s+", "[소제목] ", body, flags=re.MULTILINE)
+            # 모델이 ①②③ 대신 아라비아 "1. " 번호를 쓰면 SE ONE 오토포맷이 타이핑 중
+            # 네이티브 번호 리스트를 만들어 리터럴 번호와 중복됨("2. 2." — 2026-07-06
+            # 도시가스 라이브 실사고). 원형 숫자로 정규화해 검증된 변환 경로
+            # (poster._convert_bullets_to_list → 네이티브 decimal)에 합류시킨다.
+            def _arabic_to_circled(m: "re.Match[str]") -> str:
+                n = int(m.group(1))
+                return (chr(0x2460 + n - 1) + " ") if 1 <= n <= 20 else m.group(0)
+            body = re.sub(r"^(\d{1,2})\.\s+", _arabic_to_circled, body, flags=re.MULTILINE)
             # [소제목] 마커 — 텍스트를 따로 수집(poster가 제목 스타일 적용)한 뒤
             # 마커를 [구분선]\n으로 교체 → poster가 소제목 앞에 가로 구분선 자동 삽입
             result["subheadings"] = [
