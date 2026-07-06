@@ -163,13 +163,15 @@ def run():
     # ── 1. 키워드 선정 ──
     from generator.keyword import pick_keyword_for_blog_category
     recent_kws = _get_recent_posted_keywords(history)
-    kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY)
+    # ★exclude 필수: 풀 필터 없이 재선정만 돌리면 DataLab 트렌딩이 같은 고검색량
+    # 키워드를 반복 반환해 3회 소진 후 중복 발행됨(보험 국민연금 2연속 실사고).
+    kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
     keyword = kw_result["keyword"]
     for _ in range(3):
         if keyword not in recent_kws:
             break
         logger.info(f"최근 발행 키워드 중복 ({keyword!r}) — 재선정")
-        kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY)
+        kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
         keyword = kw_result["keyword"]
     logger.info(f"선정 키워드: {keyword!r} | 카테고리: {BLOG_CATEGORY}")
 

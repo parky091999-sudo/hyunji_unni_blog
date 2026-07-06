@@ -117,7 +117,8 @@ def run():
     from generator.keyword import pick_keyword_for_blog_category
     recent_kws = _get_recent_posted_keywords(history)
 
-    kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY)
+    # ★exclude로 풀 단계에서 자기 이력 제외 (DataLab 트렌딩 반복 반환 → 중복 발행 차단)
+    kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
     keyword = kw_result["keyword"]
     gov_category = kw_result["category_name"]
 
@@ -125,7 +126,7 @@ def run():
         if keyword not in recent_kws:
             break
         logger.info(f"최근 발행 키워드 중복 ({keyword!r}) — 재선정")
-        kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY)
+        kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
         keyword = kw_result["keyword"]
         gov_category = kw_result["category_name"]
 

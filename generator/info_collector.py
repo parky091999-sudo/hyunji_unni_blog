@@ -95,6 +95,42 @@ def _fetch_fss_deposit_rates(top_n: int = 5) -> list[dict]:
         return []
 
 
+def _fetch_fss_annuity_products(top_n: int = 5) -> list[dict]:
+    """금융감독원 연금저축 상품 비교 공시 (finlife, 기존 FSS_API_KEY 재사용).
+    보험 카테고리 '연금' 키워드 글에 실상품·수익률 팩트 제공(무근거 수치 방지).
+    보험사(050000) 우선, 비면 은행(020000) 폴백. 실패 시 빈 리스트."""
+    FSS_KEY = os.getenv("FSS_API_KEY", "")
+    if not FSS_KEY:
+        return []
+    for grp in ("050000", "020000"):
+        try:
+            url = (
+                "https://finlife.fss.or.kr/finlifeapi/annuitySavingProductsSearch.json"
+                f"?auth={FSS_KEY}&topFinGrpNo={grp}&pageNo=1"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            products = data.get("result", {}).get("baseList", [])[:top_n]
+            results = []
+            for p in products:
+                name = p.get("fin_prdt_nm", "")
+                if not name:
+                    continue
+                results.append({
+                    "회사": p.get("kor_co_nm", ""),
+                    "상품명": name,
+                    "연금종류": p.get("pnsn_kind_nm", ""),
+                    "수익률(%)": p.get("avg_prft_rate", ""),
+                })
+            if results:
+                logger.info(f"FSS 연금저축 상품 수집: {len(results)}건 (grp={grp})")
+                return results
+        except Exception as e:
+            logger.warning(f"FSS 연금저축 수집 실패(grp={grp}): {e}")
+    return []
+
+
 # ──────────────────────────────────────────────
 # 3. 공공데이터포털 — 카테고리별 API 매핑
 # ──────────────────────────────────────────────
@@ -144,6 +180,15 @@ def _build_fact_block(category: str, keyword: str) -> str:
             lines.append("\n◆ 최신 예금 금리 공시 (금융감독원)")
             for r in rates:
                 lines.append(f"  · {r['은행']} {r['상품명']}: 최고 {r['최고금리']}%")
+
+    # 연금 관련 키워드(보험·금융재테크)엔 금감원 연금저축 공시 — 실상품·수익률 팩트
+    if category in ("보험", "금융재테크") and "연금" in keyword:
+        annuities = _fetch_fss_annuity_products(top_n=5)
+        if annuities:
+            lines.append("\n◆ 연금저축 상품 공시 (금융감독원 금융상품한눈에)")
+            for a in annuities:
+                rate = f" | 수익률 {a['수익률(%)']}%" if a.get("수익률(%)") else ""
+                lines.append(f"  · {a['회사']} {a['상품명']} ({a['연금종류']}){rate}")
 
     if not lines[1:]:  # 뉴스/데이터 없으면 빈 블록 반환
         return ""
