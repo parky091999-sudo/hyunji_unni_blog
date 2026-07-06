@@ -350,6 +350,24 @@ def run():
                 })
                 logger.info(f"ETF 차트 생성: {chart_path}")
 
+            # ── 네이버금융 공식 차트(국내 상장 ETF만, [사진3]) — 가격차트 성공 시에만 ──
+            # 프롬프트(etf_has_naver)와 같은 조건: kr 개별분석 + _etf_subject(코드) + 배당팩트 없음
+            if (chart_path and chart_mode == "single"
+                    and fact_data.get("_etf_content_type") in ("kr_individual", "kr_overseas_individual")
+                    and fact_data.get("_etf_subject")
+                    and not fact_data.get("연도별배당(주당USD)")):
+                from generator.stock_chart import get_naver_official_chart
+
+                etf_name = labels.get(tickers[0], tickers[0]) if tickers else "ETF"
+                nv_path = get_naver_official_chart(fact_data["_etf_subject"])
+                if nv_path:
+                    images.append({
+                        "local_path": nv_path, "url": "",
+                        "alt_text": f"{etf_name} 네이버금융 실시간 차트",
+                        "label": f"{etf_name} 네이버금융 차트",
+                    })
+                    logger.info(f"네이버금융 공식 차트 다운로드(ETF): {nv_path}")
+
             # ── 배당 심층 차트 2장 ([사진3] 배당성장, [사진4] 재투자 비교) ──
             # ★가격차트([사진2])가 성공했을 때만 — 실패 시 이미지 인덱스가 밀려
             #   배당 차트가 [사진2] 자리(가격차트 해석 문장)에 들어가는 캡션 불일치 방지.

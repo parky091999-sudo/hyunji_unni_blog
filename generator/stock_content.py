@@ -125,8 +125,14 @@ _OUTPUT_FORMAT = (
 )
 
 
-def _etf_common_head(cfg: dict, market_label: str) -> str:
-    """유형 공통 앞부분: [사진1] 도입 / 요약 / 숫자표+표 / [사진2] 가격차트 / 구성종목."""
+def _etf_common_head(cfg: dict, market_label: str, has_naver_chart: bool = False) -> str:
+    """유형 공통 앞부분: [사진1] 도입 / 요약 / 숫자표+표 / [사진2] 가격차트 / (국내: [사진3] 네이버차트) / 구성종목."""
+    naver_block = (
+        "\n[사진3]\n"
+        "(★위 [사진3]은 네이버금융이 제공하는 이 ETF의 실제 차트 화면이다. "
+        "바로 다음 문장에서 '네이버금융에서 실제로 확인해보면' 같은 자연스러운 말로 "
+        "공식 출처를 짧게 한 번만 언급하라(과도한 설명 금지, 한 줄).)\n"
+    ) if has_naver_chart else ""
     return (
         "\n★★★ 본문(---다음)의 맨 첫 줄은 반드시 '[사진1]' 단독 한 줄이어야 한다. "
         "절대 다른 문장·제목으로 본문을 시작하지 마라. 이 규칙을 어기면 전체 재작성이다.\n"
@@ -153,6 +159,7 @@ def _etf_common_head(cfg: dict, market_label: str) -> str:
         "(★위 [사진2]는 이 ETF의 최근 6개월 가격 추이 차트(20일 이동평균선 포함)다. "
         "바로 다음 문장에서 차트를 짧게 언급하며 최근 추세가 상승·하락·횡보 중 어디에 가까운지 "
         "표에 있는 수익률 수치로만 근거를 들어 한 줄로 짚어라.)\n"
+        + naver_block +
         "\n[소제목] 이 ETF는 실제로 뭘 담고 있나\n"
         "(★'우량 기업 100개' 같은 추상 설명 금지 — 실체를 보여줘라. "
         "팩트 데이터의 '구성종목TOP10'(실제 종목명·비중)·'섹터구성(%)'·'구성종목상위'가 있으면 "
@@ -299,14 +306,16 @@ _ETF_MID_BUILDERS = {
 
 
 def _struct_etf_individual(cfg: dict, market_label: str, etf_type: str = "dividend",
-                           has_dividend: bool = False) -> str:
+                           has_dividend: bool = False, has_naver_chart: bool = False) -> str:
     """ETF 1개 심층 글. etf_type(dividend/leverage/growth/bond)에 따라 중간 섹션이 완전히 다르다.
-    (2026-07-05: QLD 같은 레버리지에 배당 섹션이 붙던 문제 → 유형별 구조 분화)"""
+    (2026-07-05: QLD 같은 레버리지에 배당 섹션이 붙던 문제 → 유형별 구조 분화)
+    has_naver_chart(국내 상장물만)는 [사진3]을 쓰므로 배당 차트([사진3][사진4])와 동시 사용 불가 —
+    호출측(_build_stock_system)이 has_dividend와 배타로 보장한다."""
     if etf_type == "dividend":
         mid = _etf_mid_dividend(market_label, has_dividend)
     else:
         mid = _ETF_MID_BUILDERS.get(etf_type, _etf_mid_growth)(market_label)
-    return _etf_common_head(cfg, market_label) + mid + _etf_common_tail(market_label)
+    return _etf_common_head(cfg, market_label, has_naver_chart) + mid + _etf_common_tail(market_label)
 
 def _struct_etf_sector_compare(cfg: dict, market_label: str) -> str:
     """같은 섹터·테마 ETF 여러 개(팩트 데이터 '비교대상', 개수 가변) 비교 글."""
@@ -444,7 +453,11 @@ def _struct_ipo(cfg: dict) -> str:
         "Q: (균등이랑 비례 뭐가 유리한가요)\nA: (소액=균등)\n"
         "Q: (증거금 언제 환불되나요)\nA: (영업일 기준 안내)\n"
         "[FAQ끝]\n"
-        "\n(마무리 1~2줄: 청약 전 증권신고서·수요예측 결과·유통물량을 공식 공시로 확인, 투자 책임은 본인.)\n"
+        "\n[소제목] 오늘 바로 확인해볼 것\n"
+        "(★실천 팁 — 투자 권유가 아니라 독자가 오늘 바로 할 수 있는 '정보 확인 행동' 한두 가지를 "
+        "이번 주 실제 일정에 맞춰 구체적으로: 예 '증권사 앱에서 청약 일정 알림 등록', "
+        "'DART(전자공시)에서 증권신고서·수요예측 결과 확인', '주간사 증권사 계좌 보유 여부 확인'. "
+        "'~하세요' 명령형 1~2줄, 마지막에 '청약 판단·책임은 본인, 공식 공시 재확인' 면책 한 줄.)\n"
     )
 
 
@@ -627,7 +640,7 @@ _STRUCT_BUILDERS = {
 }
 
 _CHECKLIST = {
-    "공모주캘린더": "- 소제목 7개(일정/코멘트/경쟁률해석/오버행/증거금/상장일대응/FAQ)\n",
+    "공모주캘린더": "- 소제목 8개(일정/코멘트/경쟁률해석/오버행/증거금/상장일대응/FAQ/실천팁)\n",
     "종목분석": "- 소제목 8개(숫자표/화제이유/수급재료/목표주가/체크포인트/단기중기시나리오/FAQ/실천팁)\n",
 }
 
@@ -643,23 +656,24 @@ _ETF_MARKET_LABEL = {
     "kr_overseas_individual": "국내상장 해외",
 }
 _ETF_CHECKLIST = {
-    "kr_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
-    "us_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
-    "kr_overseas_individual": "- 소제목 7개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ)\n",
+    "kr_individual": "- 소제목 8개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ/실천팁)\n",
+    "us_individual": "- 소제목 8개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ/실천팁)\n",
+    "kr_overseas_individual": "- 소제목 8개(숫자표/구성내역/비용괴리율/최근성과/투자자적합/체크포인트/FAQ/실천팁)\n",
     "sector_compare_kr": "- 소제목 8개(지표/차이/성과차트해석/비용배당/조합예시/체크포인트/FAQ/실천팁)\n",
     "sector_compare_us": "- 소제목 8개(지표/차이/성과차트해석/비용배당/조합예시/체크포인트/FAQ/실천팁)\n",
     "tax_account": "- 소제목 6개(제도설명/이유/추천성격/주의사항/세금차이/FAQ)\n",
 }
-# 배당 이력 팩트가 있는 개별분석은 '배당으로 보는 진짜 성과' 섹션이 추가돼 소제목 8개
-_ETF_CHECKLIST_DIVIDEND = "- 소제목 8개(숫자표/구성내역/비용괴리율/최근성과/배당성과/투자자적합/체크포인트/FAQ)\n"
+# 배당 이력 팩트가 있는 개별분석은 '배당으로 보는 진짜 성과' 섹션이 추가돼 소제목 9개
+_ETF_CHECKLIST_DIVIDEND = "- 소제목 9개(숫자표/구성내역/비용괴리율/최근성과/배당성과/투자자적합/체크포인트/FAQ/실천팁)\n"
 
 
-def _etf_struct_fn(etf_content_type: str, has_dividend: bool = False, etf_type: str = "dividend"):
+def _etf_struct_fn(etf_content_type: str, has_dividend: bool = False, etf_type: str = "dividend",
+                   has_naver_chart: bool = False):
     if etf_content_type in _ETF_MARKET_LABEL:
         market_label = _ETF_MARKET_LABEL[etf_content_type]
         # 국내 ETF(kr_*)는 유형 판별 데이터가 약해 기존 배당형 구조 유지, 미국만 유형 분화
         _type = etf_type if etf_content_type == "us_individual" else "dividend"
-        return lambda cfg: _struct_etf_individual(cfg, market_label, _type, has_dividend)
+        return lambda cfg: _struct_etf_individual(cfg, market_label, _type, has_dividend, has_naver_chart)
     if etf_content_type == "sector_compare_kr":
         return lambda cfg: _struct_etf_sector_compare(cfg, "국내")
     if etf_content_type == "sector_compare_us":
@@ -683,7 +697,13 @@ def _build_stock_system(
     n_imgs = 1
     if topic_id == "etf포트폴리오":
         etf_content_type = etf_content_type or "sector_compare_us"
-        struct_fn = _etf_struct_fn(etf_content_type, has_dividend, etf_type)
+        # 국내 상장 ETF 개별분석은 네이버금융 공식 차트를 [사진3]으로 추가 —
+        # 배당 차트([사진3][사진4])와 슬롯이 겹치므로 has_dividend와 배타(현재 kr은 배당팩트 없음)
+        etf_has_naver = (
+            etf_content_type in ("kr_individual", "kr_overseas_individual")
+            and bool(fact.get("_etf_subject")) and not has_dividend
+        )
+        struct_fn = _etf_struct_fn(etf_content_type, has_dividend, etf_type, etf_has_naver)
         is_us_individual = etf_content_type == "us_individual"
         if has_dividend and etf_content_type in _ETF_MARKET_LABEL and (not is_us_individual or etf_type == "dividend"):
             # 배당 차트 2장([사진3][사진4])은 배당형에만
@@ -695,6 +715,8 @@ def _build_stock_system(
         else:
             checklist = _ETF_CHECKLIST.get(etf_content_type, "- [소제목] 6개\n")
             n_imgs = 2 if etf_content_type != "tax_account" else 1
+            if etf_has_naver:
+                n_imgs = 3
     elif topic_id == "종목분석":
         if _is_weekend():
             # 주말엔 당일 시황이 없으므로 주간 리뷰+월요일 관전포인트 구조로 전환
