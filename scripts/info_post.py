@@ -135,6 +135,26 @@ def _append_internal_links(body: str, history: list) -> tuple:
     return body + links_text, ["함께 보면 좋은 글"]
 
 
+def _inject_concept_card_marker(body: str) -> str | None:
+    """개념 카드용 [사진2] 마커 주입 + 헤더용 [사진1] 최상단 보장.
+    poster는 img_idx=마커번호-1로 매핑하므로([naver_blog] L914), [사진1] 없이 [사진2]만
+    있으면 헤더(images[0])가 고아가 된다 → [사진1]을 반드시 맨 위에 둔다.
+    앵커=2번째 [구분선](두번째 소제목) 앞, 폴백=첫 [표삽입] 뒤. 못 찾으면 None(카드 스킵)."""
+    b = re.sub(r"^\s*\[사진\d+\]\s*$\n?", "", body, flags=re.MULTILINE)
+    b = re.sub(r"\[사진\d+\]", "", b)
+    divs = [m.start() for m in re.finditer(r"^\[구분선\]", b, flags=re.MULTILINE)]
+    if len(divs) >= 2:
+        pos = divs[1]
+        b = b[:pos] + "[사진2]\n\n" + b[pos:]
+    else:
+        ti = b.find("[표삽입]")
+        if ti == -1:
+            return None
+        end = ti + len("[표삽입]")
+        b = b[:end] + "\n\n[사진2]\n" + b[end:]
+    return "[사진1]\n" + b.lstrip("\n")
+
+
 def run():
     run_slot = os.environ.get("RUN_SLOT", datetime.now(KST).strftime("%H"))
     logger.info("=" * 60)
@@ -242,7 +262,27 @@ def run():
     if header_path:
         images.append({"local_path": header_path, "url": "", "alt_text": keyword, "label": keyword})
         logger.info(f"{BLOG_CATEGORY} 헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
-    logger.info(f"{BLOG_CATEGORY} 글: 본문 스톡사진 생략 (헤더 카드만)")
+
+    # ── 개념 카드([사진2]): 요약 불릿을 '핵심 N가지' 카드로(두번째스물하나 벤치마킹) ──
+    # 헤더가 있을 때만. 본문 중간(2번째 소제목 앞)에 삽입. 실패/앵커없으면 헤더카드만으로 폴백.
+    if header_path and bullets and len(bullets) >= 2:
+        try:
+            from poster.infographic_html import create_concept_infographic
+            concept_path = create_concept_infographic(bullets, category=INFO_CAT_ID)
+            new_body = _inject_concept_card_marker(post["body"]) if concept_path else None
+            if concept_path and new_body:
+                post["body"] = new_body
+                images.append({
+                    "local_path": concept_path, "url": "",
+                    "alt_text": f"{keyword} 핵심 정리", "label": f"{keyword} 핵심 정리",
+                })
+                logger.info("개념 카드 삽입: 본문 [사진2] + 헤더 [사진1] 보장")
+            else:
+                logger.info("개념 카드 스킵(앵커 없음/생성 실패) — 헤더 카드만")
+        except Exception as e:
+            logger.warning(f"개념 카드 생성/삽입 실패(무시) — 헤더 카드만: {e}")
+    else:
+        logger.info(f"{BLOG_CATEGORY} 글: 개념 카드 조건 미충족 — 헤더 카드만")
 
     # 내부 링크 연계
     post["body"], extra_subs = _append_internal_links(post["body"], history)
