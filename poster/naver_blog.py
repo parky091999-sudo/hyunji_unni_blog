@@ -981,9 +981,11 @@ def _parse_table_rows(table_str: str) -> list[list[str]]:
 _CHART_ANCHOR_PHRASES = ("차트로 살펴", "가격 흐름", "가격 추이", "차트를", "6개월")
 
 
-async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
+async def _move_cursor_after_text(page: Page, anchor_text: str, to_end: bool = True) -> bool:
     """
-    에디터 본문에서 anchor_text와 일치하거나 포함하는 단락을 찾아 그 끝으로 커서를 이동합니다.
+    에디터 본문에서 anchor_text와 일치하거나 포함하는 단락을 찾아 커서를 이동합니다.
+    to_end=True: 단락 끝으로(기본). to_end=False: 단락 시작(Home)으로 — 짧은 소제목 단락
+    앞에 이미지를 안정적으로 삽입하기 위한 경로(랩된 긴 산문 문단의 문장 두 동강 회피).
     anchor_text가 비어있으면 문서 맨 끝으로 이동합니다.
     """
     if not anchor_text:
@@ -1057,6 +1059,13 @@ async def _move_cursor_after_text(page: Page, anchor_text: str) -> bool:
                 await _delay(200, 350)
             except Exception:
                 pass
+            if not to_end:
+                # 소제목(짧은 단락) 앞 삽입용: 단락을 클릭하고 Home으로 시작에 캐럿을 둔다.
+                # 짧아서 랩되지 않으므로 우하단 클릭+End 같은 시각줄 보정이 필요없고 안전하다.
+                await best_loc.click()
+                await page.keyboard.press("Home")
+                await _delay(200, 400)
+                return True
             clicked = False
             try:
                 box = await best_loc.bounding_box()
@@ -3245,16 +3254,20 @@ async def _post(
                 # ── 앵커 충돌 방지 ─────────────────────────────────────
                 # 표/FAQ 앵커와 같은 단락이면 이미지가 표(셀) 안에 끼어 들어가므로 건너뛴다.
                 # URL 줄(관련링크)에는 이미지를 붙이지 않는다(링크 카드 자리 침범 방지).
+                # ※소제목 앞 삽입(insert_before)은 산문 앵커를 안 쓰고 소제목 위 블록으로 넣으므로
+                #   표/FAQ/URL 충돌 대상이 아니다 — 이 검사들을 건너뛴다(오검출로 이미지 유실 방지).
+                insert_before_sub = (images[img_idx].get("insert_before") or "").strip()
                 _a = (anchor_text or "").strip()
-                if _a and _a in table_anchor_set:
-                    logger.warning(f"이미지 {img_idx+1}번 앵커가 표 앵커와 동일 — 표 안 삽입 방지로 건너뜀")
-                    continue
-                if faq_anchor_text and _a == faq_anchor_text.strip():
-                    logger.warning(f"이미지 {img_idx+1}번 앵커가 FAQ 앵커와 동일 — 건너뜀")
-                    continue
-                if _a.startswith("http://") or _a.startswith("https://"):
-                    logger.warning(f"이미지 {img_idx+1}번 앵커가 URL(관련링크) 줄 — 건너뜀")
-                    continue
+                if not insert_before_sub:
+                    if _a and _a in table_anchor_set:
+                        logger.warning(f"이미지 {img_idx+1}번 앵커가 표 앵커와 동일 — 표 안 삽입 방지로 건너뜀")
+                        continue
+                    if faq_anchor_text and _a == faq_anchor_text.strip():
+                        logger.warning(f"이미지 {img_idx+1}번 앵커가 FAQ 앵커와 동일 — 건너뜀")
+                        continue
+                    if _a.startswith("http://") or _a.startswith("https://"):
+                        logger.warning(f"이미지 {img_idx+1}번 앵커가 URL(관련링크) 줄 — 건너뜀")
+                        continue
                 # 미리 만든 로컬 이미지(예: AI 대표 요리사진)가 있으면 그대로 사용
                 local_path = images[img_idx].get("local_path") or _download_image_to_temp(
                     images[img_idx].get("url", ""), label=images[img_idx].get("label")
@@ -3267,6 +3280,10 @@ async def _post(
                 # 헤더카드/최상단 이미지(첫 이미지+로컬 생성 + 빈 앵커)는 빈앵커→문서끝(Control+End)이 아니라
                 # 문서 맨 위(Control+Home)에 삽입해야 한다(gov/health 브랜드 헤더카드가 글 맨 아래로 가던 버그).
                 is_header_top = img_idx == 0 and bool(images[img_idx].get("local_path")) and not clean_anchor.strip()
+                # 본문 이미지(일러스트/개념카드)는 '다음 소제목 바로 앞'에 삽입한다(insert_before_sub는
+                # 위에서 계산). 짧아서 랩되지 않는 소제목 단락을 클릭→Home으로 잡아 이미지를 그 위
+                # 블록으로 넣으면, 랩된 긴 산문 문단 끝 앵커가 문장을 두 동강 내던 사고를 원천 차단한다.
+                used_before = False
                 if is_header_top:
                     await write_page.keyboard.press("Control+Home")
                     await _delay(150, 300)
@@ -3282,15 +3299,25 @@ async def _post(
                                 await _delay(150, 300)
                         except Exception as _e:
                             logger.warning(f"헤더 이미지용 표 탈출 클릭 실패(계속): {_e}")
+                elif insert_before_sub:
+                    used_before = await _move_cursor_after_text(write_page, insert_before_sub, to_end=False)
+                    if used_before:
+                        logger.info(f"이미지 {img_idx+1}번 소제목 앞 삽입: '{insert_before_sub[:20]}'")
+                    else:
+                        logger.warning(f"이미지 {img_idx+1}번 소제목 '{insert_before_sub[:20]}' 미발견 — 산문 앵커 폴백")
+                        await _move_cursor_for_image(write_page, anchor_text, img_idx)
                 else:
                     await _move_cursor_for_image(write_page, anchor_text, img_idx)
                 # 커서가 표 안에 들어갔으면 이미지가 셀에 끼므로 건너뛴다(이중 안전장치).
                 if await _caret_in_table(write_page):
                     logger.warning(f"이미지 {img_idx+1}번 커서가 표 안 — 셀 삽입 방지로 건너뜀")
                     continue
-                # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 이미지 삽입
-                await write_page.keyboard.press("Enter")
-                await _delay(200, 400)
+                # 소제목 앞 삽입은 이미 캐럿이 단락 시작(offset 0)이라 Enter 없이 그 위에 블록으로
+                # 들어간다. Enter를 누르면 인용구(소제목) 블록이 쪼개지므로 이 경로에선 생략한다.
+                if not used_before:
+                    # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 삽입
+                    await write_page.keyboard.press("Enter")
+                    await _delay(200, 400)
                 img_caption = images[img_idx].get("label") or images[img_idx].get("alt_text", "")
                 ok = await _insert_image_file(
                     write_page,
@@ -3302,13 +3329,19 @@ async def _post(
                 if not ok:
                     logger.warning(f"이미지 {img_idx+1}번 1차 삽입 실패 — 재시도")
                     await _delay(1500, 2000)
-                    if img_idx == 0:
+                    retry_before = False
+                    if img_idx == 0 and is_header_top:
                         await write_page.keyboard.press("Control+Home")
                         await _delay(150, 300)
+                    elif insert_before_sub:
+                        retry_before = await _move_cursor_after_text(write_page, insert_before_sub, to_end=False)
+                        if not retry_before:
+                            await _move_cursor_for_image(write_page, anchor_text, img_idx)
                     else:
                         await _move_cursor_for_image(write_page, anchor_text, img_idx)
-                    await write_page.keyboard.press("Enter")
-                    await _delay(200, 400)
+                    if not retry_before:
+                        await write_page.keyboard.press("Enter")
+                        await _delay(200, 400)
                     ok = await _insert_image_file(
                         write_page,
                         local_path=local_path,

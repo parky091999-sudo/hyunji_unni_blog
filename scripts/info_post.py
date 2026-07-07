@@ -257,14 +257,16 @@ def run():
             illust_path = generate_editorial_illustration(keyword, category=INFO_CAT_ID, api_key=GOOGLE_API_KEY)
             concept_lines = [l for l in post.get("summary_text", "").splitlines() if l.strip()]
             concept_path = create_concept_infographic(concept_lines, category=INFO_CAT_ID)
-            post["body"], placed_i, placed_c = arrange_body_image_markers(
+            post["body"], placed_i, placed_c, sub_i, sub_c = arrange_body_image_markers(
                 post["body"], bool(illust_path), bool(concept_path))
             if placed_i:
                 images.append({"local_path": illust_path, "url": "",
-                               "alt_text": f"{keyword} 관련 이미지", "label": ""})
+                               "alt_text": f"{keyword} 관련 이미지", "label": "",
+                               "insert_before": sub_i})
             if placed_c:
                 images.append({"local_path": concept_path, "url": "",
-                               "alt_text": f"{keyword} 핵심 정리", "label": f"{keyword} 핵심 정리"})
+                               "alt_text": f"{keyword} 핵심 정리", "label": f"{keyword} 핵심 정리",
+                               "insert_before": sub_c})
             logger.info(f"본문 이미지: 일러스트={placed_i} 개념카드={placed_c} (헤더 [사진1] 보장)")
         except Exception as e:
             logger.warning(f"본문 이미지 생성/삽입 실패(무시) — 헤더 카드만: {e}")
