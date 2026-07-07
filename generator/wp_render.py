@@ -34,15 +34,24 @@ def _clean_inline(text: str) -> str:
     return t.strip()
 
 
+def _strip_qa_prefix(text: str) -> str:
+    """FAQ 문항의 'Q:'/'A:' 접두 제거 — 표시·스키마 모두 질문/답 본문만 남긴다."""
+    return re.sub(r"^[QqAa]\s*[:.]\s*", "", text.strip())
+
+
 def _bullet_kind(line: str):
-    """리스트 항목 종류 판별 → ('ol'|'ul', 내용) 또는 None."""
+    """리스트 항목 종류 판별 → ('ol'|'ul', 내용, 번호|None) 또는 None.
+    번호를 보존해야 산문 문단이 사이에 끼어 리스트가 쪼개져도 1,1,1로 리셋되지 않는다."""
     s = line.strip()
-    if re.match(r"^[①-⑳]\s", s):                       # 원형숫자 = 순서 있는 단계
-        return ("ol", re.sub(r"^[①-⑳]\s*", "", s))
-    if re.match(r"^\d{1,2}[.)]\s", s):                  # 1. 2. = 순서
-        return ("ol", re.sub(r"^\d{1,2}[.)]\s*", "", s))
-    if re.match(r"^[·•\-*]\s", s):                       # 글머리 = 순서 없음
-        return ("ul", re.sub(r"^[·•\-*]\s*", "", s))
+    m = re.match(r"^([①-⑳])\s*(.+)", s)                 # 원형숫자 = 순서 있는 단계
+    if m:
+        return ("ol", m.group(2), ord(m.group(1)) - ord("①") + 1)
+    m = re.match(r"^(\d{1,2})[.)]\s*(.+)", s)            # 1. 2. = 순서
+    if m:
+        return ("ol", m.group(2), int(m.group(1)))
+    m = re.match(r"^[·•\-*]\s*(.+)", s)                   # 글머리 = 순서 없음
+    if m:
+        return ("ul", m.group(1), None)
     return None
 
 
@@ -96,11 +105,12 @@ def _faq_to_html(faq_pairs) -> str:
     for q, a in faq_pairs:
         blocks += (
             '<div class="hj-faq-item">'
-            f"<h3 class=\"hj-faq-q\">{escape(_clean_inline(q))}</h3>"
-            f"<p class=\"hj-faq-a\">{escape(_clean_inline(a))}</p>"
+            f"<h3 class=\"hj-faq-q\">{escape(_strip_qa_prefix(_clean_inline(q)))}</h3>"
+            f"<p class=\"hj-faq-a\">{escape(_strip_qa_prefix(_clean_inline(a)))}</p>"
             "</div>"
         )
-    return f'<h2>자주 묻는 질문</h2><div class="hj-faq">{blocks}</div>'
+    # 제목(h2)은 본문의 '자주 묻는 질문' 소제목이 담당 — 여기서 중복 출력하지 않음.
+    return f'<div class="hj-faq">{blocks}</div>'
 
 
 def _faq_schema(faq_pairs) -> dict | None:
@@ -112,8 +122,8 @@ def _faq_schema(faq_pairs) -> dict | None:
         "mainEntity": [
             {
                 "@type": "Question",
-                "name": _clean_inline(q),
-                "acceptedAnswer": {"@type": "Answer", "text": _clean_inline(a)},
+                "name": _strip_qa_prefix(_clean_inline(q)),
+                "acceptedAnswer": {"@type": "Answer", "text": _strip_qa_prefix(_clean_inline(a))},
             }
             for q, a in faq_pairs
         ],
@@ -242,17 +252,20 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
     out: list[str] = []
     list_buf: list[str] = []
     list_type = None
+    list_start = None  # 쪼개진 ol이 이어지도록 시작 번호 보존
     table_i = 0
     toc: list[tuple[str, str]] = []  # (anchor, 소제목 텍스트)
 
     def flush_list():
-        nonlocal list_buf, list_type
+        nonlocal list_buf, list_type, list_start
         if list_buf:
             tag = list_type or "ul"
             lis = "".join(f"<li>{escape(x)}</li>" for x in list_buf)
-            out.append(f"<{tag}>{lis}</{tag}>")
+            attr = f' start="{list_start}"' if tag == "ol" and list_start not in (None, 1) else ""
+            out.append(f"<{tag}{attr}>{lis}</{tag}>")
             list_buf = []
             list_type = None
+            list_start = None
 
     lines = body.splitlines()
     i = 0
@@ -298,9 +311,11 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
 
         bk = _bullet_kind(s)
         if bk:
-            kind, content = bk
+            kind, content, num = bk
             if list_type and list_type != kind:
                 flush_list()
+            if not list_buf:
+                list_start = num
             list_type = kind
             list_buf.append(_clean_inline(content))
             continue
@@ -316,10 +331,16 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
     toc_html = _toc_html(toc)
     sources_html = _sources_html(post.get("sources"))
     disclaimer_html = _disclaimer_html(category)
-    # 발행용 완성 본문: 핵심수치 → 목차 → 본문 → 출처 → 면책
-    #   (저자·관련글은 WP 테마/위젯이 담당 — 콘텐츠 HTML엔 포함 안 함)
+    # 발행용 완성 본문 — §1 승인 순서: 도입(두괄식)+요약 → 핵심수치 → 목차 → 본문 섹션 → 출처 → 면책.
+    #   핵심수치·목차는 첫 소제목(h2) 직전에 삽입해 도입문이 글 맨 위에 오게 한다.
+    pieces = [x for x in out if x]
+    first_h2 = next((i for i, p in enumerate(pieces) if p.startswith("<h2 ")), None)
+    if first_h2 is not None:
+        pieces = pieces[:first_h2] + [key_stats_html, toc_html] + pieces[first_h2:]
+    else:
+        pieces = [key_stats_html, toc_html] + pieces
     content_html = "\n".join(
-        x for x in (key_stats_html, toc_html, body_html, sources_html, disclaimer_html) if x
+        x for x in (*pieces, sources_html, disclaimer_html) if x
     )
 
     desc = _meta_description(body, post.get("summary_text", ""))

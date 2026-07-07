@@ -1,0 +1,80 @@
+/*
+ * 현지언니 워드프레스 — 심층분석 컴포넌트 스타일 (v2 승인 디자인 이식)
+ * 원본: scripts/wp_dry.py _doc() CSS (가상페이지 샘플 wp_심층분석_샘플_v2.html 승인본)
+ * 배포: 서버 /var/www/html/wp-content/mu-plugins/hyunji-style.css (hyunji-style.php가 enqueue)
+ * 테마 독립 — wp_render.py가 출력하는 .hj-* 클래스에만 스코프.
+ */
+:root{
+  --hj-fg:#1f2328; --hj-muted:#6a737d; --hj-line:#e5e7eb;
+  --hj-accent:#2f6f4f; --hj-accent-bg:#eef6f1;
+  --hj-tableh:#f3f5f7; --hj-soft:#fafbfc;
+  --hj-font:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  /* 테마(twentytwentyfive) 폰트 프리셋을 통째로 교체 — 한글 최적화 */
+  --wp--preset--font-family--manrope:var(--hj-font);
+  --wp--preset--font-family--beiruti:var(--hj-font);
+  --wp--preset--font-family--literata:var(--hj-font);
+  --wp--preset--font-family--fira-code:var(--hj-font);
+  --wp--preset--font-family--platypi:var(--hj-font);
+  --wp--preset--font-family--ysabeau-office:var(--hj-font);
+}
+body{font-family:var(--hj-font)}
+
+/* ── 타이포그래피: 본문 가독(승인 샘플 16.5px/1.75 기준) ── */
+.entry-content p{font-size:1.06rem;line-height:1.85;margin-block-start:0;margin-block-end:1.15em}
+.entry-content li{font-size:1.03rem;line-height:1.75;margin-bottom:.5em}
+.entry-content ol,.entry-content ul{margin-block-end:1.2em}
+.wp-block-post-title{font-weight:800;line-height:1.35;letter-spacing:-.01em}
+.entry-content h2{font-weight:800;letter-spacing:-.01em}
+
+/* ── 본문 폭: 승인 샘플 760px (테마 기본 645px 확장) ── */
+.wp-block-post-content.is-layout-constrained > :where(:not(.alignfull):not(.alignwide)){max-width:760px}
+
+/* ── 본문 섹션 구분(소제목 위 헤어라인) — 글 본문에만 ── */
+.entry-content > h2{border-top:1px solid var(--hj-line);margin-top:2.1em;padding-top:1.3em}
+.entry-content > h2:first-child{border-top:0;margin-top:0;padding-top:0}
+
+/* ── 핵심 수치 스트립 ── */
+.hj-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:26px 0}
+.hj-stat{background:var(--hj-soft);border:1px solid var(--hj-line);border-radius:10px;padding:14px 8px;text-align:center}
+.hj-stat-v{font-size:1.25em;font-weight:800;color:var(--hj-accent);line-height:1.3}
+.hj-stat-l{font-size:.78em;color:var(--hj-muted);margin-top:4px;line-height:1.4}
+
+/* ── 목차 ── */
+.hj-toc{background:var(--hj-soft);border:1px solid var(--hj-line);border-radius:10px;padding:16px 22px;margin:22px 0}
+.hj-toc-t{font-size:.82em;font-weight:800;color:#414852;margin:0 0 8px}
+.hj-toc ol{margin:0;padding-left:20px}
+.hj-toc li{margin:4px 0;font-size:.92em}
+.hj-toc a{color:#2b5a86;text-decoration:none}
+.hj-toc a:hover{text-decoration:underline}
+
+/* ── 요약 박스 ── */
+.hj-summary{background:var(--hj-accent-bg);border-left:4px solid var(--hj-accent);border-radius:8px;padding:18px 22px;margin:26px 0}
+.hj-summary-title{font-weight:800;color:var(--hj-accent);margin:0 0 10px;font-size:.9em}
+.hj-summary ul{margin:0;padding-left:2px;list-style:none}
+.hj-summary li{position:relative;padding-left:24px;margin:0 0 8px;font-size:.95em;line-height:1.6}
+.hj-summary li:before{content:'✓';position:absolute;left:0;color:var(--hj-accent);font-weight:800}
+
+/* ── 비교표 ── */
+.hj-table{margin:24px 0;overflow-x:auto}
+.hj-table table{border-collapse:collapse;width:100%;font-size:.9em;min-width:520px}
+.hj-table th,.hj-table td{border:1px solid var(--hj-line);padding:10px 12px;text-align:left}
+.hj-table thead th{background:var(--hj-tableh);font-weight:700}
+.hj-table tbody td:first-child{font-weight:600;background:var(--hj-soft)}
+
+/* ── FAQ 카드 ── */
+.hj-faq-item{border:1px solid var(--hj-line);border-radius:10px;padding:16px 20px;margin-bottom:12px}
+.hj-faq-q{margin:0 0 8px;font-size:.98em;color:var(--hj-accent)}
+.hj-faq-a{margin:0;color:#33393f;font-size:.95em;line-height:1.7}
+
+/* ── 출처·면책 ── */
+.hj-sources{margin-top:34px}
+.hj-sources h2{font-size:1em;border:0;margin:0 0 10px;padding:0}
+.hj-sources ul{padding-left:20px;margin:0}
+.hj-sources li{font-size:.88em;margin-bottom:6px}
+.hj-sources a{color:#2b5a86}
+.hj-disclaimer{margin-top:22px;background:#fbf7ee;border:1px solid #ecdfc3;border-radius:10px;padding:14px 18px;font-size:.85em;color:#6d5f43;line-height:1.65}
+
+/* ── 모바일 ── */
+@media(max-width:640px){
+  .hj-stats{grid-template-columns:1fr 1fr}
+}

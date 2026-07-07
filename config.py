@@ -13,6 +13,11 @@ NAVER_COOKIES = os.getenv("NAVER_COOKIES", "")
 # Google (Gemini)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
+# 워드프레스 (REST 발행 — AWS 자가호스팅, WP_PIPELINE §5 B)
+WP_URL    = os.getenv("WP_URL", "")       # 예: https://hyunjiunni.com (끝 슬래시 없이)
+WP_USER   = os.getenv("WP_USER", "")      # 관리자 사용자명
+WP_APP_PW = os.getenv("WP_APP_PW", "")    # 애플리케이션 비밀번호(표시된 공백 포함 그대로)
+
 # Pexels (이미지)
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
