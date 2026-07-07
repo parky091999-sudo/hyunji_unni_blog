@@ -257,6 +257,83 @@ class StockDataCollector:
             logger.warning("공모주 일정 데이터 없음")
         return ipo_list[:15]
 
+    @staticmethod
+    def parse_ipo_date_range(s: str):
+        """네이버 IPO 날짜 문자열 파싱 → (시작 date, 끝 date) | None.
+        형식 실측(2026-07-07): 청약일 '26.07.13~07.14', 상장일 '26.07.13' 또는 '미정'."""
+        from datetime import date
+
+        if not s:
+            return None
+        m = re.match(r"(\d{2})\.(\d{2})\.(\d{2})\s*(?:~\s*(?:(\d{2})\.)?(\d{2})\.(\d{2}))?", s.strip())
+        if not m:
+            return None
+        yy, mm, dd = int(m.group(1)) + 2000, int(m.group(2)), int(m.group(3))
+        try:
+            start = date(yy, mm, dd)
+            if m.group(5):
+                yy2 = int(m.group(4)) + 2000 if m.group(4) else yy
+                mm2, dd2 = int(m.group(5)), int(m.group(6))
+                # '26.12.30~01.02'처럼 연도 경계를 넘는 범위 보정
+                if not m.group(4) and (mm2, dd2) < (mm, dd):
+                    yy2 += 1
+                end = date(yy2, mm2, dd2)
+            else:
+                end = start
+            return (start, end)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def get_ipo_38_detail(name: str) -> dict:
+        """38커뮤니케이션에서 공모주 심층 팩트(희망밴드·기관경쟁률·의무보유확약 등) best-effort 보강.
+        수요예측 결과(확약 비율)는 네이버 IPO 목록에 없어 '균등/비례/패스' 판단 글의 핵심 팩트다.
+        사이트 차단·구조 변경에 대비해 어떤 실패에도 빈 dict 반환(하드 실패 없음)."""
+        out: dict = {}
+        try:
+            r = requests.get(
+                "https://www.38.co.kr/html/fund/index.htm?o=k", headers=_HEADERS, timeout=12
+            )
+            r.encoding = "euc-kr"
+            no = None
+            clean_name = re.sub(r"\s+", "", name)
+            for a in re.finditer(
+                r"<a[^>]+href=\"[^\"]*\?o=v&(?:amp;)?no=(\d+)[^\"]*\"[^>]*>([^<]+)</a>", r.text
+            ):
+                if clean_name in re.sub(r"\s+", "", a.group(2)):
+                    no = a.group(1)
+                    break
+            if not no:
+                logger.info(f"38 상세 미발견: {name}")
+                return {}
+            d = requests.get(
+                f"https://www.38.co.kr/html/fund/?o=v&no={no}", headers=_HEADERS, timeout=12
+            )
+            d.encoding = "euc-kr"
+            text = re.sub(r"<[^>]+>", " ", d.text)
+            text = re.sub(r"&nbsp;?|&amp;", " ", text)
+            text = re.sub(r"\s+", " ", text)
+
+            def grab(label_pat: str, key: str, val_pat: str = r"([0-9][\d,\.]*(?:\s*~\s*[\d,\.]+)?\s*(?:원|주|%|:\s*1)?)"):
+                mm = re.search(label_pat + r"\s*[:：]?\s*" + val_pat, text)
+                if mm:
+                    v = mm.group(1).strip()
+                    if v and v not in ("0", "0원", "0%"):
+                        out[key] = v
+
+            grab(r"희망공모가액?", "공모희망밴드(원)")
+            grab(r"확정공모가", "확정공모가(원)")
+            grab(r"기관경쟁률", "기관경쟁률(수요예측)")
+            grab(r"의무보유확약", "의무보유확약(%)", r"([\d\.]+\s*%)")
+            grab(r"(?:일반)?청약경쟁률", "일반청약경쟁률")
+            grab(r"공모금액", "공모금액")
+            if out:
+                logger.info(f"38 상세 보강({name}): {list(out.keys())}")
+        except Exception as e:
+            logger.warning(f"38 상세 보강 실패(무시, {name}): {e}")
+            return out
+        return out
+
     # 미국 대형·인기 종목 워치리스트 (검색 유입이 잦은 종목 위주) — 이 중 당일 등락폭이 큰 종목을 선정
     _US_WATCHLIST = [
         "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AMD", "NFLX", "AVGO",

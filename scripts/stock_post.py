@@ -58,12 +58,132 @@ def _card_hook_keyword(keyword: str, fact_data, stock_topic: str) -> str:
         is_individual = True
     elif stock_topic == "etf포트폴리오" and isinstance(fact_data, dict):
         is_individual = fact_data.get("_etf_content_type") in _INDIVIDUAL_ETF_TYPES
+    elif stock_topic == "공모주캘린더" and isinstance(fact_data, dict):
+        # 개별 공모주 심층분석 — 본문이 실제로 '넣을까 말까'에 답하므로 질문형 훅 적합
+        if fact_data.get("_ipo_mode") == "deep" and fact_data.get("종목명") and random.random() < 0.5:
+            return f"{fact_data['종목명']} 청약, 넣을까?"
+        return keyword
     else:
         is_individual = False
     if not is_individual or random.random() >= 0.5:
         return keyword
     base = keyword.replace(" 분석", "").strip()
     return f"{base} 지금 사도 될까?"
+
+
+def _pick_ipo_content(ipo_list: list, history: list, force_mode: str = "", ignore_history: bool = False):
+    """공모주 발행 모드 선택 (2026-07-07 재설계 — 매일 같은 일정을 반복하던 유사문서 해소).
+    1) deep: 청약 D-1~마감 사이 종목 중 미발행 1개 → 개별 심층분석(균등/비례/패스 판단 가이드)
+    2) monthly: 매월 25일 이후(또는 월초 1~3일 이월분) '해당 월 일정 총정리' 1회
+    3) (None, None): 오늘 발행 없음 → 슬롯 스킵
+    force_mode('deep'/'monthly')는 workflow_dispatch 테스트용 — 날짜 윈도 무시하고 강제 선택."""
+    from datetime import timedelta
+
+    from generator.stock_collector import StockDataCollector
+
+    today = datetime.now(KST).date()
+    covered = set() if ignore_history else {
+        h.get("stock_name") for h in history if h.get("status") == "posted" and h.get("stock_name")
+    }
+
+    def _status_line(start, end) -> str:
+        if today < start:
+            return f"청약 시작까지 D-{(start - today).days} ({start.month}월 {start.day}일 시작, {end.month}월 {end.day}일 마감)"
+        if today == start:
+            return f"오늘 청약 시작 ({end.month}월 {end.day}일 마감)"
+        if today == end:
+            return "오늘 청약 마감일"
+        if start < today < end:
+            return "청약 진행 중"
+        return "청약 마감됨"
+
+    def _build_deep(entry: dict, start, end) -> dict:
+        fact = dict(entry)
+        fact["_ipo_mode"] = "deep"
+        fact["청약상태"] = _status_line(start, end)
+        fact["_header_keyword"] = f"{entry['종목명']} 공모주 청약"
+        # 38커뮤니케이션 보강(확약·기관경쟁률·밴드) + 최근 뉴스 — 전부 best-effort
+        try:
+            detail = StockDataCollector.get_ipo_38_detail(entry["종목명"])
+            for k, v in detail.items():
+                fact.setdefault(k, v)
+        except Exception as e:
+            logger.warning(f"공모주 상세 보강 실패(무시): {e}")
+        try:
+            news = StockDataCollector.get_search_news([f"{entry['종목명']} 공모주"])
+            if news:
+                fact["최근뉴스"] = news
+        except Exception as e:
+            logger.warning(f"공모주 뉴스 보강 실패(무시): {e}")
+        return fact
+
+    def _deep_pick(window: bool):
+        cands = []
+        for e in ipo_list:
+            rng = StockDataCollector.parse_ipo_date_range(e.get("청약일", ""))
+            if not rng or e.get("종목명") in covered:
+                continue
+            start, end = rng
+            if window and not ((start - timedelta(days=1)) <= today <= end):
+                continue
+            if not window and end < today:
+                continue
+            cands.append((start, e, end))
+        cands.sort(key=lambda x: x[0])
+        if cands:
+            start, e, end = cands[0]
+            return _build_deep(e, start, end)
+        return None
+
+    def _monthly_target():
+        if today.day >= 25:
+            return (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+        if today.day <= 3:
+            return (today.year, today.month)  # 월말 슬롯을 놓친 경우 월초 이월 발행
+        return None
+
+    def _build_monthly(y: int, m: int):
+        key = f"{y:04d}-{m:02d}"
+        if not ignore_history and any(
+            h.get("ipo_month") == key and h.get("status") == "posted" for h in history
+        ):
+            return None
+        sched = []
+        for e in ipo_list:
+            rng = StockDataCollector.parse_ipo_date_range(e.get("청약일", ""))
+            if rng and rng[0].year == y and rng[0].month == m:
+                sched.append(e)
+        if not sched:
+            return None
+        sched.sort(key=lambda e: e.get("청약일", ""))
+        return {
+            "_ipo_mode": "monthly",
+            "_ipo_month": key,
+            "대상월": f"{y}년 {m}월",
+            "청약일정": sched,
+            "_header_keyword": f"{m}월 공모주 청약 일정",
+        }
+
+    if force_mode == "deep":
+        fact = _deep_pick(window=False)
+        return ("deep", fact) if fact else (None, None)
+    if force_mode == "monthly":
+        y, m = _monthly_target() or (
+            (today.year, today.month) if today.day < 25
+            else ((today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1))
+        )
+        fact = _build_monthly(y, m)
+        return ("monthly", fact) if fact else (None, None)
+
+    fact = _deep_pick(window=True)
+    if fact:
+        return ("deep", fact)
+    target = _monthly_target()
+    if target:
+        fact = _build_monthly(*target)
+        if fact:
+            return ("monthly", fact)
+    return (None, None)
 
 
 def _pick_least_recent_topic() -> str:
@@ -193,6 +313,22 @@ def run():
         logger.info(f"오늘 이미 [{topic_name}] 포스팅 완료 — 건너뜀")
         return
 
+    # ── 공모주: 발행 여부·모드를 슬롯 선점 '전'에 결정 (스킵 시 pending 잔류 방지) ──
+    ipo_fact = None
+    if STOCK_TOPIC == "공모주캘린더":
+        from generator.stock_collector import StockDataCollector
+
+        ipo_list = StockDataCollector.get_ipo_calendar()
+        ipo_mode, ipo_fact = _pick_ipo_content(
+            ipo_list, history,
+            force_mode=os.environ.get("IPO_MODE", "").strip().lower(),
+            ignore_history=(force or draft or dry_run),
+        )
+        if not ipo_fact:
+            logger.info("[공모주] 오늘 발행할 콘텐츠 없음(청약 임박 종목 없음·월간 캘린더 시기 아님) — 스킵")
+            sys.exit(0)
+        logger.info(f"[공모주] 모드={ipo_mode} 대상={ipo_fact.get('종목명') or ipo_fact.get('대상월')}")
+
     if not force and not draft and not dry_run:
         history = _reserve_today_slot(history, STOCK_TOPIC, topic_name)
         _save_history(history)
@@ -208,6 +344,8 @@ def run():
 
         force_content_type = os.environ.get("ETF_CONTENT_TYPE", "").strip()
         fact_data = EtfDataCollector.pick_etf_topic(history=history, force_content_type=force_content_type or None)
+    elif STOCK_TOPIC == "공모주캘린더":
+        fact_data = ipo_fact
     else:
         fact_data = StockDataCollector.collect(STOCK_TOPIC)
     if not fact_data:
@@ -534,6 +672,8 @@ def run():
         "stock_name": fact_data.get("종목명") if isinstance(fact_data, dict) else None,
         "etf_content_type": fact_data.get("_etf_content_type") if isinstance(fact_data, dict) else None,
         "etf_subject": fact_data.get("_etf_subject") if isinstance(fact_data, dict) else None,
+        "ipo_mode": fact_data.get("_ipo_mode") if isinstance(fact_data, dict) else None,
+        "ipo_month": fact_data.get("_ipo_month") if isinstance(fact_data, dict) else None,
     }
 
     history = _load_history()

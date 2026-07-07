@@ -25,6 +25,15 @@ on:
           - sector_compare_us
           - tax_account
         default: auto
+      ipo_mode:
+        description: "공모주 모드 강제 (stock_topic=공모주캘린더일 때만)"
+        required: false
+        type: choice
+        options:
+          - auto
+          - deep
+          - monthly
+        default: auto
       force_post:
         description: "강제 실행 (true/false)"
         required: false
@@ -104,6 +113,7 @@ jobs:
           RUN_SLOT:       ${{ env.RUN_SLOT }}
           STOCK_TOPIC:    ${{ env.STOCK_TOPIC }}
           ETF_CONTENT_TYPE: ${{ github.event.inputs.etf_content_type == 'auto' && '' || github.event.inputs.etf_content_type }}
+          IPO_MODE:       ${{ github.event.inputs.ipo_mode == 'auto' && '' || github.event.inputs.ipo_mode }}
         run: python -m scripts.stock_post
 
       - name: 스크린샷 아티팩트 업로드 (디버그)
