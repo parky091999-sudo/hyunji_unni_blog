@@ -1,0 +1,207 @@
+"""
+워드프레스 심층분석 원고 생성 (2026-07-07 신설, WP_PIPELINE.md §1·§4).
+
+네이버 파이프라인의 검증된 자산을 최대 재사용:
+- 생성/파싱: content._gen_text + content._parse_response (같은 마커 포맷)
+- 품질: quality._AI_PATTERNS + info_content._UNSOURCED_RE (무근거 인용 하드 게이트)
+- 원칙: 수치 할루시네이션 금지 — facts에 있는 값만 인용, key_stats·sources는 데이터로 주입
+
+네이버(모바일 스캔형)와 다른 점: 구글 SEO 심층 의도 → 더 길게(2,500~4,000자),
+섹션별 '결론→근거/계산 예시→표·리스트', 필수 유형(구조해설·계산예시·의사결정 프레임·흔한 오해).
+"""
+import json
+import logging
+import re
+import time
+
+from generator.content import _gen_text, _parse_response, _IMAGE_MARKER, _split_long_paragraphs
+from generator.quality import _AI_PATTERNS
+from generator.info_content import _UNSOURCED_RE
+
+logger = logging.getLogger("deep_content")
+
+# 카테고리별 공식 출처(E-E-A-T) — 데이터로 주입, LLM이 지어내지 않음
+DEFAULT_SOURCES = {
+    "금융·재테크": [
+        ("국세청 — 연금계좌·금융소득 안내", "https://www.nts.go.kr"),
+        ("금융감독원 통합연금포털", "https://100lifeplan.fss.or.kr"),
+        ("금융감독원 금융상품통합비교공시(finlife)", "https://finlife.fss.or.kr"),
+    ],
+    "세금·절세": [
+        ("국세청 홈택스", "https://www.hometax.go.kr"),
+        ("국세청 — 연말정산 종합안내", "https://www.nts.go.kr"),
+    ],
+    "보험": [
+        ("금융감독원 — 보험다모아", "https://www.e-insmarket.or.kr"),
+        ("금융감독원 파인(FINE)", "https://fine.fss.or.kr"),
+    ],
+    "부동산·주거": [
+        ("국토교통부 실거래가 공개시스템", "https://rt.molit.go.kr"),
+        ("주택도시기금", "https://nhuf.molit.go.kr"),
+    ],
+}
+
+_SYSTEM = (
+    "너는 '현지언니'다 — 놓치기 쉬운 돈·제도 정보를 직접 발품 팔아 정리하는 생활금융 블로거.\n"
+    "이 글은 네이버가 아니라 '워드프레스(구글 검색)'용 심층분석 글이다. 얕은 요약이 아니라, "
+    "검색해서 들어온 사람이 '이 주제로 실제 결정을 내릴 수 있을 만큼' 깊고 구체적으로 써라.\n"
+    "\n[대원칙 — 반드시 준수]\n"
+    "1. 서두 인사말·자기소개 절대 금지. 첫 문단에서 결론부터 제시(두괄식). "
+    "둘째 문단에서 '이 글이 답할 질문'과 다룰 분석 축을 예고하라.\n"
+    "2. ★수치 할루시네이션 절대 금지: 세율·한도·금리·수수료 등 '구체 수치'는 [팩트 데이터]에 있는 값만 사용. "
+    "데이터에 없으면 '공식 자료로 확인'으로 처리하고 절대 지어내지 마라. 계산도 데이터 값으로만.\n"
+    "3. ★무근거 인용 금지: '평균 N%로 알려져 있어요', '~라는 말이 있어요'처럼 출처 없는 수치·주장 절대 금지.\n"
+    "4. ★깊이의 정의 = 정보 이득: 각 섹션은 반드시 ①결론 첫 문장 → ②근거/계산 예시(실수치로 ×·= 명시) "
+    "→ ③표나 리스트 순서로. 최소 한 섹션엔 '숫자를 넣어 계산해보는' 구체 예시가 있어야 한다.\n"
+    "5. ★필수 섹션 유형: (가)제도·구조 해설 (나)돈 계산 예시 (다)'그래서 나는 어떻게' 의사결정 프레임 "
+    "(라)흔한 오해/함정. 이 네 가지 성격이 소제목에 녹아 있어야 한다.\n"
+    "6. 문체: 해요체, 담백하고 정확하게. 어려운 용어는 처음 나올 때 괄호로 짧게 풀이. "
+    "쉽지만 얕지 않게 — 전문성은 '정확한 숫자와 판단 기준'으로 드러내라.\n"
+    "7. 이모지 금지. AI 상투어('다양한', '~하시기 바랍니다', '것이 중요합니다') 금지. "
+    "강조 마커([[ ]]·**·__) 금지 — 중요한 건 소제목·표·숫자로 드러내라.\n"
+    "8. 투자·가입 권유 단정 금지: '무조건 하라' 대신 '이런 경우엔 이렇게 판단한다'는 기준 제공. "
+    "마지막은 개인차·공식 확인 안내.\n"
+    "9. 가독성: 한 문장 60자 내외, 한 문단 2~3문장까지. 문단 사이 빈 줄. "
+    "불릿은 '· '로 시작(60자 이내), 순서 단계는 '①②③'.\n"
+    "10. [사진N] 마커는 단독 줄로만. 문장 안에 이미지 지시문을 옮겨 적지 마라.\n"
+)
+
+_STRUCT = (
+    "\n[글 구조 — 이 순서, 마커 필수. 2,500~4,000자 심층]\n"
+    "(도입 2~3문단. 첫 문단=결론. 둘째 문단=이 글이 답할 질문+분석 축 예고. 인사말·[사진] 마커 없이 바로 본문 시작.)\n"
+    "\n[요약시작]\n"
+    "· (핵심 결론 1)\n· (핵심 결론 2)\n· (핵심 결론 3)\n"
+    "[요약끝]\n"
+    "\n[소제목] (구조·제도 해설 소제목 — 결론/수치 포함, 예 '세액공제: 한도는 공유, 환급액은 소득이 가른다')\n"
+    "(결론 첫 문장 → 제도 원리를 쉽게 → 데이터 수치 인용. 3~5문단.)\n"
+    "\n[소제목] (계산 예시 소제목 — 실제 숫자를 넣어보는 섹션)\n"
+    "(★facts의 수치로 '얼마 넣으면 얼마' 식 계산을 최소 1개. 불릿으로 케이스 비교. "
+    "[표삽입] 앞에 1~2문장.)\n"
+    "[표삽입]\n(비교표 — facts 기반. 3열 권장(항목|A|B), 셀은 짧게.)\n"
+    "\n[소제목] (심화 축 소제목 — 위에서 예고한 분석 축의 나머지)\n"
+    "(결론 → 근거 → 엣지 케이스. 데이터 없는 수치는 '공식 확인'으로.)\n"
+    "\n[소제목] 그래서 나는 어떻게 해야 하나\n"
+    "(★의사결정 프레임 — 소득·나이·상황별로 '이런 경우엔 이렇게 하는 사람이 많다'는 참고 기준을 "
+    "①②③ 순서로. 단정 대신 조건별 판단. 마지막에 한 줄 핵심 원칙.)\n"
+    "\n[소제목] 많이들 착각하는 것들\n"
+    "(흔한 오해 2~3개를 '① 오해 → 사실' 형식으로 바로잡기.)\n"
+    "\n[소제목] 자주 묻는 질문\n"
+    "[FAQ시작]\n"
+    "Q: (검색 롱테일 질문 1)\nA: (facts 기반 2~3문장)\n"
+    "Q: (질문 2)\nA: (답)\n"
+    "Q: (질문 3)\nA: (답)\n"
+    "[FAQ끝]\n"
+)
+
+_OUTPUT_FORMAT = (
+    "\n[출력 형식 — 반드시 이 형식]\n"
+    "TITLE: {검색의도+정보 이득이 드러나는 제목. 2026 연도 포함 권장. "
+    "예 '연금저축펀드 vs IRP, 세액공제만 보면 손해 봅니다 | 4개 축 심층 비교'}\n"
+    "TAGS: {쉼표로 구분된 태그 5~7개}\n"
+    "---\n"
+    "{위 [글 구조]대로 마커 포함 본문}\n"
+)
+
+
+def _build_system(category: str) -> str:
+    return (
+        _SYSTEM
+        + _STRUCT
+        + _OUTPUT_FORMAT
+        + "\n[마커 체크리스트 — 누락 시 재작성]\n"
+        "- 본문은 [사진] 마커 없이 도입 문단으로 시작(WP는 상단에 제목+핵심수치 스트립이 온다)\n"
+        "- [요약시작]~[요약끝] 1쌍(· 3줄)\n"
+        "- [표삽입] 1개\n"
+        "- [FAQ시작]~[FAQ끝] 1쌍(Q 3개+)\n"
+        "- [소제목] 6개(구조해설/계산예시/심화축/의사결정/흔한오해/FAQ)\n"
+        "- 구체 수치는 팩트 데이터 값만, 최소 1개 섹션에 계산 예시\n"
+    )
+
+
+def _gate(parsed: dict) -> tuple[bool, list[str]]:
+    """심층 품질 게이트 — 통과 여부 + 이슈. WP_PIPELINE §4."""
+    issues: list[str] = []
+    body = parsed.get("body", "")
+    body_len = len(_IMAGE_MARKER.sub("", body))
+
+    if body_len < 2000:
+        issues.append(f"본문 짧음({body_len}자, 심층 목표 2,500+)")
+    # 무근거 인용 하드 게이트(네이버 실사고 교훈 재사용)
+    if _UNSOURCED_RE.search(body):
+        issues.append("무근거 인용 표현('알려져 있'류)")
+    # AI 상투어
+    for rx, desc in _AI_PATTERNS:
+        if rx.search(body):
+            issues.append(f"AI패턴: {desc}")
+            break
+    # 구조 요건
+    subs = [s for s in parsed.get("subheadings", []) if s != "자주 묻는 질문"]
+    if len(subs) < 4:
+        issues.append(f"소제목 부족({len(subs)}개, 4+ 필요)")
+    if not parsed.get("table_strs"):
+        issues.append("비교표 누락")
+    if len(parsed.get("faq_pairs", [])) < 3:
+        issues.append(f"FAQ 부족({len(parsed.get('faq_pairs', []))}개)")
+    # 계산 예시 신호(× 또는 = 또는 '만원' 옆 계산) — 최소 1개
+    if not re.search(r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)|\d[\d,]*\s*원\s*[×x]", body):
+        issues.append("계산 예시 신호 없음")
+
+    # 치명적(재생성 유발): 길이·표·FAQ·무근거
+    critical = [
+        i for i in issues
+        if any(k in i for k in ("짧음", "표 누락", "FAQ 부족", "무근거"))
+    ]
+    return (not critical, issues)
+
+
+def generate_deep_post(topic: dict, api_key: str) -> dict | None:
+    """topic → 심층분석 post dict(wp_render 입력).
+    topic = {keyword, category, facts(dict), key_stats(list), sources(list|None)}"""
+    category = topic.get("category", "금융·재테크")
+    keyword = topic.get("keyword", "")
+    facts = topic.get("facts", {})
+    system = _build_system(category)
+    facts_json = json.dumps(facts, ensure_ascii=False, indent=2, default=str)
+
+    user_msg = (
+        f"주제(키워드): {keyword}\n"
+        f"카테고리: {category}\n\n"
+        f"[팩트 데이터 — 이 수치만 사용, 추가·변조 금지]\n{facts_json}\n\n"
+        "위 팩트만 근거로 심층분석 글을 작성해라. 계산 예시는 이 수치로만. "
+        "데이터에 없는 수치는 '공식 자료로 확인'으로 처리하라."
+    )
+
+    waits = [10, 30, 60]
+    for attempt in range(1, len(waits) + 2):
+        try:
+            raw = _gen_text(api_key, user_msg, system, 8192, 0.2)
+            if not raw:
+                logger.warning(f"빈 응답 (시도 {attempt})")
+                continue
+            parsed = _parse_response(raw)
+            if not parsed:
+                logger.warning(f"파싱 실패 (시도 {attempt})")
+                continue
+            parsed["body"] = _split_long_paragraphs(parsed.get("body", ""))
+            ok, issues = _gate(parsed)
+            if not ok:
+                logger.warning(f"품질 미달 재생성 (시도 {attempt}): {'; '.join(issues[:3])}")
+                continue
+            if issues:
+                logger.info(f"통과(경미 이슈): {'; '.join(issues)}")
+            # 데이터로 주입 — LLM이 지어내지 않음
+            parsed["key_stats"] = topic.get("key_stats", [])
+            parsed["sources"] = topic.get("sources") or DEFAULT_SOURCES.get(category, [])
+            parsed["keyword"] = keyword
+            parsed["category"] = category
+            body_len = len(_IMAGE_MARKER.sub("", parsed["body"]))
+            logger.info(
+                f"심층 생성 완료: {parsed.get('title')!r} ({body_len}자, "
+                f"소제목 {len(parsed.get('subheadings', []))}, FAQ {len(parsed.get('faq_pairs', []))})"
+            )
+            return parsed
+        except Exception as e:
+            logger.error(f"생성 실패 (시도 {attempt}): {e}")
+            if attempt <= len(waits):
+                time.sleep(waits[attempt - 1])
+    return None

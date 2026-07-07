@@ -120,6 +120,70 @@ def _faq_schema(faq_pairs) -> dict | None:
     }
 
 
+def _key_stats_html(key_stats) -> str:
+    """핵심 수치 스트립 — [(값, 라벨), ...] → 카드 그리드(WP_PIPELINE §1 3번)."""
+    if not key_stats:
+        return ""
+    cards = ""
+    for item in key_stats[:4]:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            v, l = item[0], item[1]
+        elif isinstance(item, dict):
+            v, l = item.get("value", ""), item.get("label", "")
+        else:
+            continue
+        if not str(v).strip():
+            continue
+        cards += (
+            f'<div class="hj-stat"><div class="hj-stat-v">{escape(str(v))}</div>'
+            f'<div class="hj-stat-l">{escape(str(l))}</div></div>'
+        )
+    return f'<div class="hj-stats">{cards}</div>' if cards else ""
+
+
+def _sources_html(sources) -> str:
+    """참고·출처 — [(제목, url), ...] → 목록(E-E-A-T, WP_PIPELINE §1 8번)."""
+    if not sources:
+        return ""
+    lis = ""
+    for s in sources:
+        if isinstance(s, (list, tuple)) and len(s) >= 2:
+            t, u = s[0], s[1]
+        elif isinstance(s, dict):
+            t, u = s.get("title", ""), s.get("url", "")
+        else:
+            t, u = str(s), ""
+        if not str(t).strip():
+            continue
+        if u:
+            lis += f'<li><a href="{escape(str(u))}" rel="noopener nofollow" target="_blank">{escape(str(t))}</a></li>'
+        else:
+            lis += f"<li>{escape(str(t))}</li>"
+    return f'<div class="hj-sources"><h2>참고·출처</h2><ul>{lis}</ul></div>' if lis else ""
+
+
+def _toc_html(items) -> str:
+    """목차 — [(anchor, text), ...] → 앵커 링크 목록(WP_PIPELINE §1 4번)."""
+    if len(items) < 3:  # 섹션 2개 이하면 목차 실익 없음
+        return ""
+    lis = "".join(f'<li><a href="#{a}">{escape(t)}</a></li>' for a, t in items)
+    return f'<nav class="hj-toc"><p class="hj-toc-t">목차</p><ol>{lis}</ol></nav>'
+
+
+_DISCLAIMER = {
+    "금융·재테크": "이 글은 일반적인 정보 제공을 목적으로 하며, 특정 금융상품의 가입 권유가 아닙니다. 세율·한도 등 제도 수치는 개정될 수 있으니 국세청·금융감독원 공식 자료로 최신 기준을 확인하세요. 투자·세무 판단의 책임은 본인에게 있습니다.",
+    "세금·절세": "이 글은 일반적인 정보 제공을 목적으로 하며, 개별 사안의 세무 판단은 국세청 홈택스 또는 세무 전문가 상담으로 확인하세요. 세법·공제 기준은 개정될 수 있습니다.",
+    "보험": "이 글은 일반적인 정보 제공을 목적으로 하며 특정 보험상품의 가입 권유가 아닙니다. 보장 내용·보험료는 상품과 개인 조건에 따라 다르니 가입 전 약관과 공식 비교 도구로 확인하세요.",
+    "부동산·주거": "이 글은 일반적인 정보 제공을 목적으로 하며, 대출 한도·금리·세금은 개인 조건과 정책 변경에 따라 달라집니다. 실제 신청 전 금융기관·관할 기관 공식 안내로 확인하세요.",
+}
+_DISCLAIMER_DEFAULT = "이 글은 일반적인 정보 제공을 목적으로 하며, 제도·수치는 개정될 수 있으니 공식 자료로 최신 기준을 확인하세요."
+
+
+def _disclaimer_html(category: str) -> str:
+    txt = _DISCLAIMER.get(category, _DISCLAIMER_DEFAULT)
+    return f'<div class="hj-disclaimer">{escape(txt)}</div>'
+
+
 def _article_schema(title: str, desc: str, url: str = "") -> dict:
     now = datetime.now(KST).isoformat()
     d = {
@@ -179,6 +243,7 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
     list_buf: list[str] = []
     list_type = None
     table_i = 0
+    toc: list[tuple[str, str]] = []  # (anchor, 소제목 텍스트)
 
     def flush_list():
         nonlocal list_buf, list_type
@@ -224,7 +289,10 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
             while i < len(lines) and not lines[i].strip():
                 i += 1
             if i < len(lines):
-                out.append(f"<h2>{escape(_clean_inline(lines[i]))}</h2>")
+                sub = _clean_inline(lines[i])
+                anchor = f"sec-{len(toc) + 1}"
+                toc.append((anchor, sub))
+                out.append(f'<h2 id="{anchor}">{escape(sub)}</h2>')
                 i += 1
             continue
 
@@ -241,7 +309,18 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
         out.append(f"<p>{escape(_clean_inline(s))}</p>")
 
     flush_list()
-    html = "\n".join(x for x in out if x)
+    body_html = "\n".join(x for x in out if x)
+
+    # ── v2 페이지 요소 조립 (WP_PIPELINE §1·§2) ──
+    key_stats_html = _key_stats_html(post.get("key_stats"))
+    toc_html = _toc_html(toc)
+    sources_html = _sources_html(post.get("sources"))
+    disclaimer_html = _disclaimer_html(category)
+    # 발행용 완성 본문: 핵심수치 → 목차 → 본문 → 출처 → 면책
+    #   (저자·관련글은 WP 테마/위젯이 담당 — 콘텐츠 HTML엔 포함 안 함)
+    content_html = "\n".join(
+        x for x in (key_stats_html, toc_html, body_html, sources_html, disclaimer_html) if x
+    )
 
     desc = _meta_description(body, post.get("summary_text", ""))
     schemas = [_article_schema(title, desc, base_url)]
@@ -255,7 +334,11 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
 
     return {
         "seo_title": title[:60],
-        "html": html,
+        "html": body_html,          # 본문만(하위호환)
+        "content_html": content_html,  # 핵심수치+목차+본문+출처+면책 (WP 발행용)
+        "toc_html": toc_html,
+        "key_stats_html": key_stats_html,
+        "sources_html": sources_html,
         "meta_description": desc,
         "excerpt": desc,
         "slug": _slug(post.get("keyword", ""), title),
