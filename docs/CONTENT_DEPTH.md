@@ -13,10 +13,18 @@
 - **네이버**: 모바일 스캔형 6소제목 구조 유지(§6). 길이·계산·출처로 깊이 확장.
 - **WP**: 구글 SEO용 — 네이버보다 30~80% 길게, 의사결정 프레임·흔한 오해 섹션.
 
+## 하드 게이트 (2026-07-08 강화)
+
+| 파이프라인 | prose 최소 | 재생성 트리거 |
+|------------|-----------|---------------|
+| info | **2,000자** | 길이·계산·출처·구조·무근거 |
+| gov | **2,000자** | 길이·계산·출처 |
+| WP deep | **2,500자** | 길이·계산·AI패턴·표·FAQ·무근거 |
+
 ## 코드 변경 요약
 
-- `generator/info_content.py` — 길이·계산·출처 게이트
-- `generator/content.py` (`generate_gov_post`) — 길이·출처·뉴스 팩트
+- `generator/info_content.py` — `INFO_BODY_MIN=2000`, 계산·출처 게이트
+- `generator/content.py` (`generate_gov_post`) — `GOV_BODY_MIN=2000`, 계산·출처
 - `generator/info_collector.py` — 뉴스 6건, 공식 출처·계산 힌트
 - `generator/source_refs.py` — 카테고리별 공식 URL
 - `generator/deep_content.py` — 2,800자+ 게이트, 계산 2케이스

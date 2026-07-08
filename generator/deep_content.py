@@ -20,6 +20,19 @@ from generator.info_content import _UNSOURCED_RE
 
 logger = logging.getLogger("deep_content")
 
+# prose 기준 — CONTENT_DEPTH.md 목표 2,800~4,500자
+DEEP_BODY_MIN = 2500
+
+_CALC_SIGNAL_RE = re.compile(
+    r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)"
+    r"|\d[\d,]*\s*원\s*[×x]"
+    r"|예[)）:]\s*.*\d"
+    r"|\d[\d,]*만\s*원"
+    r"|약\s*[\d,]+만"
+    r"|\(\s*\d+만"
+    r"|세액\s*[\d,]+"
+)
+
 # 카테고리별 공식 출처(E-E-A-T) — 데이터로 주입, LLM이 지어내지 않음
 DEFAULT_SOURCES = {
     "금융·재테크": [
@@ -139,16 +152,15 @@ def _gate(parsed: dict) -> tuple[bool, list[str]]:
     body = parsed.get("body", "")
     body_len = len(_IMAGE_MARKER.sub("", body))
 
-    if body_len < 2300:
-        issues.append(f"본문 짧음({body_len}자, 심층 목표 2,800+)")
+    if body_len < DEEP_BODY_MIN:
+        issues.append(f"본문 짧음({body_len}자, 최소 {DEEP_BODY_MIN}자)")
     # 무근거 인용 하드 게이트(네이버 실사고 교훈 재사용)
     if _UNSOURCED_RE.search(body):
         issues.append("무근거 인용 표현('알려져 있'류)")
-    # AI 상투어
-    for rx, desc in _AI_PATTERNS:
-        if rx.search(body):
-            issues.append(f"AI패턴: {desc}")
-            break
+    # AI 상투어 — 하드 게이트(재생성)
+    ai_hits = [desc for rx, desc in _AI_PATTERNS if rx.search(body)]
+    if ai_hits:
+        issues.append(f"AI패턴: {ai_hits[0]}")
     # 구조 요건
     subs = [s for s in parsed.get("subheadings", []) if s != "자주 묻는 질문"]
     if len(subs) < 4:
@@ -157,16 +169,15 @@ def _gate(parsed: dict) -> tuple[bool, list[str]]:
         issues.append("비교표 누락")
     if len(parsed.get("faq_pairs", [])) < 3:
         issues.append(f"FAQ 부족({len(parsed.get('faq_pairs', []))}개)")
-    # 계산 예시 신호(× 또는 = 또는 '만원' 옆 계산) — 최소 1개.
-    # 계산이 비교표 안에 들어가는 경우도 인정(본문+표 합산 검사 — 7/7 오탐 교훈)
+    # 계산 예시 신호 — 본문+표 합산, 최소 1개 필수
     calc_src = body + "\n" + "\n".join(parsed.get("table_strs", []) or [])
-    if not re.search(r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)|\d[\d,]*\s*원\s*[×x]", calc_src):
+    if not _CALC_SIGNAL_RE.search(calc_src):
         issues.append("계산 예시 신호 없음")
 
-    # 치명적(재생성 유발): 길이·표·FAQ·무근거
+    # 치명적(재생성 유발)
     critical = [
         i for i in issues
-        if any(k in i for k in ("짧음", "표 누락", "FAQ 부족", "무근거"))
+        if any(k in i for k in ("짧음", "표 누락", "FAQ 부족", "무근거", "계산 예시", "AI패턴"))
     ]
     return (not critical, issues)
 

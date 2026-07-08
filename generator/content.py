@@ -1037,6 +1037,18 @@ _GOV_REFINE_SYSTEM = """\
 """
 
 
+# prose 기준 최소 길이 — CONTENT_DEPTH.md 목표 2,200~2,800자
+GOV_BODY_MIN = 2000
+_GOV_CALC_SIGNAL_RE = re.compile(
+    r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)"
+    r"|\d[\d,]*\s*원\s*[×x]"
+    r"|예[)）:]\s*.*\d"
+    r"|\d[\d,]*만\s*원"
+    r"|약\s*[\d,]+만"
+    r"|최대\s*[\d,]+만"
+)
+
+
 def generate_gov_post(
     keyword: str,
     api_key: str,
@@ -1082,12 +1094,18 @@ def generate_gov_post(
                 logger.warning(f"정부글 파싱 실패 (시도 {attempt})")
                 continue
 
-            body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
-            # 표/FAQ/요약이 placeholder로 교체되므로 실제 prose는 800자+가 정상 (2000~2500자 글 기준)
-            if body_len < 1000:
-                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자, 최소 1000자) — 재생성")
+            body = parsed.get("body", "")
+            body_len = len(_IMAGE_MARKER.sub("", body))
+            if body_len < GOV_BODY_MIN:
+                logger.warning(
+                    f"정부글 본문 너무 짧음 ({body_len}자, 최소 {GOV_BODY_MIN}자) — 재생성"
+                )
                 continue
-            if "출처" not in parsed.get("body", ""):
+            calc_src = body + "\n" + (parsed.get("table_str") or "")
+            if not _GOV_CALC_SIGNAL_RE.search(calc_src):
+                logger.warning("정부글 계산 예시 없음 — 재생성")
+                continue
+            if "출처" not in body:
                 logger.warning("정부글 출처 표기 없음 — 재생성")
                 continue
 
@@ -1105,7 +1123,7 @@ def generate_gov_post(
                 )
                 if refined_raw:
                     refined = _parse_response(refined_raw)
-                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 1000:
+                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= GOV_BODY_MIN:
                         rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
                         logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
                         return refined

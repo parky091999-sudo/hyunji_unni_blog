@@ -15,6 +15,18 @@ logger = logging.getLogger("info_content")
 # 무근거 인용("~로 알려져 있어요"류) 탐지 — 좁게 잡아 오탐 방지
 _UNSOURCED_RE = re.compile(r"(알려져 있|전해지고 있|라는 말이 있)")
 
+# prose 기준(표/FAQ/요약 마커 제거 후) — CONTENT_DEPTH.md 목표 2,200~2,800자
+INFO_BODY_MIN = 2000
+
+# 계산 예시 신호 — 본문·표 합산 검사
+_CALC_SIGNAL_RE = re.compile(
+    r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)"
+    r"|\d[\d,]*\s*원\s*[×x]"
+    r"|예[)）:]\s*.*\d"
+    r"|\d[\d,]*만\s*원"
+    r"|약\s*[\d,]+만"
+)
+
 
 INFO_CATEGORIES: dict[str, dict] = {
     "금융재테크": {
@@ -254,13 +266,14 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                 continue
             body = parsed.get("body", "")
             body_len = len(_IMAGE_MARKER.sub("", body))
-            # 표/FAQ/요약 추출 후 prose 기준. 1,800자 목표 글이면 prose ~1,000자+ 정상.
-            if body_len < 1200:
-                logger.warning(f"{cfg['name']}글 본문 짧음 ({body_len}자, prose 1200자+ 목표) — 재생성")
+            if body_len < INFO_BODY_MIN:
+                logger.warning(
+                    f"{cfg['name']}글 본문 짧음 ({body_len}자, 최소 {INFO_BODY_MIN}자) — 재생성"
+                )
                 continue
             # 계산 예시 신호 — 심화 정보성(세금·연금·지원금) 필수
             calc_src = body + "\n" + "\n".join(parsed.get("table_strs", []) or [])
-            if not re.search(r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)|예[)）:]\s*.*\d", calc_src):
+            if not _CALC_SIGNAL_RE.search(calc_src):
                 logger.warning(f"{cfg['name']}글 계산 예시 없음 — 재생성")
                 continue
             if "출처" not in body and "출처" not in calc_src:
@@ -291,7 +304,7 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                     ref_bullets = len(re.findall(r"(?m)^·\s", refined.get("body", ""))) if refined else 999
                     # 퇴고가 구조(소제목·표·FAQ) 보존 + 과불릿(>25) 아닐 때만 채택 — 아니면 원본 사용
                     if (refined
-                            and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800
+                            and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= INFO_BODY_MIN
                             and len(refined.get("subheadings", [])) >= len(parsed.get("subheadings", []))
                             and bool(refined.get("table_strs")) >= bool(parsed.get("table_strs"))
                             and bool(refined.get("faq_pairs")) >= bool(parsed.get("faq_pairs"))
