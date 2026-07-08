@@ -242,7 +242,8 @@ def _meta_description(body: str, summary_text: str) -> str:
     return src
 
 
-def render_wordpress_post(post: dict, category: str = "", base_url: str = "") -> dict:
+def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
+                          slug_override: str = "") -> dict:
     """post dict(_parse_response 산출) → 워드프레스 발행용 HTML+SEO 번들."""
     title = _clean_inline(post.get("title", "")).strip()
     body = post.get("body", "") or ""
@@ -362,7 +363,7 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "") ->
         "sources_html": sources_html,
         "meta_description": desc,
         "excerpt": desc,
-        "slug": _slug(post.get("keyword", ""), title),
+        "slug": (slug_override or _slug(post.get("keyword", ""), title)).strip("-"),
         "schema_jsonld": schema_jsonld,
         "tags": post.get("tags", []),
     }

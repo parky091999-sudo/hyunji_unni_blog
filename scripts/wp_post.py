@@ -84,7 +84,8 @@ def run():
         logger.error("생성 실패 — 종료")
         sys.exit(1)
 
-    r = render_wordpress_post(post, category=topic["category"], base_url=WP_URL)
+    r = render_wordpress_post(post, category=topic["category"], base_url=WP_URL,
+                              slug_override=topic.get("slug", ""))
     logger.info(f"제목: {post['title']}")
     logger.info(f"slug: {r['slug']} · content_html {len(r['content_html'])}자 · "
                 f"목차 {'O' if r['toc_html'] else 'X'} · 핵심수치 {'O' if r['key_stats_html'] else 'X'}")
