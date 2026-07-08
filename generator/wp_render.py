@@ -206,6 +206,7 @@ def _related_posts_html(related: list[dict], base_url: str = "") -> str:
     return f'<nav class="hj-related"><h2>함께 보면 좋은 글</h2><ul>{items}</ul></nav>'
 
 
+def _disclaimer_html(category: str) -> str:
     txt = _DISCLAIMER.get(category, _DISCLAIMER_DEFAULT)
     return f'<div class="hj-disclaimer">{escape(txt)}</div>'
 

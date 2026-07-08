@@ -252,7 +252,8 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
                     f"{cfg['name']}글 날짜 오류 — 재생성: {'; '.join(date_critical[:2])}"
                 )
                 continue
-            body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
+            body = parsed.get("body", "")
+            body_len = len(_IMAGE_MARKER.sub("", body))
             # 표/FAQ/요약 추출 후 prose 기준. 1,800자 목표 글이면 prose ~1,000자+ 정상.
             if body_len < 1200:
                 logger.warning(f"{cfg['name']}글 본문 짧음 ({body_len}자, prose 1200자+ 목표) — 재생성")
