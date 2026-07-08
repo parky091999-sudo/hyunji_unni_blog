@@ -33,6 +33,21 @@ _CALC_SIGNAL_RE = re.compile(
     r"|세액\s*[\d,]+"
 )
 
+# 생성 후 결정적 치환 — 재생성 4회 전부 '것이 중요합니다'로 실패하는 경우 방지
+_AI_SANITIZE: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"하는\s*것이\s*중요합니다"), "보면 편해요"),
+    (re.compile(r"하는\s*것이\s*좋습니다"), "하는 게 낫더라고요"),
+    (re.compile(r"것이\s*중요합니다"), "중요해요"),
+    (re.compile(r"하시면\s*됩니다"), "하면 돼요"),
+    (re.compile(r"하시기\s*바랍니다"), "해보세요"),
+]
+
+
+def _sanitize_ai_patterns(text: str) -> str:
+    for rx, repl in _AI_SANITIZE:
+        text = rx.sub(repl, text)
+    return text
+
 # 카테고리별 공식 출처(E-E-A-T) — 데이터로 주입, LLM이 지어내지 않음
 DEFAULT_SOURCES = {
     "금융·재테크": [
@@ -200,9 +215,10 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
     )
 
     waits = [10, 30, 60]
+    feedback = ""
     for attempt in range(1, len(waits) + 2):
         try:
-            raw = _gen_text(api_key, user_msg, system, 8192, 0.2)
+            raw = _gen_text(api_key, user_msg + feedback, system, 8192, 0.2)
             if not raw:
                 logger.warning(f"빈 응답 (시도 {attempt})")
                 continue
@@ -210,10 +226,15 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
             if not parsed:
                 logger.warning(f"파싱 실패 (시도 {attempt})")
                 continue
-            parsed["body"] = _split_long_paragraphs(parsed.get("body", ""))
+            parsed["body"] = _sanitize_ai_patterns(_split_long_paragraphs(parsed.get("body", "")))
             ok, issues = _gate(parsed)
             if not ok:
                 logger.warning(f"품질 미달 재생성 (시도 {attempt}): {'; '.join(issues[:3])}")
+                feedback = (
+                    f"\n\n[이전 시도 거부 — 반드시 수정]\n"
+                    f"- {'; '.join(issues[:4])}\n"
+                    "- '것이 중요합니다'·'하시면 됩니다' 등 AI 교과서체 절대 금지."
+                )
                 continue
             if issues:
                 logger.info(f"통과(경미 이슈): {'; '.join(issues)}")
