@@ -984,7 +984,8 @@ A: (답변)
 2. 수치 필수: 나이·소득·금액·기간 모두 숫자로 명시
 3. 표는 정확히 1개: 대상별 지원금액표 (소제목1)
 4. 그 표는 반드시 3열(구분|대상|지원금액), 각 셀 10자 이내, 세 칸 모두 의미 있는 값으로 채움(빈칸 금지). 그 외 정보(자격·주의사항)는 표 대신 · 불릿으로
-5. 본문 2,000~2,500자 (스캔하기 좋은 밀도)
+5. ★본문 2,200~2,800자 (스캔하기 좋은 밀도, 정보 심화). 계산 예시 1~2개(대상별 지원금 시뮬레이션) 포함
+5-1. ★표 아래 '출처: (복지로·고용24 등 공식 기관)' 1줄 필수
 6. 단락은 한 번에 2~3줄 이내. 줄줄이 길게 풀어쓰지 마라
 7. 순수 정보형: 페르소나·감정 표현 없음. 팩트만
 8. 소제목은 결론/수치 포함 ("신청 방법" → "복지로에서 10분이면 끝")
@@ -1045,14 +1046,25 @@ def generate_gov_post(
     정부지원·혜택 포스트 생성 (패턴 F 정보형).
     반환: {title, tags, body, image_keywords, image_labels, subheadings, table_str, faq_str, faq_pairs}
     """
-    user_msg = (
+    # 팩트 블록: Naver 뉴스 + 공식 출처 경로
+    try:
+        from generator.info_collector import collect_info_facts
+        from generator.source_refs import GOV_OFFICIAL_SOURCES, format_sources_block
+        fact_block = collect_info_facts("gov", keyword)
+        fact_block += format_sources_block(GOV_OFFICIAL_SOURCES)
+    except Exception as e:
+        logger.warning(f"정부 팩트 수집 스킵: {e}")
+        fact_block = ""
+
+    user_msg = fact_block + (
         f"정부지원·혜택 키워드: {keyword}"
         + (f"\n카테고리 힌트: {gov_category}" if gov_category else "")
         + "\n\n위 키워드로 모바일 독자가 5분 안에 핵심을 파악할 수 있는 정부지원 정리 글을 작성해라."
         + "\n- 표 정확히 1개(소제목1, 대상별 지원금액): [표시작]...[표끝] 마커 1쌍 필수."
         + "\n- FAQ 정확히 1개: [FAQ시작]...[FAQ끝] 마커 1쌍 필수."
         + "\n- 그 표는 반드시 3열(구분|대상|지원금액), 각 셀 10자 이내, 세 칸 모두 채움(빈칸 금지). 자격·주의사항은 표 대신 · 불릿."
-        + "\n- 본문 2,000~2,500자. 단락은 2~3줄 이내."
+        + "\n- ★본문 2,200~2,800자. 단락은 2~3줄 이내. 계산 예시 1~2개(대상별 지원금 시뮬레이션) 포함."
+        + "\n- ★표 아래 '출처: (공식 기관)' 1줄 필수."
         + "\n- 제목에 반드시 구체적 금액·수치 포함."
         + "\n- 이미지는 [사진1](맨 위 헤더카드) 1개만. 본문 스톡사진([사진2]+)은 넣지 마라 — 정부지원 글은 헤더 외 사진 없이 정보만 전달."
     )
@@ -1072,8 +1084,11 @@ def generate_gov_post(
 
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
             # 표/FAQ/요약이 placeholder로 교체되므로 실제 prose는 800자+가 정상 (2000~2500자 글 기준)
-            if body_len < 800:
-                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자, 최소 800자) — 재생성")
+            if body_len < 1000:
+                logger.warning(f"정부글 본문 너무 짧음 ({body_len}자, 최소 1000자) — 재생성")
+                continue
+            if "출처" not in parsed.get("body", ""):
+                logger.warning("정부글 출처 표기 없음 — 재생성")
                 continue
 
             logger.info(
@@ -1090,7 +1105,7 @@ def generate_gov_post(
                 )
                 if refined_raw:
                     refined = _parse_response(refined_raw)
-                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 800:
+                    if refined and len(_IMAGE_MARKER.sub("", refined.get("body", ""))) >= 1000:
                         rb_len = len(_IMAGE_MARKER.sub("", refined.get("body", "")))
                         logger.info(f"정부글 퇴고 적용: {body_len}→{rb_len}자")
                         return refined

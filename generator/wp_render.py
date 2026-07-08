@@ -189,7 +189,23 @@ _DISCLAIMER = {
 _DISCLAIMER_DEFAULT = "이 글은 일반적인 정보 제공을 목적으로 하며, 제도·수치는 개정될 수 있으니 공식 자료로 최신 기준을 확인하세요."
 
 
-def _disclaimer_html(category: str) -> str:
+def _related_posts_html(related: list[dict], base_url: str = "") -> str:
+    """같은 카테고리 WP 글 내부 링크 — 체류·SEO."""
+    if not related:
+        return ""
+    items = ""
+    for r in related[:3]:
+        title = escape(str(r.get("title", "")))
+        slug = r.get("slug", "")
+        link = r.get("link") or (f"{base_url.rstrip('/')}/{slug}/" if base_url and slug else "")
+        if not link:
+            continue
+        items += f'<li><a href="{escape(link)}">{title}</a></li>'
+    if not items:
+        return ""
+    return f'<nav class="hj-related"><h2>함께 보면 좋은 글</h2><ul>{items}</ul></nav>'
+
+
     txt = _DISCLAIMER.get(category, _DISCLAIMER_DEFAULT)
     return f'<div class="hj-disclaimer">{escape(txt)}</div>'
 
@@ -243,7 +259,7 @@ def _meta_description(body: str, summary_text: str) -> str:
 
 
 def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
-                          slug_override: str = "") -> dict:
+                          slug_override: str = "", related_posts: list | None = None) -> dict:
     """post dict(_parse_response 산출) → 워드프레스 발행용 HTML+SEO 번들."""
     title = _clean_inline(post.get("title", "")).strip()
     body = post.get("body", "") or ""
@@ -254,16 +270,22 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     list_buf: list[str] = []
     list_type = None
     list_start = None  # 쪼개진 ol이 이어지도록 시작 번호 보존
+    ol_global_next = 1  # 섹션 간 ① 리셋 방지
     table_i = 0
     toc: list[tuple[str, str]] = []  # (anchor, 소제목 텍스트)
 
     def flush_list():
-        nonlocal list_buf, list_type, list_start
+        nonlocal list_buf, list_type, list_start, ol_global_next
         if list_buf:
             tag = list_type or "ul"
             lis = "".join(f"<li>{escape(x)}</li>" for x in list_buf)
-            attr = f' start="{list_start}"' if tag == "ol" and list_start not in (None, 1) else ""
-            out.append(f"<{tag}{attr}>{lis}</{tag}>")
+            if tag == "ol":
+                start = list_start or 1
+                attr = f' start="{start}"' if start > 1 else ""
+                out.append(f"<ol{attr}>{lis}</ol>")
+                ol_global_next = start + len(list_buf)
+            else:
+                out.append(f"<ul>{lis}</ul>")
             list_buf = []
             list_type = None
             list_start = None
@@ -316,7 +338,8 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
             if list_type and list_type != kind:
                 flush_list()
             if not list_buf:
-                list_start = num
+                # 새 ol 시작: ①(1)이 섹션마다 반복되면 전역 번호로 이어 붙임
+                list_start = num if (num and num > 1) else ol_global_next
             list_type = kind
             list_buf.append(_clean_inline(content))
             continue
@@ -331,6 +354,7 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     key_stats_html = _key_stats_html(post.get("key_stats"))
     toc_html = _toc_html(toc)
     sources_html = _sources_html(post.get("sources"))
+    related_html = _related_posts_html(related_posts or [], base_url)
     disclaimer_html = _disclaimer_html(category)
     # 발행용 완성 본문 — §1 승인 순서: 도입(두괄식)+요약 → 핵심수치 → 목차 → 본문 섹션 → 출처 → 면책.
     #   핵심수치·목차는 첫 소제목(h2) 직전에 삽입해 도입문이 글 맨 위에 오게 한다.
@@ -341,7 +365,7 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     else:
         pieces = [key_stats_html, toc_html] + pieces
     content_html = "\n".join(
-        x for x in (*pieces, sources_html, disclaimer_html) if x
+        x for x in (*pieces, related_html, sources_html, disclaimer_html) if x
     )
 
     desc = _meta_description(body, post.get("summary_text", ""))

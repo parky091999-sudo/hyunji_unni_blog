@@ -68,6 +68,12 @@ body{font-family:var(--hj-font)}
 
 /* ── 출처·면책 ── */
 .hj-sources{margin-top:34px}
+.hj-related{margin-top:28px;padding:18px 20px;background:#f6f8fa;border-radius:10px;border-left:4px solid var(--accent,#2d6a4f)}
+.hj-related h2{font-size:1em;border:0;margin:0 0 10px;padding:0;color:#414852}
+.hj-related ul{padding-left:20px;margin:0}
+.hj-related li{font-size:.92em;margin-bottom:6px}
+.hj-related a{color:#2b5a86;text-decoration:none}
+.hj-related a:hover{text-decoration:underline}
 .hj-sources h2{font-size:1em;border:0;margin:0 0 10px;padding:0}
 .hj-sources ul{padding-left:20px;margin:0}
 .hj-sources li{font-size:.88em;margin-bottom:6px}

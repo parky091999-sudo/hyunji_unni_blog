@@ -59,6 +59,19 @@ def _pick_topic(hist: dict) -> str:
     return min(hist, key=lambda t: hist[t])
 
 
+def _related_for(topic_id: str, category: str, hist: dict) -> list[dict]:
+    """같은 카테고리·이미 발행된 WP 글 내부 링크 후보."""
+    out = []
+    for tid, meta in TOPICS.items():
+        if tid == topic_id or meta.get("category") != category:
+            continue
+        if tid not in hist:
+            continue
+        slug = meta.get("slug") or tid.replace("_", "-")
+        out.append({"title": meta.get("keyword", tid), "slug": slug})
+    return out[:3]
+
+
 def run():
     topic_id = os.environ.get("WP_TOPIC", "").strip().lower()
     status = os.environ.get("WP_STATUS", "draft").strip().lower()
@@ -84,8 +97,9 @@ def run():
         logger.error("생성 실패 — 종료")
         sys.exit(1)
 
+    related = _related_for(topic_id, topic["category"], hist)
     r = render_wordpress_post(post, category=topic["category"], base_url=WP_URL,
-                              slug_override=topic.get("slug", ""))
+                              slug_override=topic.get("slug", ""), related_posts=related)
     logger.info(f"제목: {post['title']}")
     logger.info(f"slug: {r['slug']} · content_html {len(r['content_html'])}자 · "
                 f"목차 {'O' if r['toc_html'] else 'X'} · 핵심수치 {'O' if r['key_stats_html'] else 'X'}")

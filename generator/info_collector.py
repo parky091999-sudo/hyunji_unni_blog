@@ -162,10 +162,12 @@ def _fetch_public_data(endpoint: str, params: dict) -> dict:
 
 def _build_fact_block(category: str, keyword: str) -> str:
     """카테고리 + 키워드로 팩트 블록 문자열 생성. Gemini 프롬프트 앞에 주입."""
+    from generator.source_refs import INFO_OFFICIAL_SOURCES, GOV_OFFICIAL_SOURCES, format_sources_block
+
     lines: list[str] = [f"[실시간 팩트 데이터 — {_TODAY} 기준]"]
 
     # 공통: Naver 뉴스 최신 기사 (있을 경우)
-    news = _fetch_naver_news(keyword, display=4)
+    news = _fetch_naver_news(keyword, display=6)
     if news:
         lines.append(f"\n◆ 최신 뉴스 ({keyword})")
         for n in news:
@@ -189,6 +191,17 @@ def _build_fact_block(category: str, keyword: str) -> str:
             for a in annuities:
                 rate = f" | 수익률 {a['수익률(%)']}%" if a.get("수익률(%)") else ""
                 lines.append(f"  · {a['회사']} {a['상품명']} ({a['연금종류']}){rate}")
+
+    if category == "세금절세":
+        lines.append("\n◆ 계산 힌트: 연소득 구간별(3천·5천·7천만원) 공제·환급액 시뮬레이션, 한도·공제율은 팩트만 사용")
+
+    if category == "부동산주거":
+        lines.append("\n◆ 계산 힌트: 소득인정액·기준임대료·자기부담금(30%) 공식으로 구간별 지원액 시뮬레이션")
+
+    if category == "gov":
+        lines.append(format_sources_block(GOV_OFFICIAL_SOURCES))
+    elif category in INFO_OFFICIAL_SOURCES:
+        lines.append(format_sources_block(INFO_OFFICIAL_SOURCES[category]))
 
     if not lines[1:]:  # 뉴스/데이터 없으면 빈 블록 반환
         return ""
