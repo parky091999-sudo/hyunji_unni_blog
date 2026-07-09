@@ -21,7 +21,12 @@ if sys.platform.startswith("win"):
         pass
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_KEY = ROOT.parent / "2026.07.07 23.05_ssh" / "hyunji-key.pem"
+# repo 밖 공통 위치 우선, 없으면 레거시 경로
+_DEFAULT_KEYS = (
+    ROOT.parents[1] / "hyunji-key.pem",  # C:\...\CLAUDE\hyunji-key.pem
+    ROOT.parent / "2026.07.07 23.05_ssh" / "hyunji-key.pem",
+)
+DEFAULT_KEY = next((p for p in _DEFAULT_KEYS if p.exists()), _DEFAULT_KEYS[0])
 DEFAULT_HOST = "ubuntu@13.209.190.8"
 REMOTE_SH = Path(__file__).with_name("setup_wp_remote.sh")
 

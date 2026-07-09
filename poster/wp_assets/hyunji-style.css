@@ -19,6 +19,82 @@
 }
 body{font-family:var(--hj-font)}
 
+/* ── 브랜드 액센트 #2f6f4f (테마 프리셋·링크 통일) ── */
+:root{
+  --wp--preset--color--accent-3:var(--hj-accent);
+  --wp--preset--color--accent-1:var(--hj-accent);
+}
+a:where(:not(.wp-element-button)){color:var(--hj-accent)}
+a:where(:not(.wp-element-button)):hover{color:#245a3f}
+.wp-block-navigation .wp-block-navigation-item__content:hover{color:var(--hj-accent)}
+.wp-block-site-title a{color:var(--hj-fg)}
+header .wp-block-site-title a{
+  display:inline-flex;
+  align-items:center;
+  gap:.55rem;
+}
+header .wp-block-site-title a::before{
+  content:'';
+  flex-shrink:0;
+  width:36px;
+  height:36px;
+  background:url('/wp-content/mu-plugins/hyunji-favicon.png') center/contain no-repeat;
+}
+
+/* ── 홈 히어로 ── */
+.hj-hero{
+  background:var(--hj-accent-bg);
+  border-bottom:1px solid var(--hj-line);
+  padding:2.5rem 1rem 2rem;
+  margin-top:0;
+}
+.hj-hero h1{
+  font-size:clamp(1.75rem,4vw,2.25rem);
+  font-weight:800;
+  color:var(--hj-accent);
+  margin:0 0 .5rem;
+  line-height:1.25;
+  letter-spacing:-.02em;
+}
+.hj-hero-tagline{
+  font-size:1.05rem;
+  color:var(--hj-muted);
+  margin:0 0 1.35rem;
+  line-height:1.65;
+  max-width:42rem;
+}
+.hj-hero-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.5rem;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.hj-hero-chips a{
+  display:inline-block;
+  padding:.38rem .9rem;
+  border-radius:999px;
+  background:#fff;
+  border:1px solid var(--hj-accent);
+  color:var(--hj-accent);
+  font-size:.86rem;
+  font-weight:600;
+  text-decoration:none;
+  line-height:1.4;
+}
+.hj-hero-chips a:hover{
+  background:var(--hj-accent);
+  color:#fff;
+}
+.hj-home-heading{
+  margin-top:2rem;
+  margin-bottom:.25rem;
+  font-weight:800;
+  font-size:1.35rem;
+  color:var(--hj-fg);
+}
+
 /* ── 타이포그래피: 본문 가독(승인 샘플 16.5px/1.75 기준) ── */
 .entry-content p{font-size:1.06rem;line-height:1.85;margin-block-start:0;margin-block-end:1.15em}
 .entry-content li{font-size:1.03rem;line-height:1.75;margin-bottom:.5em}
