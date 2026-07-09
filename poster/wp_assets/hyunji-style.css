@@ -24,14 +24,24 @@ body{font-family:var(--hj-font)}
 .entry-content li{font-size:1.03rem;line-height:1.75;margin-bottom:.5em}
 .entry-content ol,.entry-content ul{margin-block-end:1.2em}
 .wp-block-post-title{font-weight:800;line-height:1.35;letter-spacing:-.01em}
-.entry-content h2{font-weight:800;letter-spacing:-.01em}
+.entry-content h2{
+  font-weight:800;letter-spacing:-.01em;
+  margin-top:2.1em;margin-bottom:.85em;padding-top:1.3em;
+  border-top:1px solid var(--hj-line)
+}
+.entry-content h2:first-child{border-top:0;margin-top:0;padding-top:0}
+.entry-content h2 + p,
+.entry-content h2 + ol,
+.entry-content h2 + ul,
+.entry-content h2 + figure{margin-top:.35em}
 
 /* ── 본문 폭: 승인 샘플 760px (테마 기본 645px 확장) ── */
 .wp-block-post-content.is-layout-constrained > :where(:not(.alignfull):not(.alignwide)){max-width:760px}
 
-/* ── 본문 섹션 구분(소제목 위 헤어라인) — 글 본문에만 ── */
-.entry-content > h2{border-top:1px solid var(--hj-line);margin-top:2.1em;padding-top:1.3em}
-.entry-content > h2:first-child{border-top:0;margin-top:0;padding-top:0}
+/* ── 번호 목록: 항목 내 여러 문단 간격 ── */
+.entry-content ol > li > p{margin-block-end:.65em}
+.entry-content ol > li > p:last-child{margin-block-end:0}
+.entry-content ol > li{margin-bottom:.9em}
 
 /* ── 핵심 수치 스트립 ── */
 .hj-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:26px 0}

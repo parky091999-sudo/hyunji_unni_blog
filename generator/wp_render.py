@@ -268,28 +268,32 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     faq_pairs = post.get("faq_pairs", []) or []
 
     out: list[str] = []
-    list_buf: list[str] = []
+    # ol: 각 항목 = [제목줄, *이어지는 본문줄] — 번호 뒤 설명 문단을 같은 <li>에 묶음
+    list_items: list[list[str]] = []
     list_type = None
-    list_start = None  # 쪼개진 ol이 이어지도록 시작 번호 보존
-    ol_global_next = 1  # 섹션 간 ① 리셋 방지
     table_i = 0
     toc: list[tuple[str, str]] = []  # (anchor, 소제목 텍스트)
 
     def flush_list():
-        nonlocal list_buf, list_type, list_start, ol_global_next
-        if list_buf:
-            tag = list_type or "ul"
-            lis = "".join(f"<li>{escape(x)}</li>" for x in list_buf)
-            if tag == "ol":
-                start = list_start or 1
-                attr = f' start="{start}"' if start > 1 else ""
-                out.append(f"<ol{attr}>{lis}</ol>")
-                ol_global_next = start + len(list_buf)
-            else:
-                out.append(f"<ul>{lis}</ul>")
-            list_buf = []
-            list_type = None
-            list_start = None
+        nonlocal list_items, list_type
+        if not list_items:
+            return
+        tag = list_type or "ul"
+        if tag == "ol":
+            lis = ""
+            for parts in list_items:
+                inner = "".join(
+                    f"<p>{escape(_clean_inline(p))}</p>" for p in parts if _clean_inline(p)
+                )
+                lis += f"<li>{inner}</li>"
+            out.append(f"<ol>{lis}</ol>")
+        else:
+            lis = "".join(
+                f"<li>{escape(_clean_inline(parts[0]))}</li>" for parts in list_items if parts
+            )
+            out.append(f"<ul>{lis}</ul>")
+        list_items = []
+        list_type = None
 
     lines = body.splitlines()
     i = 0
@@ -298,7 +302,9 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
         s = raw.strip()
         i += 1
         if not s:
-            flush_list()
+            # ol 모드: 번호 항목 사이 빈 줄은 리스트를 끊지 않음(1,1,1 분리 방지)
+            if list_type != "ol":
+                flush_list()
             continue
 
         pm = _PHOTO_RE.match(raw)
@@ -321,7 +327,7 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
             out.append(_faq_to_html(faq_pairs))
             continue
         if s == "[구분선]":
-            flush_list()
+            flush_list()  # 소제목 전에 열린 ol/ul 마감 → 섹션마다 번호 1부터
             # 다음 비어있지 않은 줄 = 소제목
             while i < len(lines) and not lines[i].strip():
                 i += 1
@@ -335,14 +341,16 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
 
         bk = _bullet_kind(s)
         if bk:
-            kind, content, num = bk
+            kind, content, _num = bk
             if list_type and list_type != kind:
                 flush_list()
-            if not list_buf:
-                # 새 ol 시작: ①(1)이 섹션마다 반복되면 전역 번호로 이어 붙임
-                list_start = num if (num and num > 1) else ol_global_next
             list_type = kind
-            list_buf.append(_clean_inline(content))
+            list_items.append([content])
+            continue
+
+        # 번호 목록 항목 뒤 이어지는 설명 문단 → 같은 <li>에 포함
+        if list_type == "ol" and list_items:
+            list_items[-1].append(s)
             continue
 
         flush_list()
