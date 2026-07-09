@@ -65,7 +65,10 @@ def sync_mu_plugins() -> None:
 
 def run_setup() -> None:
     scp(REMOTE_SH, "/tmp/setup_wp_remote.sh")
-    ssh_run("sed -i 's/\\r$//' /tmp/setup_wp_remote.sh && bash /tmp/setup_wp_remote.sh")
+    ssh_run(
+        "tr -d '\\r' < /tmp/setup_wp_remote.sh > /tmp/setup_wp_fixed.sh "
+        "&& chmod +x /tmp/setup_wp_fixed.sh && bash /tmp/setup_wp_fixed.sh"
+    )
 
 
 def check() -> None:
