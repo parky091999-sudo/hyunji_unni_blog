@@ -34,6 +34,7 @@ body{font-family:var(--hj-font)}
 .entry-content h2 + ol,
 .entry-content h2 + ul,
 .entry-content h2 + figure{margin-top:.35em}
+.entry-content .hj-h2-gap{display:block;height:.45em;line-height:0;font-size:0}
 
 /* ── 본문 폭: 승인 샘플 760px (테마 기본 645px 확장) ── */
 .wp-block-post-content.is-layout-constrained > :where(:not(.alignfull):not(.alignwide)){max-width:760px}
