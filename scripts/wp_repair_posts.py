@@ -128,6 +128,10 @@ _OL_BLOCK_RE = re.compile(r"<ol(?P<attrs>[^>]*)>(?P<body>.*?)</ol>", re.S | re.I
 _START_RE = re.compile(r'\bstart="(\d+)"', re.I)
 _LI_RE = re.compile(r"<li\b", re.I)
 _RESET_MARKERS = ("<h2", "<table", "<nav", "<ul", "<figure", "<hr")
+_SCHEMA_SCRIPT_RE = re.compile(
+    r'(?:<!-- wp:html -->\s*)?<script type="application/ld\+json">.*?</script>\s*(?:<!-- /wp:html -->)?',
+    re.S,
+)
 
 
 def _fix_numbered_lists(html: str) -> tuple[str, int]:
@@ -188,6 +192,32 @@ def _inject_h2_gap(html: str) -> tuple[str, int]:
     return pattern.sub(repl, html), added
 
 
+def _fix_schema(html: str, post_url: str) -> tuple[str, int]:
+    """JSON-LD @id URL 보정 + wp:html 블록 래핑(본문 <p> 감싸기 방지)."""
+    fixes = 0
+    base = _base()
+    wrong = f'"@id": "{base}"'
+    right = f'"@id": "{post_url.rstrip("/")}/"'
+    if wrong in html:
+        html = html.replace(wrong, right)
+        fixes += 1
+
+    def _wrap(m: re.Match) -> str:
+        nonlocal fixes
+        block = m.group(0).strip()
+        if block.startswith("<!-- wp:html -->"):
+            return block
+        fixes += 1
+        inner = re.sub(r"^<!-- wp:html -->\s*", "", block)
+        inner = re.sub(r"\s*<!-- /wp:html -->$", "", inner).strip()
+        if not inner.startswith("<script"):
+            inner = block  # fallback
+        return f"<!-- wp:html -->\n{inner}\n<!-- /wp:html -->"
+
+    html = _SCHEMA_SCRIPT_RE.sub(_wrap, html)
+    return html, fixes
+
+
 def _update_post(topic_id: str, *, dry_run: bool) -> bool:
     topic = TOPICS.get(topic_id)
     if not topic:
@@ -206,7 +236,9 @@ def _update_post(topic_id: str, *, dry_run: bool) -> bool:
 
     fixed, n_ol = _fix_numbered_lists(raw)
     fixed, n_gap = _inject_h2_gap(fixed)
-    if n_ol == 0 and n_gap == 0:
+    post_url = (old.get("link") or f"{_base()}/{slug}/").rstrip("/") + "/"
+    fixed, n_schema = _fix_schema(fixed, post_url)
+    if n_ol == 0 and n_gap == 0 and n_schema == 0:
         logger.info("변경 없음(skip): %s", slug)
         return True
 
@@ -225,7 +257,7 @@ def _update_post(topic_id: str, *, dry_run: bool) -> bool:
         payload["tags"] = old_tags
 
     if dry_run:
-        logger.info("[dry-run] update 예정: id=%s slug=%s (ol_fix=%d, h2_gap=%d)", old.get("id"), slug, n_ol, n_gap)
+        logger.info("[dry-run] update 예정: id=%s slug=%s (ol_fix=%d, h2_gap=%d, schema_fix=%d)", old.get("id"), slug, n_ol, n_gap, n_schema)
         return True
 
     u = requests.post(
@@ -239,7 +271,7 @@ def _update_post(topic_id: str, *, dry_run: bool) -> bool:
         logger.error("업데이트 실패 id=%s: %s", old.get("id"), u.text[:300])
         return False
     d = u.json()
-    logger.info("업데이트 완료: id=%s %s (ol_fix=%d, h2_gap=%d)", d.get("id"), d.get("link"), n_ol, n_gap)
+    logger.info("업데이트 완료: id=%s %s (ol_fix=%d, h2_gap=%d, schema_fix=%d)", d.get("id"), d.get("link"), n_ol, n_gap, n_schema)
     return True
 
 

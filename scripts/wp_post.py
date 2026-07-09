@@ -172,9 +172,11 @@ def run():
         sys.exit(1)
 
     related = _related_for(topic_id, topic["category"], hist)
+    slug = topic.get("slug") or topic_id.replace("_", "-")
+    post_url = f"{WP_URL.rstrip('/')}/{slug}/"
     r = render_wordpress_post(
-        post, category=topic["category"], base_url=WP_URL,
-        slug_override=topic.get("slug", ""), related_posts=related,
+        post, category=topic["category"], base_url=post_url,
+        slug_override=slug, related_posts=related,
     )
     logger.info(f"제목: {post['title']} · slug: {r['slug']} · html {len(r['content_html'])}자")
 

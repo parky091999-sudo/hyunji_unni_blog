@@ -79,7 +79,8 @@ def publish_wordpress(rendered: dict, title: str, *, status: str = "draft",
 
     content = rendered.get("content_html") or rendered.get("html") or ""
     if include_schema and rendered.get("schema_jsonld"):
-        content = content + "\n" + rendered["schema_jsonld"]
+        # wp:html 블록으로 감싸야 WP가 <p>로 감싸지 않음
+        content = content + "\n<!-- wp:html -->\n" + rendered["schema_jsonld"] + "\n<!-- /wp:html -->"
 
     payload: dict = {
         "title": (title or rendered.get("seo_title") or "").strip(),
