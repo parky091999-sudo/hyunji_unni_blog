@@ -40,6 +40,10 @@ _AI_SANITIZE: list[tuple[re.Pattern, str]] = [
     (re.compile(r"것이\s*중요합니다"), "중요해요"),
     (re.compile(r"하시면\s*됩니다"), "하면 돼요"),
     (re.compile(r"하시기\s*바랍니다"), "해보세요"),
+    (re.compile(r"극대화"), "최대한"),
+    (re.compile(r"살펴보(도록\s*하겠습니다|겠습니다)"), "정리할게요"),
+    (re.compile(r"알려져\s*있"), "공식 자료에 따르면"),
+    (re.compile(r"전해지고\s*있"), "안내되고 있"),
 ]
 
 
@@ -234,7 +238,7 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
         "데이터에 없는 수치는 '공식 자료로 확인'으로 처리하라."
     )
 
-    waits = [10, 30, 60]
+    waits = [10, 30, 60, 90]
     feedback = ""
     for attempt in range(1, len(waits) + 2):
         try:
@@ -247,6 +251,7 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
                 logger.warning(f"파싱 실패 (시도 {attempt})")
                 continue
             parsed["body"] = _sanitize_ai_patterns(_split_long_paragraphs(parsed.get("body", "")))
+            parsed["title"] = _sanitize_ai_patterns(parsed.get("title", ""))
             ok, issues = _gate(parsed)
             if not ok:
                 logger.warning(f"품질 미달 재생성 (시도 {attempt}): {'; '.join(issues[:3])}")
