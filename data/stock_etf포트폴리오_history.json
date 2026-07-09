@@ -1,5 +1,35 @@
 [
   {
+    "date": "2026-07-10",
+    "timestamp": "2026-07-10T08:27:58.809459+09:00",
+    "run_slot": "08",
+    "stock_topic": "etf포트폴리오",
+    "topic_name": "ETF 인사이트",
+    "blog_category": "ETF",
+    "title": "2026년 7월 VTI ETF, 미국 전체 시장을 담는 핵심 전략!",
+    "tags": [
+      "VTI",
+      "뱅가드",
+      "미국ETF",
+      "전체시장ETF",
+      "패시브투자",
+      "장기투자",
+      "코어포트폴리오",
+      "배당성장"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224342152378",
+    "images_count": 2,
+    "images_inserted": 2,
+    "has_table": true,
+    "has_faq": true,
+    "stock_name": null,
+    "etf_content_type": "us_individual",
+    "etf_subject": "VTI",
+    "ipo_mode": null,
+    "ipo_month": null
+  },
+  {
     "date": "2026-07-09",
     "timestamp": "2026-07-09T08:18:17.618921+09:00",
     "run_slot": "08",
