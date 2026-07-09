@@ -1,19 +1,13 @@
 """
 심층분석 생성 → 렌더 → 워드프레스 발행 (WP_PIPELINE.md §5 B·C).
 
-DRY_RUN(scripts/wp_dry)과 달리 실제 WP에 글을 올린다.
-매일 9시 자동발행(2026-07-08~) 전제 — WP_TOPIC 미지정 시 이력 기반 자동 로테이션
-(가장 오래전에 쓴 주제, 또는 아직 안 쓴 주제 우선 — 네이버 info_post 패턴 재사용).
-
-실행:
-  WP_TOPIC=isa WP_STATUS=draft   python -m scripts.wp_post   (주제 지정 + 임시저장)
-  WP_STATUS=publish              python -m scripts.wp_post   (자동 로테이션 + 실발행 — 크론 기본)
+주 4회(월·화·목·토) 허브별 로테이션 + 네이버 최근 7일 키워드 회피.
 """
 import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 if sys.platform.startswith("win"):
     try:
@@ -27,8 +21,10 @@ sys.path.insert(0, ROOT)
 from config import GOOGLE_API_KEY, WP_URL, DATA_DIR
 from generator.deep_content import generate_deep_post
 from generator.wp_render import render_wordpress_post
+from generator.wp_topics import (
+    TOPICS, HUB_BY_WEEKDAY, ALT_HUB_BY_WEEKDAY, hub_display,
+)
 from poster.wp_publish import publish_wordpress, check_connection
-from scripts.wp_dry import TOPICS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
                     handlers=[logging.StreamHandler(sys.stdout)])
@@ -36,6 +32,13 @@ logger = logging.getLogger("wp_post")
 
 KST = timezone(timedelta(hours=9))
 _HISTORY_PATH = os.path.join(DATA_DIR, "wp_post_history.json")
+_NAVER_HISTORY_FILES = [
+    "gov_history.json",
+    "info_금융재테크_history.json",
+    "info_세금절세_history.json",
+    "info_보험_history.json",
+    "info_부동산주거_history.json",
+]
 
 
 def _load_history() -> dict:
@@ -51,16 +54,84 @@ def _save_history(hist: dict) -> None:
         json.dump(hist, f, ensure_ascii=False, indent=2)
 
 
-def _pick_topic(hist: dict) -> str:
-    """가장 오래전에 발행(또는 미발행)한 주제 선택 — 매일 다른 글이 나오도록 로테이션."""
-    never_posted = [t for t in TOPICS if t not in hist]
-    if never_posted:
-        return never_posted[0]
-    return min(hist, key=lambda t: hist[t])
+def _naver_keywords_last_n_days(days: int = 7) -> set[str]:
+    """네이버 최근 N일 발행 키워드(부분일치용)."""
+    cutoff = (datetime.now(KST) - timedelta(days=days)).strftime("%Y-%m-%d")
+    out: set[str] = set()
+    for fname in _NAVER_HISTORY_FILES:
+        path = os.path.join(DATA_DIR, fname)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                rows = json.load(f)
+            for row in rows:
+                if row.get("date", "") >= cutoff and row.get("status") == "posted":
+                    kw = (row.get("keyword") or "").strip()
+                    if kw:
+                        out.add(kw)
+        except Exception as e:
+            logger.warning(f"네이버 이력 읽기 실패 {fname}: {e}")
+    return out
+
+
+def _overlaps_naver(topic: dict, naver_kws: set[str]) -> bool:
+    if not naver_kws:
+        return False
+    needles = topic.get("naver_overlap") or [topic.get("keyword", "")]
+    for needle in needles:
+        n = (needle or "").strip()
+        if not n:
+            continue
+        for kw in naver_kws:
+            if n in kw or kw in n:
+                return True
+    return False
+
+
+def _hub_for_today() -> str:
+    """오늘 KST 요일 기준 허브. 환경변수 WP_HUB 우선."""
+    forced = os.environ.get("WP_HUB", "").strip()
+    if forced:
+        return forced
+    now = datetime.now(KST)
+    wd = now.weekday()
+    hub = HUB_BY_WEEKDAY.get(wd)
+    if hub is None:
+        return ""
+    # 월·토 짝수주에 교차 허브
+    if wd in ALT_HUB_BY_WEEKDAY and (now.isocalendar().week % 2 == 0):
+        return ALT_HUB_BY_WEEKDAY[wd]
+    return hub
+
+
+def _pick_topic(hist: dict, hub_id: str | None = None) -> str:
+    """허브 내 미발행·오래된 주제, 네이버 중복 회피."""
+    naver_kws = _naver_keywords_last_n_days(7)
+    candidates = []
+    for tid, meta in TOPICS.items():
+        if hub_id and meta.get("hub_id") != hub_id:
+            continue
+        if _overlaps_naver(meta, naver_kws):
+            logger.info(f"네이버 7일 중복 회피: {tid}")
+            continue
+        last = hist.get(tid, "")
+        candidates.append((tid, last or ""))
+    if not candidates:
+        # 허브 필터 실패 시 전체 풀에서 재시도(중복만 회피)
+        for tid, meta in TOPICS.items():
+            if _overlaps_naver(meta, naver_kws):
+                continue
+            candidates.append((tid, hist.get(tid, "") or ""))
+    if not candidates:
+        raise RuntimeError("선택 가능한 WP 주제 없음(전부 네이버 중복 또는 소진)")
+    never = [t for t, d in candidates if not d]
+    if never:
+        return never[0]
+    return min(candidates, key=lambda x: x[1])[0]
 
 
 def _related_for(topic_id: str, category: str, hist: dict) -> list[dict]:
-    """같은 카테고리·이미 발행된 WP 글 내부 링크 후보."""
     out = []
     for tid, meta in TOPICS.items():
         if tid == topic_id or meta.get("category") != category:
@@ -78,44 +149,44 @@ def run():
     hist = _load_history()
 
     if not topic_id:
-        topic_id = _pick_topic(hist)
-        logger.info(f"WP_TOPIC 미지정 — 로테이션 자동 선택: {topic_id}")
+        hub_id = _hub_for_today()
+        if hub_id:
+            logger.info(f"오늘 허브: {hub_id} ({hub_display(hub_id)})")
+        topic_id = _pick_topic(hist, hub_id or None)
+        logger.info(f"WP_TOPIC 자동 선택: {topic_id}")
     topic = TOPICS.get(topic_id)
     if not topic:
-        logger.error(f"알 수 없는 WP_TOPIC: {topic_id!r} (가능: {list(TOPICS)})")
+        logger.error(f"알 수 없는 WP_TOPIC: {topic_id!r}")
         sys.exit(1)
     if not GOOGLE_API_KEY:
-        logger.error("GOOGLE_API_KEY 없음 — 종료")
+        logger.error("GOOGLE_API_KEY 없음")
         sys.exit(1)
     if not check_connection():
-        logger.error("WP 연결 실패 — 종료")
+        logger.error("WP 연결 실패")
         sys.exit(1)
 
-    logger.info(f"[{status}] 심층분석 생성 시작: {topic_id}")
+    logger.info(f"[{status}] 심층분석 생성: {topic_id} / {topic['category']}")
     post = generate_deep_post(topic, GOOGLE_API_KEY)
     if not post:
-        logger.error("생성 실패 — 종료")
+        logger.error("생성 실패")
         sys.exit(1)
 
     related = _related_for(topic_id, topic["category"], hist)
-    r = render_wordpress_post(post, category=topic["category"], base_url=WP_URL,
-                              slug_override=topic.get("slug", ""), related_posts=related)
-    logger.info(f"제목: {post['title']}")
-    logger.info(f"slug: {r['slug']} · content_html {len(r['content_html'])}자 · "
-                f"목차 {'O' if r['toc_html'] else 'X'} · 핵심수치 {'O' if r['key_stats_html'] else 'X'}")
+    r = render_wordpress_post(
+        post, category=topic["category"], base_url=WP_URL,
+        slug_override=topic.get("slug", ""), related_posts=related,
+    )
+    logger.info(f"제목: {post['title']} · slug: {r['slug']} · html {len(r['content_html'])}자")
 
     res = publish_wordpress(r, title=post["title"], status=status, category=topic["category"])
     if not res:
-        logger.error("발행 실패 — 종료")
+        logger.error("발행 실패")
         sys.exit(1)
-    logger.info(f"===== 발행 완료 =====")
-    logger.info(f"상태: {res['status']} · id: {res['id']}")
-    logger.info(f"링크: {res['link']}")
+    logger.info(f"발행 완료 [{res['status']}] id={res['id']} {res['link']}")
 
     if status == "publish":
         hist[topic_id] = datetime.now(KST).strftime("%Y-%m-%d")
         _save_history(hist)
-        logger.info(f"이력 저장: {topic_id} → {hist[topic_id]}")
 
 
 if __name__ == "__main__":

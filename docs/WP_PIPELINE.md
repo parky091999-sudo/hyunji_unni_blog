@@ -94,7 +94,7 @@
 |---|---|---|
 | A. 포맷·설계 (현재) | 호스팅 전 | 가상페이지로 포맷 확정(✅v1 승인, v2 진행) · 이 문서 · 프롬프트+게이트 프로토타입 · DRY_RUN 생성 검증 |
 | B. 발행 배선 | 호스팅 가입 후 | `wp_publish.py`(REST) · WP draft e2e · 카테고리/태그 매핑 |
-| C. 운영 개시 (진행 중, 2026-07-08~) | 콘텐츠 축적기 | `.github/workflows/wp_post.yml` 매일 09:05 KST 자동발행(publish) 가동. 사람이 매일 리뷰하며 오류수정·개선(사용자 결정 — 스팟체크를 '매일 발행 후 사람 리뷰'로 운영, 주 2~3편보다 빠른 페이스지만 대량 백필은 아님) |
+| C. 운영 개시 (진행 중) | 2026-07-08~ | **주 4회**(월·화·목·토 09:05 KST) 수익 허브별 심층 칼럼. `generator/wp_topics.py` 18주제+네이버 7일 회피. 톤=하이브리드(해요체+출처·계산). 카테고리 6허브(네이버 미러 해제). |
 | D. 수익화 | **2026-09-21 이후** | 애드센스 연결 · publish 완전 자동 전환 · 발행 빈도 상향 |
 
 ---
@@ -105,4 +105,4 @@
 - 2026-07-07(밤): **호스팅 확정 = AWS EC2**(서울, Ubuntu 24.04, hyunjiunni.com, SSL) — Hostinger/카페24 계획 대체. B단계 완료: `poster/wp_publish.py`(REST)+`scripts/wp_post.py`, 첫 글 라이브(ISA, id=7). 버그픽스: deep_content 표 마커 `[표삽입]`→`[표시작]/[표끝]`(표 상시 누락 원인), wp_render FAQ h2 중복 제거, 수치 일관성 프롬프트 규칙. 사이트 정리: 표시이름 '현지언니', 댓글 기본 닫음, 본문 폭 760px. 접속정보는 저장소 밖(`C:\박관용\CLAUDE\hyunji_wp_credentials.txt`).
 - 2026-07-07(심야, 사용자 품질 피드백 반영): ①**콘텐츠 순서를 §1 승인 스펙으로**(도입→요약→핵심수치→목차→본문 — 렌더러가 핵심수치·목차를 첫 h2 직전 삽입) ②**ol 번호 이어붙이기**(`start=` 보존 — 산문이 끼면 1,1,1로 리셋되던 버그) ③FAQ 'Q:/A:' 접두 제거(표시+스키마) ④**출처 정밀화 원칙**: 기관 홈 링크 나열 금지, '어떤 수치 — 근거 문서·기관' 형식으로 topic별 `sources` 수동 큐레이션(ISA는 조특법 §91의18·ISA다모아·통합연금포털·국세청 매핑) ⑤프롬프트: 번호 연속성·독자 호칭 금지 규칙, 오해 섹션 형식 명시 ⑥게이트 오탐 수정(표 안 계산 인정) ⑦**타이포**: Pretendard(mu-plugin CDN enqueue)+테마 폰트 프리셋 교체, 본문 1.06rem/1.85. 재발행 id=9(동일 slug).
 - 2026-07-07(심야, 매일 자동발행 세팅): **C단계 조기 개시 결정(사용자)** — 9월까지 매일 9시 발행+사람이 매일 리뷰하며 개선하는 방식으로 운영, 9/21 애드센스 연결까지 이 페이스 유지. `wp_post.yml`(09:05 KST) 크론 등록, GH Secrets(WP_URL/USER/APP_PW) 등록. 주제 로테이션(`data/wp_post_history.json`, 안 쓴 주제 우선) 신설. 주제 2종 추가(`pension_irp`·`jutaek_cheongyak`) — facts는 WebSearch로 2026 시점 재검증 후 큐레이션(추측 금지 원칙 재확인). ⚠️주제 3개뿐 → 3일 주기 반복, 다음 세션 최우선 과제=주제 풀 확충(5~7개+).
-- 2026-07-08: **주제 풀 7종 확장**(`scripts/wp_dry.py` TOPICS): `isa`·`pension_irp`·`jutaek_cheongyak` + `earn_income_credit`(세금)·`housing_benefit`(부동산)·`health_insurance`(보험)·`unemployment_benefit`(정부지원). **SEO mu-plugin** `hyunji-seo.php`(OG·description·robots sitemap·GSC meta 옵션). **favicon** `hyunji-favicon.png`. GSC 수동 가이드 `docs/SETUP_GSC.md`. 초기 설정 재실행 `scripts/setup_wp.py`.
+- 2026-07-09: **수익 허브 피벗** — 카테고리 6종(연금·절세/대출·신용/보험·리스크/세금·환급/주거·청약/제도·복지), `wp_topics.py` 18주제, 주 4회 크론, 하이브리드 톤(해요체 유지+심층), `DEEP_BODY_MIN=3000`, 네이버 7일 키워드 회피.
