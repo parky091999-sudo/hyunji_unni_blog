@@ -167,6 +167,20 @@ header .wp-block-site-title a::before{
 .hj-sources a{color:#2b5a86}
 .hj-disclaimer{margin-top:22px;background:#fbf7ee;border:1px solid #ecdfc3;border-radius:10px;padding:14px 18px;font-size:.85em;color:#6d5f43;line-height:1.65}
 
+/* ── 브레드크럼·메타라인 (WP_PIPELINE §2) ── */
+.hj-breadcrumb{font-size:.85em;color:#7a828c;margin-bottom:4px}
+.hj-breadcrumb a{color:#7a828c;text-decoration:none}
+.hj-breadcrumb a:hover{color:var(--hj-accent);text-decoration:underline}
+.hj-breadcrumb span{margin:0 4px}
+.hj-meta{font-size:.85em;color:#8a919b;margin:0 0 18px}
+
+/* ── 저자 박스 (E-E-A-T) ── */
+.hj-author{display:flex;gap:14px;align-items:flex-start;margin-top:26px;padding:18px 20px;background:#f6f8fa;border-radius:12px}
+.hj-author-avatar{flex:0 0 44px;width:44px;height:44px;border-radius:50%;background:var(--hj-accent,#2d6a4f);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.05em}
+.hj-author-body{min-width:0}
+.hj-author-name{margin:0 0 4px;font-weight:700;font-size:.95em}
+.hj-author-bio{margin:0;font-size:.88em;color:#565e68;line-height:1.65}
+
 /* ── 모바일 ── */
 @media(max-width:640px){
   .hj-stats{grid-template-columns:1fr 1fr}

@@ -22,7 +22,7 @@ from config import GOOGLE_API_KEY, WP_URL, DATA_DIR
 from generator.deep_content import generate_deep_post
 from generator.wp_render import render_wordpress_post
 from generator.wp_topics import (
-    TOPICS, HUB_BY_WEEKDAY, ALT_HUB_BY_WEEKDAY, hub_display,
+    TOPICS, HUB_BY_WEEKDAY, ALT_HUB_BY_WEEKDAY, CATEGORY_HUBS, hub_display,
 )
 from poster.wp_publish import publish_wordpress, check_connection
 
@@ -174,9 +174,11 @@ def run():
     related = _related_for(topic_id, topic["category"], hist)
     slug = topic.get("slug") or topic_id.replace("_", "-")
     post_url = f"{WP_URL.rstrip('/')}/{slug}/"
+    hub_meta = CATEGORY_HUBS.get(topic.get("hub_id", ""), {})
     r = render_wordpress_post(
         post, category=topic["category"], base_url=post_url,
         slug_override=slug, related_posts=related,
+        site_url=WP_URL, category_slug=hub_meta.get("slug", ""),
     )
     logger.info(f"제목: {post['title']} · slug: {r['slug']} · html {len(r['content_html'])}자")
 

@@ -211,6 +211,57 @@ def _disclaimer_html(category: str) -> str:
     return f'<div class="hj-disclaimer">{escape(txt)}</div>'
 
 
+_AUTHOR_BIO = (
+    "놓치기 쉬운 돈·제도 정보를 공식 자료 기준으로 직접 확인해 정리합니다. "
+    "수치는 국세청·금융감독원·국토교통부 등 법령·공시를 우선 인용합니다."
+)
+
+
+def _breadcrumb_html(category: str, site_url: str, category_slug: str) -> str:
+    """브레드크럼(WP_PIPELINE §2) — 홈 › 카테고리. 테마 h1 아래 콘텐츠 최상단."""
+    if not category:
+        return ""
+    home = site_url.rstrip("/") if site_url else ""
+    home_a = f'<a href="{escape(home)}/">홈</a>' if home else "홈"
+    if home and category_slug:
+        cat_a = f'<a href="{escape(home)}/category/{escape(category_slug)}/">{escape(category)}</a>'
+    else:
+        cat_a = escape(category)
+    return f'<nav class="hj-breadcrumb" aria-label="breadcrumb">{home_a} <span aria-hidden="true">›</span> {cat_a}</nav>'
+
+
+def _breadcrumb_schema(category: str, site_url: str, category_slug: str,
+                       title: str, url: str) -> dict | None:
+    if not (category and site_url and category_slug):
+        return None
+    home = site_url.rstrip("/")
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "홈", "item": f"{home}/"},
+            {"@type": "ListItem", "position": 2, "name": category,
+             "item": f"{home}/category/{category_slug}/"},
+            {"@type": "ListItem", "position": 3, "name": title[:110], **({"item": url} if url else {})},
+        ],
+    }
+
+
+def _meta_line_html(body_chars: int) -> str:
+    """읽는시간 메타라인(WP_PIPELINE §2) — 게시일·저자는 테마가 출력하므로 중복 금지."""
+    minutes = max(1, round(body_chars / 500))  # 한국어 묵독 ≈ 분당 500자
+    return f'<p class="hj-meta">약 {minutes}분 읽기 · 수치는 공식 자료(법령·공시) 기준</p>'
+
+
+def _author_box_html() -> str:
+    """저자 박스(E-E-A-T, WP_PIPELINE §1 9번) — 면책 뒤 최하단."""
+    return (
+        '<div class="hj-author"><div class="hj-author-avatar" aria-hidden="true">현</div>'
+        f'<div class="hj-author-body"><p class="hj-author-name">{escape(AUTHOR)}</p>'
+        f'<p class="hj-author-bio">{escape(_AUTHOR_BIO)}</p></div></div>'
+    )
+
+
 def _article_schema(title: str, desc: str, url: str = "") -> dict:
     now = datetime.now(KST).isoformat()
     d = {
@@ -260,7 +311,8 @@ def _meta_description(body: str, summary_text: str) -> str:
 
 
 def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
-                          slug_override: str = "", related_posts: list | None = None) -> dict:
+                          slug_override: str = "", related_posts: list | None = None,
+                          site_url: str = "", category_slug: str = "") -> dict:
     """post dict(_parse_response 산출) → 워드프레스 발행용 HTML+SEO 번들."""
     title = _clean_inline(post.get("title", "")).strip()
     body = post.get("body", "") or ""
@@ -365,7 +417,11 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     sources_html = _sources_html(post.get("sources"))
     related_html = _related_posts_html(related_posts or [], base_url)
     disclaimer_html = _disclaimer_html(category)
-    # 발행용 완성 본문 — §1 승인 순서: 도입(두괄식)+요약 → 핵심수치 → 목차 → 본문 섹션 → 출처 → 면책.
+    breadcrumb_html = _breadcrumb_html(category, site_url, category_slug)
+    meta_line_html = _meta_line_html(len(re.sub(r"\s", "", body)))
+    author_html = _author_box_html()
+    # 발행용 완성 본문 — §1 승인 순서: 브레드크럼+메타 → 도입(두괄식)+요약 → 핵심수치 → 목차
+    #   → 본문 섹션 → 관련글 → 출처 → 면책 → 저자 박스.
     #   핵심수치·목차는 첫 소제목(h2) 직전에 삽입해 도입문이 글 맨 위에 오게 한다.
     pieces = [x for x in out if x]
     first_h2 = next((i for i, p in enumerate(pieces) if p.startswith("<h2 ")), None)
@@ -374,7 +430,8 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     else:
         pieces = [key_stats_html, toc_html] + pieces
     content_html = "\n".join(
-        x for x in (*pieces, related_html, sources_html, disclaimer_html) if x
+        x for x in (breadcrumb_html, meta_line_html, *pieces,
+                    related_html, sources_html, disclaimer_html, author_html) if x
     )
 
     desc = _meta_description(body, post.get("summary_text", ""))
@@ -382,6 +439,9 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     fs = _faq_schema(faq_pairs)
     if fs:
         schemas.append(fs)
+    bs = _breadcrumb_schema(category, site_url, category_slug, title, base_url)
+    if bs:
+        schemas.append(bs)
     schema_jsonld = "\n".join(
         f'<script type="application/ld+json">{json.dumps(s, ensure_ascii=False)}</script>'
         for s in schemas
