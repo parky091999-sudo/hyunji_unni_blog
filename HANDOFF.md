@@ -17,10 +17,15 @@
 5. **출처 정밀화 복원**: 발행된 주제들 출처를 "수치 — 법령·문서" 형식으로(소득세법 §59의3·§89·§129, 조특법 §95의2 등).
 6. **서버 점검**(SSH): WP 7.0.1, mu-plugin 2종(hyunji-seo/style), SSH 키 전용 인증 OK, MariaDB 로컬 바인딩 OK. **미비: WP 로그인 무차별대입 방어 없음, 백업 전무(스냅샷·크론 둘 다).** 메모리 911MB 중 가용 399MB.
 
+### 서버 작업 완료 (07-10 오후, 사용자 승인 후)
+- ✅ `limit-login-attempts-reloaded` 설치·활성(로그인 무차별대입 방어)
+- ✅ 일일 백업 크론 `/etc/cron.d/wp-backup`(매일 04:20 KST, DB+wp-content → /var/backups/wordpress, 요일별 7세대 순환). 첫 백업 검증됨(23MB+681KB)
+- ✅ `hyunji-style.css` 재배포(브레드크럼·저자박스 스타일)
+
 ### 🔜 다음 세션 우선순위
-1. **(사용자 승인 필요한 서버 작업 3종)** ①`limit-login-attempts-reloaded` 플러그인 설치 ②일일 DB+wp-content 백업 크론(/var/backups/wordpress, 7일 보관) ③`hyunji-style.css` 재배포(브레드크럼·저자박스 스타일 — 배포 전까지 새 요소가 무스타일로 노출됨).
-2. **GSC 등록**: `hyunji-seo.php`에 인증 훅 이미 있음 — 사용자가 GSC(URL 접두어 방식)에서 HTML 태그 코드 받아오면 `wp option update hyunji_gsc_verification <content값>` 한 줄이면 끝. 이후 사이트맵(wp-sitemap.xml) 제출.
-3. **토요일(7/11) 첫 로테이션 발행 확인**: 짝수주 토=policy-benefit → housing_benefit(주거급여, 팩트 검증완료) 예상. `gh run list --workflow=wp_post.yml`.
+1. **GSC 등록**: `hyunji-seo.php`에 인증 훅 이미 있음 — 사용자가 GSC(URL 접두어 방식)에서 HTML 태그 코드 받아오면 `wp option update hyunji_gsc_verification <content값>` 한 줄이면 끝. 이후 사이트맵(wp-sitemap.xml) 제출.
+2. **토요일(7/11) 첫 로테이션 발행 확인**: 짝수주 토=policy-benefit → housing_benefit(주거급여, 팩트 검증완료) 예상. `gh run list --workflow=wp_post.yml`. 브레드크럼·저자박스·읽는시간 첫 적용 글 — 라이브 품질 확인.
+3. **레포 공개 상태 결정**: hyunji_unni_blog가 PUBLIC — 코드·프롬프트·전략 전부 열람 가능. private 전환 시 Actions 무료 2,000분/월 초과(현재 일 2~3시간 사용) → EC2 self-hosted runner와 세트로 결정 필요. 최소한 문서의 서버 IP·관리자ID 등 민감정보 정리 검토.
 4. **주거·청약 허브 확충**: 미발행 1개(newlywed_package)뿐 — 7/18 이후 소진. 후보: 전세보증보험(HUG), 청년월세지원, 취득세 감면.
 5. **라이브 구법 글 재발행**: year_end_tax(월세 수치)·jutaek_cheongyak(4.5% 근거 보강됨) — `gh workflow run wp_post.yml -f topic=year_end_tax`.
 
