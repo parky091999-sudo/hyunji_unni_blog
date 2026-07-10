@@ -414,13 +414,13 @@ def create_infographic_via_html(
     # 썸네일엔 핵심 키워드만: 앞머리 날짜("2026년 7월 4일" 등)와 괄호 부연은 제거
     display = re.sub(r"^\s*\d{4}년\s*\d{1,2}월(\s*\d{1,2}일)?[\s,·:~-]*", "", display)
     display = re.sub(r"\([^)]*\)", "", display).strip(" ,·|-") or display
-    # 폰트가 90px 아래로 내려가지 않도록 길이 자체를 제한(단어경계+말줄임표)
-    if len(display) > 18:
-        cut = display[:18]
-        sp = cut.rfind(" ")
-        if sp >= 9:
-            cut = cut[:sp]
-        display = cut.rstrip(" ,·") + "…"
+    # 말줄임표(…) 금지(2026-07-10 사용자 피드백) — 뒤 단어를 통째로 덜어내 자연스러운
+    # 짧은 문구로 만들고, 그래도 긴 공백 없는 덩어리는 _layout_title이 2줄 분할+폰트 축소로 소화.
+    if len(display) > 22:
+        words = display.split()
+        while len(words) > 1 and len(" ".join(words)) > 22:
+            words.pop()
+        display = " ".join(words).rstrip(" ,·")
 
     # 자르기는 _build_html의 _short_bullet(단어경계+말줄임표)이 담당하므로 여기선 개수만 제한
     clean_bullets = (bullets or [])[:4] or None
