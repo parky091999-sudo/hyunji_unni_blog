@@ -65,6 +65,22 @@ def _resolve_term(kind: str, name: str) -> int | None:
     return None
 
 
+def _find_post_id_by_slug(slug: str) -> int | None:
+    """slug로 기존 글 조회(모든 상태) — 재발행 시 중복 생성 대신 갱신하기 위함."""
+    if not slug:
+        return None
+    try:
+        r = requests.get(_api("posts"),
+                         params={"slug": slug, "status": "publish,draft,future,pending,private",
+                                 "per_page": 1, "context": "edit"},
+                         headers=_headers(), timeout=_TIMEOUT)
+        if r.ok and r.json():
+            return int(r.json()[0]["id"])
+    except Exception as e:
+        logger.warning(f"slug '{slug}' 조회 예외: {e}")
+    return None
+
+
 def publish_wordpress(rendered: dict, title: str, *, status: str = "draft",
                       category: str = "", include_schema: bool = True) -> dict | None:
     """렌더 번들 → WP 발행.
@@ -100,8 +116,15 @@ def publish_wordpress(rendered: dict, title: str, *, status: str = "draft",
     if tag_ids:
         payload["tags"] = tag_ids
 
+    # 동일 slug 글이 있으면 갱신(주제 로테이션 재발행 시 -2 붙은 중복 글 방지)
+    endpoint = _api("posts")
+    existing_id = _find_post_id_by_slug(rendered.get("slug", ""))
+    if existing_id:
+        endpoint = _api(f"posts/{existing_id}")
+        logger.info(f"동일 slug 기존 글 갱신: id={existing_id}")
+
     try:
-        r = requests.post(_api("posts"), json=payload, headers=_headers(), timeout=_TIMEOUT)
+        r = requests.post(endpoint, json=payload, headers=_headers(), timeout=_TIMEOUT)
     except Exception as e:
         logger.error(f"발행 요청 실패: {e}")
         return None
