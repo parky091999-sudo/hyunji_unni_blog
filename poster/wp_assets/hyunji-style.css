@@ -181,6 +181,20 @@ header .wp-block-site-title a::before{
 .hj-author-name{margin:0 0 4px;font-weight:700;font-size:.95em}
 .hj-author-bio{margin:0;font-size:.88em;color:#565e68;line-height:1.65}
 
+/* ── 홈: 인기글(Koko)·섹션 설명·소개 스트립 ── */
+.hj-popular:has(ul:empty){display:none}
+.hj-popular ul{list-style:none;padding:0;margin:0;counter-reset:hj-rank}
+.hj-popular li{counter-increment:hj-rank;padding:12px 0;border-bottom:1px solid var(--hj-line,#e5e8eb);font-weight:600}
+.hj-popular li::before{content:counter(hj-rank);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-right:12px;border-radius:8px;background:var(--hj-accent,#2d6a4f);color:#fff;font-size:.82em}
+.hj-popular li a{text-decoration:none;color:inherit}
+.hj-popular li a:hover{color:var(--hj-accent,#2d6a4f)}
+.hj-home-desc{color:#6b7280;font-size:.92em;margin:-6px 0 14px}
+.hj-home-desc a{color:var(--hj-accent,#2d6a4f);text-decoration:none;font-weight:600}
+.hj-about-strip{margin-top:40px;padding:20px 24px;background:#f6f8fa;border-radius:12px;font-size:.93em}
+.wp-block-latest-posts.is-grid li{margin-bottom:28px}
+.wp-block-latest-posts__featured-image img{border-radius:12px}
+.wp-block-latest-posts__list a{font-weight:700;text-decoration:none}
+
 /* ── 모바일 ── */
 @media(max-width:640px){
   .hj-stats{grid-template-columns:1fr 1fr}
