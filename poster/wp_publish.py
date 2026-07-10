@@ -138,6 +138,62 @@ def publish_wordpress(rendered: dict, title: str, *, status: str = "draft",
     return None
 
 
+def upload_media(file_path: str, filename: str, alt_text: str = "") -> int | None:
+    """이미지 파일 → WP 미디어 업로드 → media id."""
+    if not _configured():
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        headers = _headers()
+        headers["Content-Type"] = "image/png"
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        r = requests.post(_api("media"), data=data, headers=headers, timeout=60)
+        if r.status_code in (200, 201):
+            mid = int(r.json()["id"])
+            if alt_text:
+                requests.post(_api(f"media/{mid}"), json={"alt_text": alt_text},
+                              headers=_headers(), timeout=_TIMEOUT)
+            logger.info(f"미디어 업로드 완료 id={mid} ({filename})")
+            return mid
+        logger.error(f"미디어 업로드 실패 {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.error(f"미디어 업로드 예외: {e}")
+    return None
+
+
+def set_featured_image(post_id: int, media_id: int) -> bool:
+    """글 대표 이미지 지정."""
+    try:
+        r = requests.post(_api(f"posts/{post_id}"), json={"featured_media": media_id},
+                          headers=_headers(), timeout=_TIMEOUT)
+        if r.ok:
+            logger.info(f"대표 이미지 지정: post={post_id} media={media_id}")
+            return True
+        logger.error(f"대표 이미지 지정 실패 {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.error(f"대표 이미지 지정 예외: {e}")
+    return False
+
+
+def get_post_meta_by_slug(slug: str) -> dict | None:
+    """slug → {id, featured_media, title} (없으면 None)."""
+    if not slug:
+        return None
+    try:
+        r = requests.get(_api("posts"),
+                         params={"slug": slug, "status": "publish,draft,future,pending,private",
+                                 "per_page": 1, "context": "edit"},
+                         headers=_headers(), timeout=_TIMEOUT)
+        if r.ok and r.json():
+            d = r.json()[0]
+            return {"id": int(d["id"]), "featured_media": int(d.get("featured_media") or 0),
+                    "title": d.get("title", {}).get("rendered", "")}
+    except Exception as e:
+        logger.warning(f"slug '{slug}' 메타 조회 예외: {e}")
+    return None
+
+
 def check_connection() -> bool:
     """인증·연결 점검(현재 사용자 조회). 실발행 전 스모크 테스트."""
     if not _configured():

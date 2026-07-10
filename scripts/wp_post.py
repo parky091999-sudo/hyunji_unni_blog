@@ -188,6 +188,13 @@ def run():
         sys.exit(1)
     logger.info(f"발행 완료 [{res['status']}] id={res['id']} {res['link']}")
 
+    # 대표 이미지(일러스트+타이틀) — 실패해도 발행은 유지(best-effort)
+    try:
+        from scripts.wp_set_featured import process_topic
+        logger.info(f"대표 이미지: {process_topic(topic_id)}")
+    except Exception as e:
+        logger.warning(f"대표 이미지 생성 실패(무시): {e}")
+
     if status == "publish":
         hist[topic_id] = datetime.now(KST).strftime("%Y-%m-%d")
         _save_history(hist)
