@@ -323,12 +323,14 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     # ol: 각 항목 = [제목줄, *이어지는 본문줄] — 번호 뒤 설명 문단을 같은 <li>에 묶음
     list_items: list[list[str]] = []
     list_type = None
+    list_start = None  # 현재 ol 첫 항목의 원래 번호 — ul/산문이 끼어 쪼개져도 번호 이어붙이기
     table_i = 0
     toc: list[tuple[str, str]] = []  # (anchor, 소제목 텍스트)
 
     def flush_list():
-        nonlocal list_items, list_type
+        nonlocal list_items, list_type, list_start
         if not list_items:
+            list_start = None
             return
         tag = list_type or "ul"
         if tag == "ol":
@@ -338,7 +340,9 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
                     f"<p>{escape(_clean_inline(p))}</p>" for p in parts if _clean_inline(p)
                 )
                 lis += f"<li>{inner}</li>"
-            out.append(f"<ol>{lis}</ol>")
+            start_attr = f' start="{list_start}"' if list_start and list_start > 1 else ""
+            out.append(f"<ol{start_attr}>{lis}</ol>")
+            list_start = None
         else:
             lis = "".join(
                 f"<li>{escape(_clean_inline(parts[0]))}</li>" for parts in list_items if parts
@@ -393,10 +397,12 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
 
         bk = _bullet_kind(s)
         if bk:
-            kind, content, _num = bk
+            kind, content, num = bk
             if list_type and list_type != kind:
                 flush_list()
             list_type = kind
+            if kind == "ol" and not list_items:
+                list_start = num  # 새 ol 조각의 시작 번호 보존(1,1,1 리셋 방지)
             list_items.append([content])
             continue
 

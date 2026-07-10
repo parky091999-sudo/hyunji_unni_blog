@@ -127,7 +127,8 @@ def _get_post_by_slug(slug: str) -> dict[str, Any] | None:
 _OL_BLOCK_RE = re.compile(r"<ol(?P<attrs>[^>]*)>(?P<body>.*?)</ol>", re.S | re.I)
 _START_RE = re.compile(r'\bstart="(\d+)"', re.I)
 _LI_RE = re.compile(r"<li\b", re.I)
-_RESET_MARKERS = ("<h2", "<table", "<nav", "<ul", "<figure", "<hr")
+# <ul>은 번호 항목의 하위 불릿으로 끼는 경우가 대부분 — 시퀀스를 끊지 않는다(2026-07-10).
+_RESET_MARKERS = ("<h2", "<table", "<nav", "<figure", "<hr")
 _SCHEMA_SCRIPT_RE = re.compile(
     r'(?:<!-- wp:html -->\s*)?<script type="application/ld\+json">.*?</script>\s*(?:<!-- /wp:html -->)?',
     re.S,
