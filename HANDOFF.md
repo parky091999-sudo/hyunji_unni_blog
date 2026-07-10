@@ -1,7 +1,28 @@
-# 작업 인수인계 — 2026-07-07 심야 마감 → 다음 세션 (다른 PC 이어작업용)
+# 작업 인수인계 — 2026-07-10 세션 마감 → 다음 세션
 
 > **다른 PC에서 시작할 때 이 파일부터 읽으세요.** 상세 기술 로그는 [docs/WRITING_SYSTEM.md](docs/WRITING_SYSTEM.md) §7, WP 설계는 [docs/WP_PIPELINE.md](docs/WP_PIPELINE.md).
-> ※07-07 낮 버전을 07-07 심야 세션으로 갱신(워드프레스 AWS 구축 완료). 이전 로그는 아래 그대로 보존.
+> ※07-07 심야 버전 위에 07-10 세션 추가. 이전 로그는 아래 그대로 보존.
+
+---
+
+## ★★★★ 2026-07-10 세션 — WP 초기 셋팅 점검·품질 보강 (Claude Code)
+
+> 배경: 07-09에 Cursor로 WP 수익 허브 피벗(카테고리 6종·주 4회·18주제·홈 브랜딩) 진행됨. 이 세션에서 그 작업 검토+보강.
+
+### 완료 (커밋 8e5b985·76474c7·2b8c459 — ⚠️푸시 여부 확인: `git status`)
+1. **재발행 중복 버그 수정**(`poster/wp_publish.py`): 항상 POST /posts → 로테이션 재발행 시 slug `-2` 중복 글 생성되던 것을 동일 slug 조회 후 갱신(upsert)으로. 세금·환급 허브가 3주제 전부 소진 상태여서 7/16(목)에 실제 발생 예정이었음.
+2. **주제 17→21종**(`generator/wp_topics.py`): 월세 세액공제·자녀장려금(tax-refund), 연금 수령 시 세금·퇴직금 IRP 절세(pension-tax). **전부 WebSearch로 2026 공식자료 검증 후 큐레이션.**
+3. **구법 수치 정정**: year_end_tax의 월세 공제 750만원·12%(구법) → 1,000만원·15~17%(현행). ⚠️이미 라이브인 연말정산 글(year-end-tax-refund-order)에 구법 수치 있을 수 있음 — 재발행(이제 upsert라 안전) 권장.
+4. **렌더러 §2 잔여 구현**(`generator/wp_render.py`): 브레드크럼(+BreadcrumbList 스키마)·읽는시간 메타라인·저자 박스. wp_post가 site_url·category_slug 전달.
+5. **출처 정밀화 복원**: 발행된 주제들 출처를 "수치 — 법령·문서" 형식으로(소득세법 §59의3·§89·§129, 조특법 §95의2 등).
+6. **서버 점검**(SSH): WP 7.0.1, mu-plugin 2종(hyunji-seo/style), SSH 키 전용 인증 OK, MariaDB 로컬 바인딩 OK. **미비: WP 로그인 무차별대입 방어 없음, 백업 전무(스냅샷·크론 둘 다).** 메모리 911MB 중 가용 399MB.
+
+### 🔜 다음 세션 우선순위
+1. **(사용자 승인 필요한 서버 작업 3종)** ①`limit-login-attempts-reloaded` 플러그인 설치 ②일일 DB+wp-content 백업 크론(/var/backups/wordpress, 7일 보관) ③`hyunji-style.css` 재배포(브레드크럼·저자박스 스타일 — 배포 전까지 새 요소가 무스타일로 노출됨).
+2. **GSC 등록**: `hyunji-seo.php`에 인증 훅 이미 있음 — 사용자가 GSC(URL 접두어 방식)에서 HTML 태그 코드 받아오면 `wp option update hyunji_gsc_verification <content값>` 한 줄이면 끝. 이후 사이트맵(wp-sitemap.xml) 제출.
+3. **토요일(7/11) 첫 로테이션 발행 확인**: 짝수주 토=policy-benefit → housing_benefit(주거급여, 팩트 검증완료) 예상. `gh run list --workflow=wp_post.yml`.
+4. **주거·청약 허브 확충**: 미발행 1개(newlywed_package)뿐 — 7/18 이후 소진. 후보: 전세보증보험(HUG), 청년월세지원, 취득세 감면.
+5. **라이브 구법 글 재발행**: year_end_tax(월세 수치)·jutaek_cheongyak(4.5% 근거 보강됨) — `gh workflow run wp_post.yml -f topic=year_end_tax`.
 
 ---
 
