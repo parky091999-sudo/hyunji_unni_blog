@@ -41,7 +41,7 @@ DAY_PLANS: dict[int, list[str]] = {
     2: ["jeonse_loan", "car_insurance", "newlywed_package", "housing_benefit"],
     3: ["refinance_loan", "insurance_portfolio", "unemployment_benefit", "bogeumjari_loan"],
     4: ["pension_withdraw_tax", "retirement_irp_tax", "monthly_rent_tax", "child_tax_credit"],
-    5: ["hug_jeonse_insurance", "first_home_tax", "youth_rent_support", "youth_leap_account"],
+    5: ["hug_jeonse_insurance", "first_home_tax", "youth_rent_support", "youth_future_savings"],
     6: ["dsr_ltv_guide", "national_pension_timing", "energy_voucher", "subscription_points"],
     7: ["gift_tax_basic", "cancer_insurance_renew", "side_income_tax"],
 }

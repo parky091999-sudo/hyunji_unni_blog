@@ -105,6 +105,11 @@ def _hub_for_today() -> str:
     return hub
 
 
+# 같은 주제 재발행 최소 주기(일) — 풀이 소진돼도 이보다 이르게 같은 글을 다시 쓰지 않는다.
+# (2026-07-10 사용자 결정: 최소 1년 — 주제 다양성이 유입 다양성. 풀 확장은 주간 제안 파이프라인이 담당.)
+REPUBLISH_MIN_DAYS = int(os.environ.get("WP_REPUBLISH_MIN_DAYS", "365"))
+
+
 def _pick_topic(hist: dict, hub_id: str | None = None) -> str:
     """허브 내 미발행·오래된 주제, 네이버 중복 회피."""
     naver_kws = _naver_keywords_last_n_days(7)
@@ -154,6 +159,16 @@ def run():
             logger.info(f"오늘 허브: {hub_id} ({hub_display(hub_id)})")
         topic_id = _pick_topic(hist, hub_id or None)
         logger.info(f"WP_TOPIC 자동 선택: {topic_id}")
+        # 재발행 최소주기 가드 — 자동 선택에만 적용(수동 WP_TOPIC 지정은 의도된 갱신)
+        last = hist.get(topic_id, "")
+        if last:
+            days = (datetime.now(KST).date() - datetime.strptime(last, "%Y-%m-%d").date()).days
+            if days < REPUBLISH_MIN_DAYS:
+                logger.info(
+                    f"풀 소진 — '{topic_id}' 최근 발행 {days}일 전(최소 {REPUBLISH_MIN_DAYS}일). "
+                    f"오늘 발행 스킵. 주제 풀 확장 필요(제안 이슈 확인)."
+                )
+                return
     topic = TOPICS.get(topic_id)
     if not topic:
         logger.error(f"알 수 없는 WP_TOPIC: {topic_id!r}")
