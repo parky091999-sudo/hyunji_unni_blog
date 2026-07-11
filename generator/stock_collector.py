@@ -467,6 +467,36 @@ class StockDataCollector:
     @staticmethod
     def pick_featured_stock(recent_names: set[str] | None = None, history_len: int = 0) -> dict | None:
         """검색량 상위 / 급등락 상위(국내·미국)를 순환하며 오늘의 심층분석 대상 1종목을 선정."""
+        # 특정 종목 강제 지정(개선판 재발행·수동 운영용, 2026-07-11): STOCK_PIN="종목명" 또는 "종목명:종목코드"
+        import os as _os
+        pin = _os.environ.get("STOCK_PIN", "").strip()
+        if pin:
+            pin_name, _, pin_code = pin.partition(":")
+            pin_name = pin_name.strip()
+            pools: list[dict] = []
+            for fn in (StockDataCollector.get_today_upper_limit,
+                       StockDataCollector.get_today_lower_limit,
+                       StockDataCollector.get_kr_popular):
+                try:
+                    pools += fn() or []
+                except Exception:
+                    pass
+            picked = next((dict(c) for c in pools if c.get("종목명") == pin_name), None)
+            if picked is None:
+                picked = {"종목명": pin_name}
+            picked.setdefault("선정사유", "최근 급등락으로 화제가 된 종목(수동 지정)")
+            if pin_code.strip():
+                picked["_code"] = pin_code.strip()
+            picked["시장"] = "국내"
+            code = picked.get("_code")
+            if code:
+                try:
+                    picked.update(StockDataCollector.get_kr_stock_detail(code))
+                except Exception as e:
+                    logger.warning(f"{pin_name} 상세 보강 실패(무시): {e}")
+            logger.info(f"[STOCK_PIN] {pin_name} 고정 선정 (code={code or '미지정'})")
+            return picked
+
         recent_names = recent_names or set()
         mode = history_len % 3
         candidates: list[dict] = []

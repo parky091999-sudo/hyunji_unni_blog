@@ -864,13 +864,14 @@ def _verify_cause_explained(body: str, stock_name: str, api_key: str) -> bool:
         ans = _gen_text(
             api_key,
             f"다음은 '{stock_name}' 종목 분석 블로그 글이다.\n---\n{body[:3500]}\n---\n"
-            "질문: 이 글만 읽은 독자가 이 종목이 왜 크게 움직였는지 '구체적 사건과 그 사건이 "
-            "회사에 미치는 영향(인과 관계)'을 한 문장으로 설명할 수 있는가? "
-            "특정 문구(예: 'XX 덕분')가 반복될 뿐 메커니즘 설명이 없으면 NO다. "
-            "글에 '원인이 확인되지 않았다'고 정직하게 명시돼 있으면 YES로 친다. "
-            "첫 단어로 YES 또는 NO만 출력하고 이유를 한 줄 붙여라.",
-            "당신은 편집장이다. 독자 입장에서 냉정하게 판단한다.",
-            200, 0.0,
+            "질문: 이 글만 읽은 독자가 이 종목이 왜 크게 움직였는지 '어떤 사건이 있었고 그것이 "
+            "회사에 어떤 영향을 주는지'를 대략적으로라도 설명할 수 있는가? "
+            "사건→회사 영향 연결이 한 번이라도 서술돼 있으면 YES다(완벽할 필요 없음, 애매하면 YES). "
+            "NO는 명백한 경우만: 특정 문구(예: 'XX 덕분')만 반복될 뿐 그게 왜 호재인지 아무 설명이 없을 때. "
+            "글에 '원인이 확인되지 않았다'고 정직하게 명시돼 있어도 YES다. "
+            "첫 단어로 YES 또는 NO를 출력하고 이유를 한 줄 붙여라.",
+            "당신은 편집장이다. 확실한 결함일 때만 NO를 준다.",
+            1200, 0.0,
         )
         ok = bool(ans) and ans.strip().upper().startswith("YES")
         if not ok:
@@ -991,7 +992,9 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 continue
 
             # 종목분석: '왜 움직였는지'가 실제로 설명되는지 편집장 셀프체크 (2026-07-11)
-            if topic_id == "종목분석" and isinstance(llm_fact_data, dict):
+            # 개선 루프용 게이트 — 발행 자체를 차단하진 않는다: 마지막 시도에선
+            # 품질 게이트 통과본을 그대로 채택(첫 실전에서 4연속 차단→발행 실패 사고 방지)
+            if topic_id == "종목분석" and isinstance(llm_fact_data, dict) and attempt <= len(waits):
                 _name = llm_fact_data.get("종목명", "")
                 if _name and not _verify_cause_explained(body, _name, api_key):
                     cause_feedback = (
