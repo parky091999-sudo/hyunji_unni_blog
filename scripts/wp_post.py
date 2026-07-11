@@ -153,6 +153,14 @@ def run():
     status = os.environ.get("WP_STATUS", "draft").strip().lower()
     hist = _load_history()
 
+    # 하루 1건 가드 (2026-07-12): 크론 지연분·수동 실행이 겹쳐 같은 날 2건(동일 카테고리)
+    # 발행된 사고 방지. 수동 재실행이 필요하면 WP_FORCE=true.
+    if os.environ.get("WP_FORCE", "").lower() != "true":
+        today = datetime.now(KST).strftime("%Y-%m-%d")
+        if any(d == today for d in hist.values()):
+            logger.info(f"오늘({today}) 이미 발행됨 — 하루 1건 가드로 스킵 (강제: WP_FORCE=true)")
+            return
+
     if not topic_id:
         hub_id = _hub_for_today()
         if hub_id:
