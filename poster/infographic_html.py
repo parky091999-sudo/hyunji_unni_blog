@@ -12,11 +12,84 @@ HTML/CSS 템플릿 + Playwright 스크린샷으로 고품질 인포그래픽 생
 - 카테고리별 강조색 시스템(빨강/보라/파랑 등)은 유지.
 """
 import asyncio
+import json
 import logging
+import os
 import tempfile
 from html import escape
 
 logger = logging.getLogger(__name__)
+
+# ── 썸네일 후킹 문구 다양화(2026-07-11 사용자 피드백) ──
+# 문제: 카테고리 고정 keyword가 그대로 카드 문구가 돼 "공모주 캘린더"×3, "OO 분석" 반복
+#       + 단어 덜어내기 폴백이 "지금 사도"처럼 어중간하게 끊김.
+# 해결: LLM이 제목에서 완결형 후킹 문구(6~18자)를 뽑되, 최근 사용 문구와 겹치지 않게.
+_THUMB_HISTORY = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "thumb_history.json"
+)
+_THUMB_KEEP = 40
+
+
+def _load_thumb_history() -> list[str]:
+    try:
+        with open(_THUMB_HISTORY, encoding="utf-8") as f:
+            return list(json.load(f))[-_THUMB_KEEP:]
+    except Exception:
+        return []
+
+
+def _save_thumb_phrase(phrase: str) -> None:
+    try:
+        hist = _load_thumb_history()
+        hist.append(phrase)
+        os.makedirs(os.path.dirname(_THUMB_HISTORY), exist_ok=True)
+        with open(_THUMB_HISTORY, "w", encoding="utf-8") as f:
+            json.dump(hist[-_THUMB_KEEP:], f, ensure_ascii=False, indent=1)
+    except Exception as e:
+        logger.warning(f"썸네일 문구 이력 저장 실패(무시): {e}")
+
+
+def _hook_phrase(title: str, keyword: str, category: str) -> str | None:
+    """제목 기반 완결형 후킹 문구 생성. 실패 시 None(기존 폴백 사용)."""
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        return None
+    import re as _re
+    recent = _load_thumb_history()
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        avoid = "\n".join(f"- {p}" for p in recent[-15:]) or "(없음)"
+        base_prompt = (
+            f"네이버 블로그 썸네일 카드에 크게 들어갈 문구를 만든다.\n"
+            f"글 제목: {title}\n카테고리: {category} / 핵심 키워드: {keyword}\n\n"
+            "규칙:\n"
+            "1. **공백 포함 18자 이내** — 매우 짧게. 연도·월(2026년 7월 등)은 절대 넣지 마라.\n"
+            "   좋은 예(길이 감각): '펩트론 낙폭, 기회일까'(12자), 'VTI 하나로 미국 전부'(12자).\n"
+            "2. 반드시 완결된 구절 — '지금 사도'처럼 어중간하게 끊긴 표현 금지. 말줄임표 금지.\n"
+            "3. 이 글만의 구체 내용(종목명·숫자·판단 포인트)이 드러나고 클릭하고 싶게.\n"
+            "4. 아래 최근 사용 문구들과 패턴·어미가 겹치지 않게:\n"
+            f"{avoid}\n"
+            "5. 과장·거짓 금지(제목에 없는 수익률 창작 금지).\n"
+            "6. 주식 글에서 매수·매도 단정 권유 표현 금지('매수 찬스', '지금 사라' 등) —\n"
+            "   질문형('사도 될까?')이나 분석형('핵심 포인트 3가지')으로.\n"
+            "문구 한 줄만 출력."
+        )
+        prompt = base_prompt
+        for attempt in range(2):
+            resp = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
+            line = next((l.strip().strip('"\'') for l in (getattr(resp, "text", "") or "").splitlines()
+                         if l.strip()), "")
+            # 후처리: 연도·월 접두 제거(모델이 자꾸 붙임)
+            line = _re.sub(r"^\s*\d{4}년\s*(\d{1,2}월)?[\s,·:]*", "", line).strip(" ,·")
+            if 4 <= len(line) <= 22 and "…" not in line and line not in recent:
+                _save_thumb_phrase(line)
+                return line
+            logger.info(f"후킹 문구 검증 탈락(시도 {attempt + 1}: {line!r})")
+            prompt = base_prompt + f"\n\n[재시도] 직전 출력 '{line}'은(는) {len(line)}자로 규칙 위반. 15자 이내로 더 짧게."
+    except Exception as e:
+        logger.warning(f"후킹 문구 생성 실패 — 폴백: {e}")
+    return None
 
 W = 1600  # 캔버스 폭(가로로 김)
 H = 900   # 캔버스 높이 — 썸네일 크롭은 가운데 900×900(x: (W-H)/2 ~ (W+H)/2)
@@ -410,17 +483,25 @@ def create_infographic_via_html(
 
     style = _STYLES.get(category, _DEFAULT)
 
-    display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
-    # 썸네일엔 핵심 키워드만: 앞머리 날짜("2026년 7월 4일" 등)와 괄호 부연은 제거
-    display = re.sub(r"^\s*\d{4}년\s*\d{1,2}월(\s*\d{1,2}일)?[\s,·:~-]*", "", display)
-    display = re.sub(r"\([^)]*\)", "", display).strip(" ,·|-") or display
-    # 말줄임표(…) 금지(2026-07-10 사용자 피드백) — 뒤 단어를 통째로 덜어내 자연스러운
-    # 짧은 문구로 만들고, 그래도 긴 공백 없는 덩어리는 _layout_title이 2줄 분할+폰트 축소로 소화.
-    if len(display) > 22:
-        words = display.split()
-        while len(words) > 1 and len(" ".join(words)) > 22:
-            words.pop()
-        display = " ".join(words).rstrip(" ,·")
+    # 1순위: LLM 후킹 문구(제목 맞춤·완결형·최근 문구와 중복 회피 — 2026-07-11)
+    display = _hook_phrase(title, keyword, category)
+    if not display:
+        display = keyword.strip() if keyword and keyword.strip() else title.split("|")[0].strip()
+        # 썸네일엔 핵심 키워드만: 앞머리 날짜("2026년 7월 4일" 등)와 괄호 부연은 제거
+        display = re.sub(r"^\s*\d{4}년\s*\d{1,2}월(\s*\d{1,2}일)?[\s,·:~-]*", "", display)
+        display = re.sub(r"\([^)]*\)", "", display).strip(" ,·|-") or display
+        # 말줄임표(…) 금지 — 뒤 단어를 통째로 덜어내고, 자르다 어중간하게 끝나면
+        # ("지금 사도" 사례, 2026-07-11) 미완결 꼬리 단어까지 마저 덜어낸다.
+        truncated = False
+        if len(display) > 22:
+            words = display.split()
+            while len(words) > 1 and len(" ".join(words)) > 22:
+                words.pop()
+                truncated = True
+            _dangling = {"지금", "사도", "할", "더", "그", "이", "및", "vs", "대비", "관련"}
+            while truncated and len(words) > 1 and words[-1].rstrip("?!.,") in _dangling:
+                words.pop()
+            display = " ".join(words).rstrip(" ,·")
 
     # 자르기는 _build_html의 _short_bullet(단어경계+말줄임표)이 담당하므로 여기선 개수만 제한
     clean_bullets = (bullets or [])[:4] or None
