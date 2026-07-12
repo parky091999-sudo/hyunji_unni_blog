@@ -210,6 +210,11 @@ def _gen_text(
             )
             if tools:
                 config_kwargs["tools"] = tools
+            # 2.5-flash/flash-lite thinking 비활성: 복잡한 정보성 프롬프트에서 thinking이
+            # max_output_tokens를 잠식해 flash가 매번 '빈 응답'→flash-lite(짧음)로 폭락하던 근본원인
+            # (2026-07-12 진단). thinking 끄면 flash가 직접 생성=길이·품질↑·빠름. pro는 thinking 필수라 제외.
+            if "pro" not in model:
+                config_kwargs["thinking_config"] = gtypes.ThinkingConfig(thinking_budget=0)
             resp = client.models.generate_content(
                 model=model,
                 contents=contents,

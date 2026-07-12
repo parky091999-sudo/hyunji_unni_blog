@@ -17,6 +17,10 @@ _UNSOURCED_RE = re.compile(r"(알려져 있|전해지고 있|라는 말이 있)"
 
 # prose 기준(표/FAQ/요약 마커 제거 후) — CONTENT_DEPTH.md 목표 2,200~2,800자
 INFO_BODY_MIN = 2000
+# 폴백 하한: 품질게이트(계산·출처·구조·무근거)를 전부 통과했는데 길이만 살짝 미달일 때,
+# 재시도 소진 후 '발행 누락' 대신 이 하한 이상이면 그 최선 초안을 발행한다(§6 최적 1,000~2,000 범위 내).
+# 2000 하드컷이 최적범위 안(예 1,954자)의 멀쩡한 보험/세금 글을 버려 매일 발행 실패하던 것 방지(2026-07-12).
+INFO_BODY_FLOOR = 1800
 
 # 계산 예시 신호 — 본문·표 합산 검사
 _CALC_SIGNAL_RE = re.compile(
@@ -247,9 +251,11 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
     user_msg = fact_block + base_user_msg
 
     waits = [15, 40, 90]
+    best_short = None   # (body_len, parsed) — 길이 외 게이트 전부 통과한 최선 후보(폴백용)
+    feedback = ""       # 재생성 교정 피드백(직전 실패 사유 반영)
     for attempt in range(1, len(waits) + 2):
         try:
-            raw = _gen_text(api_key, user_msg, system, 8192, 0.8, use_search=True)
+            raw = _gen_text(api_key, user_msg + feedback, system, 8192, 0.8, use_search=True)
             if not raw:
                 logger.error(f"{cfg['name']}글 빈 응답 (시도 {attempt})")
                 continue
@@ -260,23 +266,21 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             parsed["title"] = strip_title_emphasis_markers(parsed.get("title", ""))
             date_critical = validate_info_dates(parsed.get("title", ""), parsed.get("body", ""))
             if date_critical:
+                feedback = f"\n\n⚠️직전 초안 날짜 오류({date_critical[0]}). 2026년 기준 정확한 날짜만 써라."
                 logger.warning(
                     f"{cfg['name']}글 날짜 오류 — 재생성: {'; '.join(date_critical[:2])}"
                 )
                 continue
             body = parsed.get("body", "")
             body_len = len(_IMAGE_MARKER.sub("", body))
-            if body_len < INFO_BODY_MIN:
-                logger.warning(
-                    f"{cfg['name']}글 본문 짧음 ({body_len}자, 최소 {INFO_BODY_MIN}자) — 재생성"
-                )
-                continue
-            # 계산 예시 신호 — 심화 정보성(세금·연금·지원금) 필수
+            # ── 길이 외 품질 게이트 먼저(길이만 부족한 최선 후보를 살리기 위해 길이 검사는 맨 뒤) ──
             calc_src = body + "\n" + "\n".join(parsed.get("table_strs", []) or [])
             if not _CALC_SIGNAL_RE.search(calc_src):
+                feedback = "\n\n⚠️직전 초안에 계산 예시가 없었다. '월 X원 → 연 Y원' 식 구체 계산 예시를 2~3개 넣어라."
                 logger.warning(f"{cfg['name']}글 계산 예시 없음 — 재생성")
                 continue
             if "출처" not in body and "출처" not in calc_src:
+                feedback = "\n\n⚠️직전 초안에 출처 표기가 없었다. 표 아래 '출처: (공식 기관)' 1줄을 반드시 넣어라."
                 logger.warning(f"{cfg['name']}글 출처 표기 없음 — 재생성")
                 continue
             # 구조 검증: 과불릿 도배(>25)·FAQ 누락·소제목 부족 시 재생성 (Gemini 변동성 대응)
@@ -284,13 +288,24 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             faq_ok = bool(parsed.get("faq_pairs"))
             sub_cnt = len(parsed.get("subheadings", []))
             if bullet_cnt > 25 or not faq_ok or sub_cnt < 5:
+                feedback = f"\n\n⚠️직전 초안 구조 불량(불릿 {bullet_cnt}/FAQ {faq_ok}/소제목 {sub_cnt}). 소제목 6개·FAQ 1개·불릿은 지정 2섹션만."
                 logger.warning(f"{cfg['name']}글 구조 불량(불릿 {bullet_cnt}/FAQ {faq_ok}/소제목 {sub_cnt}) — 재생성")
                 continue
             # 무근거 수치/카더라 하드 게이트 — 프롬프트 금지는 소프트라 어기면 그대로 발행됨
             # (보험 라이브 "평균 15% 저렴한 것으로 알려져 있어요" 실사고, 2026-07-06)
             unsourced = _UNSOURCED_RE.findall(parsed.get("body", ""))
             if unsourced:
+                feedback = f"\n\n⚠️직전 초안에 무근거 표현({unsourced[0]!r})이 있었다. '알려져 있/전해지/카더라'류 금지 — 팩트에 있는 수치만."
                 logger.warning(f"{cfg['name']}글 무근거 인용 표현 {len(unsourced)}건({unsourced[0]!r} 등) — 재생성")
+                continue
+            # ── 길이 검사(맨 뒤): 부족하면 최선 후보로 보관하고 길이 피드백 후 재생성 ──
+            if body_len < INFO_BODY_MIN:
+                if best_short is None or body_len > best_short[0]:
+                    best_short = (body_len, parsed)  # 길이 외 전부 통과한 후보만 보관
+                feedback = (f"\n\n⚠️직전 초안이 {body_len}자로 짧았다(목표 {INFO_BODY_MIN}자 이상). "
+                            "각 소제목 단락을 2~3문장 더 깊게 확장하라(계산 예시·근거 수치·비교를 추가). "
+                            "요약·표·FAQ 구조와 사실성은 그대로 유지.")
+                logger.warning(f"{cfg['name']}글 본문 짧음 ({body_len}자, 목표 {INFO_BODY_MIN}자) — 재생성(피드백)")
                 continue
             logger.info(
                 f"{cfg['name']}글 생성 완료: {parsed.get('title')!r} "
@@ -319,4 +334,13 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
             logger.error(f"{cfg['name']}글 생성 실패 (시도 {attempt}/{len(waits)+1}): {e}")
             if attempt <= len(waits):
                 time.sleep(waits[attempt - 1])
+    # 재시도 소진 — 길이만 부족했던 최선 초안이 하한(1800) 이상이면 '발행 누락' 대신 그것으로 발행.
+    # 품질게이트(계산·출처·구조·무근거)는 이미 전부 통과한 후보라 발행 안전. 목표 2000엔 못 미쳐도
+    # 최적범위(1000~2000, §6) 안이면 빈 발행보다 낫다(2026-07-12 보험·세금 매일 실패 대응).
+    if best_short and best_short[0] >= INFO_BODY_FLOOR:
+        logger.warning(
+            f"{cfg['name']}글 목표({INFO_BODY_MIN}) 미달이나 품질게이트 통과 {best_short[0]}자 "
+            f"— 폴백 발행(누락 방지)"
+        )
+        return best_short[1]
     return None
