@@ -337,13 +337,61 @@ def run():
     from generator.stock_collector import StockDataCollector
 
     if STOCK_TOPIC == "종목분석":
-        recent_names = {h.get("stock_name") for h in history[:20] if h.get("stock_name")}
-        fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+        # 시장 이벤트 감지(2026-07-13 코스피 -8.95% 날 무명 상한가 종목만 다룬 사고 재발 방지)
+        # 주말엔 금요일 종가가 재감지되므로 평일만. STOCK_PIN 수동 지정 시엔 종목분석 우선.
+        market_snap = {}
+        market_event = None
+        try:
+            market_snap = StockDataCollector.get_market_snapshot()
+            if datetime.now(KST).weekday() < 5:
+                market_event = StockDataCollector.detect_market_event(market_snap)
+        except Exception as e:
+            logger.warning(f"시장 지수 수집 실패(무시): {e}")
+
+        if market_event and not os.environ.get("STOCK_PIN", "").strip():
+            ups, downs, popular = [], [], []
+            try:
+                ups = StockDataCollector.get_today_upper_limit()
+                downs = StockDataCollector.get_today_lower_limit()
+                popular = StockDataCollector.get_kr_popular()
+            except Exception as e:
+                logger.warning(f"시장 이벤트 보조 데이터 수집 실패(무시): {e}")
+            fact_data = {
+                "이벤트": market_event["설명"],
+                "시장지수(오늘)": market_snap,
+                "상한가 종목 수": len(ups),
+                "하한가 종목 수": len(downs),
+                "인기검색상위": [
+                    {"종목명": p.get("종목명"), "현재가": p.get("현재가"), "등락률": p.get("등락률")}
+                    for p in popular[:8]
+                ],
+                "_market_event": True,
+                "_event_direction": market_event["방향"],
+                "_header_keyword": f"오늘 증시 {market_event['방향']} 정리",
+            }
+            side = downs if market_event["방향"] == "급락" else ups
+            side_key = "하한가 종목" if market_event["방향"] == "급락" else "상한가 종목"
+            if side:
+                fact_data[side_key] = [s.get("종목명") for s in side[:8] if s.get("종목명")]
+            logger.info(f"[시장 이벤트 모드] {market_event['설명']} — 개별 종목 대신 시장 브리핑")
+        else:
+            recent_names = {h.get("stock_name") for h in history[:20] if h.get("stock_name")}
+            fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+            # 시장 맥락 주입(2026-07-13): 종목 글에도 오늘 지수 흐름을 한 문장 짚게 한다
+            if isinstance(fact_data, dict) and market_snap and datetime.now(KST).weekday() < 5:
+                fact_data["시장지수(오늘)"] = market_snap
     elif STOCK_TOPIC == "etf포트폴리오":
         from generator.etf_collector import EtfDataCollector
 
         force_content_type = os.environ.get("ETF_CONTENT_TYPE", "").strip()
         fact_data = EtfDataCollector.pick_etf_topic(history=history, force_content_type=force_content_type or None)
+        # 전일 지수 급변 직후(07:00 크론 시점 스냅샷=직전 거래일 종가) — 급변 맥락 주입(2026-07-13)
+        try:
+            ev = StockDataCollector.detect_market_event()
+            if ev and isinstance(fact_data, dict):
+                fact_data["시장맥락(급변)"] = f"직전 거래일 {ev['설명']}"
+        except Exception:
+            pass
     elif STOCK_TOPIC == "공모주캘린더":
         fact_data = ipo_fact
     else:
@@ -359,8 +407,15 @@ def run():
     # 기존 '최근뉴스'(국내 종목 상세 페이지 스크랩)와 같은 키로 병합 — 프롬프트 규칙 공유.
     if isinstance(fact_data, dict):
         news_queries: list[str] = []
-        if STOCK_TOPIC == "종목분석" and fact_data.get("종목명"):
+        if STOCK_TOPIC == "종목분석" and fact_data.get("_market_event"):
+            # 시장 브리핑: 급변 원인·개미 자금 흐름 보도를 근거로 확보
+            news_queries = [f"코스피 {fact_data.get('_event_direction', '급변')}"]
+        elif STOCK_TOPIC == "종목분석" and fact_data.get("종목명"):
             news_queries = [f"{fact_data['종목명']} 주가"]
+            # 급변 종목은 목표가 조정·수급 보도가 핵심 근거 — 쿼리 추가(2026-07-13)
+            if abs(StockDataCollector._parse_pct(
+                    fact_data.get("등락률(%)", fact_data.get("등락률")))) >= 5:
+                news_queries.append(f"{fact_data['종목명']} 목표주가")
         elif STOCK_TOPIC == "etf포트폴리오" and fact_data.get("_etf_content_type") in _INDIVIDUAL_ETF_TYPES:
             subject = fact_data.get("_etf_subject") or ""
             if subject:
@@ -539,7 +594,22 @@ def run():
         except Exception as e:
             logger.warning(f"ETF 차트 생성 실패 (무시): {e}")
 
-    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict):
+    if STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict) and fact_data.get("_market_event"):
+        # 시장 브리핑: [사진2] = 코스피 6개월 추이 (개별 종목 차트 없음)
+        try:
+            from generator.stock_chart import generate_price_chart
+
+            idx_chart = generate_price_chart("^KS11", label="코스피", period="6mo")
+            if idx_chart:
+                images.append({
+                    "local_path": idx_chart, "url": "",
+                    "alt_text": "코스피 최근 6개월 추이 차트",
+                    "label": "코스피 6개월 추이",
+                })
+                logger.info(f"코스피 지수 차트 생성: {idx_chart}")
+        except Exception as e:
+            logger.warning(f"코스피 지수 차트 생성 실패 (무시): {e}")
+    elif STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict):
         try:
             from generator.stock_chart import generate_price_chart
 
@@ -669,7 +739,7 @@ def run():
         "images_inserted": result.get("images_inserted", 0) if result else 0,
         "has_table": bool(post.get("table_str")),
         "has_faq": bool(post.get("faq_str")),
-        "stock_name": fact_data.get("종목명") if isinstance(fact_data, dict) else None,
+        "stock_name": (fact_data.get("종목명") or fact_data.get("이벤트")) if isinstance(fact_data, dict) else None,
         "etf_content_type": fact_data.get("_etf_content_type") if isinstance(fact_data, dict) else None,
         "etf_subject": fact_data.get("_etf_subject") if isinstance(fact_data, dict) else None,
         "ipo_mode": fact_data.get("_ipo_mode") if isinstance(fact_data, dict) else None,

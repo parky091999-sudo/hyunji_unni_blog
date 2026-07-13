@@ -590,6 +590,8 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_char
         "이건 우리 의견이 아니라 증권사·애널리스트들의 평균 전망(컨센서스)이라는 점을 분명히 하고 "
         "현재가 대비 목표주가가 높은지 낮은지 실제 수치로 짚어라. "
         "'목표주가 = 그 가격이 된다는 보장이 아니라 참고 지표'라는 점도 꼭 명시. "
+        "★재료브리프·최근뉴스에 증권사 실명의 목표가 조정(상향/하향/유지·의견)이 있으면 평균 수치보다 "
+        "그것을 우선 인용하고, 의견이 갈리면(예: A사 상향 vs B사 하향) 그 대비 자체를 보여줘라. "
         "데이터에 이 정보가 전혀 없으면 이 섹션은 '이 종목은 컨센서스 데이터가 확인되지 않았다'로 "
         "짧게 대체(추정 금지). 불릿 3줄.)\n"
         "\n[소제목] 매매 전 실전 체크포인트\n"
@@ -603,9 +605,10 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_char
         "(투자 권유 금지. ★어느 종목에나 통하는 '재료 지속 시 상승, 차익 실현 시 하락' 같은 하나마나한 문장 금지 — "
         "이 종목의 실제 재료를 주어로 써라. 예: '부지 매각이 실제 공시로 이어지면 ~, 기대감 선반영으로 그치면 ~'. "
         "① 지금 재료가 일회성 기대감인지 실적으로 이어질 이슈인지 판단 근거를 짚고 "
-        "② 낙관/비관 시나리오를 이 종목 재료 기준으로 각 1줄. "
-        "목표주가 컨센서스가 있으면 '현재가 대비 상승 여력 X%' 수치도 근거로 활용. "
-        "'정답 아닌 참고'임을 명시. 불릿 2~3줄.)\n"
+        "② ★강세론 vs 약세론 대비: 낙관(강세) 논거와 비관(약세) 논거를 각 1~2줄로 나란히 — "
+        "재료브리프·최근뉴스에 기관·증권사 실명 코멘트가 있으면 각 진영의 근거로 인용해 "
+        "'누가 왜 그렇게 보는지'가 드러나게 써라(실명 근거 없으면 일반 논거로만, 창작 금지). "
+        "'정답 아닌 참고'임을 명시. 불릿 3~4줄.)\n"
         "\n[소제목] 자주 묻는 질문\n"
         "(★FAQ 질문 3개는 이 종목의 오늘 이슈·업종·재무 특성을 반영해 매번 다르게 만들어라 — 아래는 "
         "방향 예시일 뿐 그대로 베끼지 마라. 이 종목만의 재료(AI·실적·공시·수급 등)를 반영한 구체적 질문을. "
@@ -617,6 +620,57 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_char
         "[FAQ끝]\n"
         + _stock_action_tip_block()
     )
+
+
+def _struct_market_event(cfg: dict) -> str:
+    """시장 이벤트(지수급 폭락·폭등) 브리핑 — 2026-07-13 코스피 -8.95% 날 무명 상한가 종목만
+    다룬 사고 재발 방지. 이런 날 독자의 진짜 검색 의도는 개별 종목이 아니라 '오늘 시장 왜 이래'다."""
+    return (
+        "\n★★★ 본문(---다음)의 맨 첫 줄은 반드시 '[사진1]' 단독 한 줄이어야 한다.\n"
+        "\n[글 구조 — 이 순서, 마커 필수. 오늘은 개별 종목이 아니라 '시장 전체 급변'을 정리하는 브리핑 글이다]\n"
+        "\n[사진1]\n"
+        "(도입 2~3줄. 첫 문장에 날짜+오늘 코스피/코스닥이 몇 % 움직였는지+한 줄 결론. 인사말 금지.)\n"
+        "\n[요약시작]\n"
+        "· 오늘 시장: (코스피·코스닥 등락 한 줄)\n"
+        "· 왜: (핵심 원인 한 줄)\n"
+        "· 이 글에서 확인할 것: (원인·크게 움직인 종목·대응 원칙) 한 줄\n"
+        "[요약끝]\n"
+        "\n[소제목] 오늘 시장, 숫자로 보기\n"
+        "(1~2문장 해석 후 표. 팩트 데이터에 있는 것만 — 코스피/코스닥 지수·등락률, 상한가/하한가 종목 수 등. "
+        "'지표 | 수치 | 한줄 해석' 3열, 셀 내 문장 금지, 없는 지표 행 금지)\n"
+        f"[표시작]\n{cfg['table_header']}\n(팩트 데이터에 있는 지표만, 3열 유지)\n[표끝]\n"
+        "\n(표 바로 다음 줄에 '· 출처: 네이버금융·한국거래소, 마지막 거래일 기준'을 한 줄로.)\n"
+        "\n[사진2]\n"
+        "(★위 [사진2]는 코스피 최근 6개월 추이 차트다. 바로 다음 문장에서 오늘 움직임이 "
+        "6개월 흐름에서 어떤 위치인지 팩트 수치로만 한 줄 짚어라.)\n"
+        "\n[소제목] 왜 이렇게 됐나 — 오늘 움직임의 이유\n"
+        "(★이 글의 존재 이유. 반드시 인과 사슬로: ① 무슨 일이 있었나(글로벌 이벤트·수급·공시 구체 내용) → "
+        "② 그것이 왜 한국 증시 전체를 움직였나(메커니즘) → ③ 시장 반응(외국인/기관 수급, 낙폭 큰 업종). "
+        "팩트 데이터의 '재료브리프(검색조사·인과사슬)'를 최우선 근거로 풀어 써라. "
+        "헤드라인 문구 반복 금지 — '왜'를 설명해야 한다. 원인 미확인이면 정직하게 명시. 불릿 3~4줄.)\n"
+        "\n[소제목] 오늘 가장 크게 움직인 종목들\n"
+        "(팩트 데이터의 '인기검색상위'·'하한가 종목'/'상한가 종목'에 있는 종목·수치만으로 "
+        "오늘 낙폭(상승폭)이 컸던 종목 지도를 그려라. 데이터에 없는 종목·수치 언급 금지. 불릿 4~5줄.)\n"
+        "\n[소제목] 과거 비슷한 날엔 어땠나\n"
+        "(재료브리프·최근뉴스에 '확인된' 과거 사례(연도·수치)가 있을 때만 인용하고, 없으면 사례를 지어내지 말고 "
+        "'급변 뒤 변동성이 이어지는 경우가 많다' 수준의 일반 원리 + 확인 방법만 짧게. 수치 창작 절대 금지. 2~3문장.)\n"
+        "\n[소제목] 급변장에서 개미가 흔히 하는 실수\n"
+        "(레버리지 몰빵·공포 투매·무리한 물타기 같은 전형적 실수를 '왜 위험한지' 원리로 설명. "
+        "재료브리프·뉴스에 개미 자금 흐름(레버리지 매수 등) 근거가 있으면 인용. 불릿 3~4줄.)\n"
+        "\n[소제목] 오늘 밤~다음 거래일 체크포인트\n"
+        "(이 급변의 후속 이벤트 중심으로 — 미국 증시·환율·관련 발표 일정 등 재료브리프에 근거한 구체 항목. "
+        "범용 문구 나열 금지. 불릿 3줄.)\n"
+        "\n[소제목] 자주 묻는 질문\n"
+        "[FAQ시작]\n"
+        "Q: (오늘 급변의 원인 관련 구체 질문)\nA: (재료브리프 팩트 기반 2~3줄)\n"
+        "Q: (지금 팔아야/사야 하나 류 — 원칙적 중립 답변)\nA: (판단 기준 제공, 단정 금지)\n"
+        "Q: (다음 거래일 전망 관련)\nA: (시나리오 기반, 단정 금지)\n"
+        "[FAQ끝]\n"
+        + _stock_action_tip_block()
+    )
+
+
+_CHECKLIST_MARKET_EVENT = "- 소제목 8개(숫자표/왜/크게움직인종목/과거사례/개미실수/체크포인트/FAQ/실천팁)\n"
 
 
 def _stock_action_tip_block() -> str:
@@ -774,14 +828,20 @@ def _build_stock_system(
             if etf_has_naver:
                 n_imgs = 3
     elif topic_id == "종목분석":
-        if _is_weekend():
+        if fact.get("_market_event"):
+            # 지수급 폭락·폭등일 — 개별 종목 대신 시장 브리핑(2026-07-13 코스피 -8.95% 미커버 사고)
+            struct_fn = _struct_market_event
+            checklist = _CHECKLIST_MARKET_EVENT
+            n_imgs = 2  # 헤더 + 코스피 차트
+        elif _is_weekend():
             # 주말엔 당일 시황이 없으므로 주간 리뷰+월요일 관전포인트 구조로 전환
             struct_fn = lambda c: _struct_single_stock_weekend(c, has_financials, has_naver_chart)
             checklist = _CHECKLIST_WEEKEND_STOCK
+            n_imgs = 2 + (1 if has_naver_chart else 0) + (1 if has_financials else 0)
         else:
             struct_fn = lambda c: _struct_single_stock(c, has_financials, has_naver_chart)
             checklist = _CHECKLIST["종목분석"]
-        n_imgs = 2 + (1 if has_naver_chart else 0) + (1 if has_financials else 0)
+            n_imgs = 2 + (1 if has_naver_chart else 0) + (1 if has_financials else 0)
     elif topic_id == "공모주캘린더" and fact.get("_ipo_mode") == "deep":
         # 개별 공모주 심층분석(청약 임박 종목 1개) — 균등/비례/패스 판단 가이드
         struct_fn = _struct_ipo_deep
@@ -857,6 +917,73 @@ def _research_material_brief(stock_name: str, api_key: str, reason: str = "",
         return ""
 
 
+def _research_market_brief(event_desc: str, api_key: str) -> str:
+    """시장 이벤트(지수급 폭락·폭등)의 원인을 검색 그라운딩으로 조사 — 시장 브리핑 글의 근거."""
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key)
+        prompt = (
+            f"오늘 한국 증시가 크게 움직였다({event_desc}). 원인을 구글 검색으로 조사해라.\n"
+            "출력 형식(이 6개 항목만, 서두·잡담 금지):\n"
+            "1) 원인 사건: 무슨 일이 있었나 — 글로벌 이벤트·수급·특정 종목 이슈의 구체 내용(날짜·수치 포함)\n"
+            "2) 메커니즘: 그 사건이 왜 한국 증시 전체를 움직였는지 인과 사슬 2~3문장(외국인/기관 수급 포함)\n"
+            "3) 크게 움직인 종목·업종: 확인된 종목명·등락률만\n"
+            "4) 과거 유사 사례: 검색으로 확인된 것만(연도·당시 수치) — 못 찾으면 '확인 안 됨'\n"
+            "5) 개인 투자자 동향: 레버리지 매수·신용잔고 등 보도로 확인된 것만\n"
+            "6) 출처: 근거 기사 제목과 URL 2~3개\n"
+            "확인 못 한 항목은 '확인 안 됨'으로 써라. 추측·창작 금지."
+        )
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=gtypes.GenerateContentConfig(
+                tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        text = (getattr(resp, "text", "") or "").strip()
+        if text:
+            logger.info(f"[시장브리프] {event_desc}: {len(text)}자 확보")
+        return text[:2200]
+    except Exception as e:
+        logger.warning(f"[시장브리프] 조사 실패: {e}")
+        return ""
+
+
+# ── 날짜·요일 정합성 게이트 (2026-07-13: 라이브 글 "지난 거래일(7월 12일)"=일요일 오기 실사고) ──
+_KR_DATE_ANNOT_RE = re.compile(r"(\d{1,2})월\s*(\d{1,2})일\s*[(（]\s*([월화수목금토일])")
+_KR_TRADE_DATE_RE = re.compile(
+    r"거래일(?:에는|인|은|이|에|의)?[^가-힣\n]{0,4}(\d{1,2})월\s*(\d{1,2})일"
+)
+
+
+def _find_date_errors(text: str) -> list[str]:
+    """①'M월 D일(요일)' 표기의 요일 불일치 ②'거래일 ~ M월 D일'이 주말인 경우를 찾아 반환.
+    오탐을 피하려고 이 두 패턴만 검사한다(단독 날짜 언급은 미국장·공시일 등 정당한 경우가 많음)."""
+    from datetime import date
+    year = datetime.now(KST).year
+    errs: list[str] = []
+    for m in _KR_DATE_ANNOT_RE.finditer(text):
+        mo, dy, wd = int(m.group(1)), int(m.group(2)), m.group(3)
+        try:
+            d = date(year, mo, dy)
+        except ValueError:
+            continue
+        real = _WEEKDAY_KO[d.weekday()]
+        if real != wd:
+            errs.append(f"'{m.group(0)})' 표기 — 실제 {mo}월 {dy}일은 {real}요일")
+    for m in _KR_TRADE_DATE_RE.finditer(text):
+        mo, dy = int(m.group(1)), int(m.group(2))
+        try:
+            d = date(year, mo, dy)
+        except ValueError:
+            continue
+        if d.weekday() >= 5:
+            errs.append(f"'거래일 {mo}월 {dy}일' — {_WEEKDAY_KO[d.weekday()]}요일(주말)은 거래일이 아님")
+    return errs
+
+
 def _verify_cause_explained(body: str, stock_name: str, api_key: str) -> bool:
     """생성된 글이 급등·급락의 '이유'를 실제로 설명하는지 LLM 셀프체크.
     (독자 테스트: 이 글만 읽고 '아 ~때문에 올랐구나'를 한 문장으로 말할 수 있는가)"""
@@ -896,22 +1023,31 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
 
     # 종목분석: 급등·급락 원인을 검색 그라운딩으로 먼저 조사해 팩트 데이터에 주입
     # (헤드라인만으로는 '왜 올랐는지'를 설명 못 함 — 2026-07-11 금호타이어 피드백)
+    is_market_event = isinstance(fact_data, dict) and bool(fact_data.get("_market_event"))
     material_brief = ""
     if topic_id == "종목분석" and isinstance(llm_fact_data, dict):
-        _name = llm_fact_data.get("종목명", "")
-        if _name:
-            material_brief = _research_material_brief(
-                _name, api_key,
-                reason=str(llm_fact_data.get("선정사유", "")),
-                weekend=_is_weekend(),
+        if is_market_event:
+            material_brief = _research_market_brief(
+                str(llm_fact_data.get("이벤트", "지수 급변")), api_key,
             )
-            if material_brief:
-                llm_fact_data["재료브리프(검색조사·인과사슬)"] = material_brief
-            else:
-                llm_fact_data["재료브리프(검색조사·인과사슬)"] = (
-                    "원인 미확인 — 급등 이유를 아는 것처럼 쓰지 말고, "
-                    "'구체적 재료는 아직 확인되지 않았다'고 정직하게 명시할 것"
+            llm_fact_data["재료브리프(검색조사·인과사슬)"] = material_brief or (
+                "원인 미확인 — 급변 이유를 아는 것처럼 쓰지 말고 정직하게 명시할 것"
+            )
+        else:
+            _name = llm_fact_data.get("종목명", "")
+            if _name:
+                material_brief = _research_material_brief(
+                    _name, api_key,
+                    reason=str(llm_fact_data.get("선정사유", "")),
+                    weekend=_is_weekend(),
                 )
+                if material_brief:
+                    llm_fact_data["재료브리프(검색조사·인과사슬)"] = material_brief
+                else:
+                    llm_fact_data["재료브리프(검색조사·인과사슬)"] = (
+                        "원인 미확인 — 급등 이유를 아는 것처럼 쓰지 말고, "
+                        "'구체적 재료는 아직 확인되지 않았다'고 정직하게 명시할 것"
+                    )
 
     facts_json = json.dumps(llm_fact_data, ensure_ascii=False, indent=2, default=str)
     category_hint = ""
@@ -923,6 +1059,38 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
     elif cfg.get("blog_category") == "주식분석":
         category_hint = "네이버 카테고리 '주식분석' — 데이터 정리 톤으로 작성.\n"
 
+    # ── 맥락 규칙(2026-07-13 SK하이닉스 -15% 날 커버리지 갭 피드백) ──
+    extra_rules = ""
+    if isinstance(llm_fact_data, dict):
+        # ① 시장 맥락 문단: 종목 글에도 오늘 시장 전체 흐름(코스피 등락) 위치 잡기
+        if llm_fact_data.get("시장지수(오늘)") and not is_market_event:
+            extra_rules += (
+                "\n[시장 맥락 규칙] 팩트의 '시장지수(오늘)'(코스피·코스닥 등락)를 근거로 도입부 또는 "
+                "'왜 화제인가' 섹션에서 오늘 시장 전체 흐름을 딱 한 문장으로 짚고, 이 종목의 움직임이 "
+                "시장과 같은 방향인지·시장 대비 큰지 위치를 잡아라. 수치는 팩트에 있는 것만."
+            )
+        # ② 급변일 목표주가 가드: 컨센서스 평균은 급변 '이전' 리포트 기준일 수 있음
+        _pct = 0.0
+        try:
+            from generator.stock_collector import StockDataCollector as _SDC
+            _pct = _SDC._parse_pct(llm_fact_data.get("등락률(%)", llm_fact_data.get("등락률")))
+        except Exception:
+            pass
+        if topic_id == "종목분석" and not is_market_event and abs(_pct) >= 5:
+            extra_rules += (
+                "\n[급변일 특별 규칙 — 반드시 준수] 이 종목은 오늘 ±5% 이상 급변했다. "
+                "①목표주가·투자의견 컨센서스 평균은 급변 '이전' 리포트 기준일 수 있다 — 이 한계를 본문에 명시하고, "
+                "'현재가 대비 상승 여력 N%' 같은 단정 계산을 하지 마라('급변 전 기준 평균 N원' 수준으로만). "
+                "②최근뉴스·재료브리프에 증권사 실명 목표가 조정이 있으면 평균보다 그것을 우선 인용하라."
+            )
+        # ③ 전일 지수 급변 직후의 ETF·기타 글: 급변 맥락 한 문장 + 변동성 대응 원칙
+        if llm_fact_data.get("시장맥락(급변)"):
+            extra_rules += (
+                "\n[시장 급변 맥락 규칙] 직전 거래일 지수가 급변했다(팩트의 '시장맥락(급변)'). "
+                "도입에서 이 맥락을 한 문장으로 짚고, 급변장 변동성 대응 원칙(분할 접근·레버리지 상품 주의 등)을 "
+                "글 성격에 맞는 섹션에서 2~3문장 자연스럽게 다뤄라. 수치는 팩트에 있는 것만."
+            )
+
     user_msg = (
         f"소분류: {cfg['name']}\n"
         f"네이버 블로그 카테고리: {cfg.get('blog_category', '')}\n"
@@ -931,6 +1099,7 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
         f"[팩트 데이터 — 이 데이터만 사용, 추가·변조 금지]\n{facts_json}\n\n"
         "위 팩트만으로 네이버 블로그 원고를 작성해라. "
         "표 행은 제공된 데이터 항목만 채워라. 데이터가 5건 이하면 전부 표에 넣어라."
+        + extra_rules
     )
 
     waits = [15, 40, 90]
@@ -991,11 +1160,23 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
                 logger.warning(f"{cfg['name']} [사진1] 마커 누락 — 재생성")
                 continue
 
+            # 날짜·요일 정합성 게이트(2026-07-13 라이브 "지난 거래일(7월 12일)"=일요일 실사고)
+            # — 마지막 시도엔 미적용(발행 누락 방지, 다른 게이트와 동일 정책)
+            date_errs = _find_date_errors(parsed.get("title", "") + "\n" + body)
+            if date_errs and attempt <= len(waits):
+                cause_feedback = (
+                    "\n\n[재생성 사유 — 날짜 오류] " + "; ".join(date_errs[:3])
+                    + f". 오늘은 {_today_str()}({_WEEKDAY_KO[datetime.now(KST).weekday()]}요일)이다. "
+                    "날짜·요일·'지난 거래일' 표기를 실제 달력과 일치시켜라."
+                )
+                logger.warning(f"{cfg['name']} 날짜 정합성 미달 — 재생성: {'; '.join(date_errs[:2])}")
+                continue
+
             # 종목분석: '왜 움직였는지'가 실제로 설명되는지 편집장 셀프체크 (2026-07-11)
             # 개선 루프용 게이트 — 발행 자체를 차단하진 않는다: 마지막 시도에선
             # 품질 게이트 통과본을 그대로 채택(첫 실전에서 4연속 차단→발행 실패 사고 방지)
             if topic_id == "종목분석" and isinstance(llm_fact_data, dict) and attempt <= len(waits):
-                _name = llm_fact_data.get("종목명", "")
+                _name = llm_fact_data.get("종목명", "") or ("오늘 한국 증시" if is_market_event else "")
                 if _name and not _verify_cause_explained(body, _name, api_key):
                     cause_feedback = (
                         "\n\n[재생성 사유 — 반드시 고칠 것] 직전 원고는 급등/급락 '이유'를 설명하지 못했다. "

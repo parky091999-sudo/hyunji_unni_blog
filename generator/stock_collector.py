@@ -486,6 +486,56 @@ class StockDataCollector:
         return pct
 
     @staticmethod
+    def get_market_snapshot() -> dict:
+        """코스피·코스닥 지수 스냅샷(네이버 폴링 API) — 지수·등락률·전일대비.
+        장중엔 실시간, 마감 후·개장 전엔 마지막 거래일 종가 기준."""
+        out: dict = {}
+        for code, label in (("KOSPI", "코스피"), ("KOSDAQ", "코스닥")):
+            try:
+                r = requests.get(
+                    f"https://polling.finance.naver.com/api/realtime/domestic/index/{code}",
+                    headers=_HEADERS, timeout=10,
+                )
+                r.raise_for_status()
+                datas = (r.json() or {}).get("datas") or []
+                if not datas:
+                    continue
+                d = datas[0]
+                out[label] = {
+                    "지수": d.get("closePrice"),
+                    "등락률(%)": StockDataCollector._parse_pct(d.get("fluctuationsRatio")),
+                    "전일대비": d.get("compareToPreviousClosePrice"),
+                }
+            except Exception as e:
+                logger.warning(f"{label} 지수 수집 실패(무시): {e}")
+        if out:
+            logger.info("시장 지수: " + ", ".join(f"{k} {v['등락률(%)']:+.2f}%" for k, v in out.items()))
+        return out
+
+    # 시장 이벤트(지수급 폭락·폭등) 판정 기준 — 코스피·코스닥 중 하나라도 ±4% 이상
+    MARKET_EVENT_PCT = 4.0
+
+    @staticmethod
+    def detect_market_event(snapshot: dict | None = None) -> dict | None:
+        """지수급 이벤트 감지(2026-07-13 코스피 -8.95% 미커버 사고 재발 방지).
+        감지 시 {"설명", "방향", "지수"} 반환, 평시엔 None."""
+        snap = snapshot if snapshot is not None else StockDataCollector.get_market_snapshot()
+        movers = {
+            k: v.get("등락률(%)", 0.0) for k, v in snap.items()
+            if abs(v.get("등락률(%)", 0.0)) >= StockDataCollector.MARKET_EVENT_PCT
+        }
+        if not movers:
+            return None
+        worst_pct = max(movers.values(), key=abs)
+        direction = "급락" if worst_pct < 0 else "급등"
+        desc = " · ".join(f"{k} {v:+.2f}%" for k, v in movers.items()) + f" {direction}"
+        logger.info(f"★시장 이벤트 감지: {desc}")
+        return {"설명": desc, "방향": direction, "지수": snap}
+
+    # 실적 이슈 신호(제목 기준) — 실적 발표 임박·직후 종목은 프리뷰/해설 검색 수요가 큼
+    _EARNINGS_RE = re.compile(r"실적|영업이익|컨센서스|어닝")
+
+    @staticmethod
     def pick_featured_stock(recent_names: set[str] | None = None, history_len: int = 0) -> dict | None:
         """당일 가장 화제인 종목 1개 선정 — 화제성 점수 = 인기검색 순위 가중 + |당일 등락률|.
 
@@ -573,6 +623,18 @@ class StockDataCollector:
             return None
 
         scored = sorted(candidates.values(), key=_total, reverse=True)
+
+        # 실적 시즌 가중치(2026-07-13): 상위 3개 후보만 뉴스 1회씩 조회해 실적 신호(+4점) 반영
+        for c in scored[:3]:
+            try:
+                news = StockDataCollector.get_search_news([c["종목명"]], max_total=4)
+                if any(StockDataCollector._EARNINGS_RE.search(str(n.get("제목", ""))) for n in news):
+                    c["_src_score"] += 4.0
+                    c["_why"].append("실적 이슈 보도")
+            except Exception:
+                pass
+        scored.sort(key=_total, reverse=True)
+
         picked = next((c for c in scored if c["종목명"] not in recent_names), scored[0])
         logger.info(
             "화제성 상위: "
