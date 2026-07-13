@@ -464,9 +464,36 @@ class StockDataCollector:
             logger.info(f"뉴스 검색 보강: {queries} → {len(out)}건")
         return out[:max_total]
 
+    # 종목분석 대상에서 제외할 ETF·ETN류 (분석 템플릿이 개별기업용 — PER·투자의견 등 부재)
+    _ETF_NAME_RE = re.compile(
+        r"(KODEX|TIGER|KBSTAR|RISE|ARIRANG|PLUS|HANARO|KOSEF|SOL|ACE|KIWOOM)\s|레버리지|인버스|ETN|선물"
+    )
+
+    @staticmethod
+    def _parse_pct(val) -> float:
+        """등락률 표기('+29.92%', '-15.40%', '↑29.92%', 15.4) → 부호 있는 float. 실패 시 0."""
+        if val is None:
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val)
+        m = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%?", s.replace(",", ""))
+        if not m:
+            return 0.0
+        pct = float(m.group(1))
+        if pct > 0 and ("-" in s or "하락" in s or "↓" in s):
+            pct = -pct
+        return pct
+
     @staticmethod
     def pick_featured_stock(recent_names: set[str] | None = None, history_len: int = 0) -> dict | None:
-        """검색량 상위 / 급등락 상위(국내·미국)를 순환하며 오늘의 심층분석 대상 1종목을 선정."""
+        """당일 가장 화제인 종목 1개 선정 — 화제성 점수 = 인기검색 순위 가중 + |당일 등락률|.
+
+        2026-07-13 개편(사용자 피드백): 기존 3일 순환(인기검색/미국/상·하한가)은 시장 최대 이슈
+        (예: SK하이닉스 -15%·코스피 급락)가 터진 날에도 순번에 걸린 소스만 봐서 무명 상한가
+        종목을 골랐다. 검색량(뉴스·이슈의 결과 지표)과 등락폭을 합산해 '사람들이 실제로 찾아보는'
+        종목을 뽑는다. history_len은 시그니처 호환용(순환 모드 폐지로 미사용). 미국 워치리스트는
+        국내 후보가 전부 비었을 때(휴장·크롤 실패)만 폴백 — 필요 시 STOCK_PIN으로 수동 지정."""
         # 특정 종목 강제 지정(개선판 재발행·수동 운영용, 2026-07-11): STOCK_PIN="종목명" 또는 "종목명:종목코드"
         import os as _os
         pin = _os.environ.get("STOCK_PIN", "").strip()
@@ -498,52 +525,73 @@ class StockDataCollector:
             return picked
 
         recent_names = recent_names or set()
-        mode = history_len % 3
-        candidates: list[dict] = []
-        market = "국내"
+        candidates: dict[str, dict] = {}
 
-        if mode == 0:
-            candidates = StockDataCollector.get_kr_popular()
-            for c in candidates:
-                c["선정사유"] = f"네이버 실시간 인기검색 상위(검색비율 {c.get('검색비율(%)', '-')})"
-        elif mode == 1:
-            market = "미국"
-            candidates = StockDataCollector.get_us_movers()
-            for c in candidates:
-                c["선정사유"] = "관심 종목군 내 당일 등락률 상위"
-        else:
-            ups = StockDataCollector.get_today_upper_limit()
-            downs = StockDataCollector.get_today_lower_limit()
-            for c in ups:
-                c["선정사유"] = "코스피·코스닥 상한가"
-            for c in downs:
-                c["선정사유"] = "코스피·코스닥 하한가"
-            candidates = ups + downs
+        def _merge(row: dict, market: str, src_score: float, why: str):
+            name = (row.get("종목명") or "").strip()
+            if not name or StockDataCollector._ETF_NAME_RE.search(name):
+                return
+            cur = candidates.setdefault(
+                name, {"종목명": name, "시장": market, "_src_score": 0.0, "_why": []}
+            )
+            for k, v in row.items():
+                if k != "종목명" and v not in (None, ""):
+                    cur.setdefault(k, v)
+            cur["_src_score"] += src_score  # 여러 소스에 겹치면 가산(검색+급등락 = 진짜 이슈)
+            cur["_why"].append(why)
 
+        # ① 네이버 실시간 인기검색(검색량) — 순위 가중: 1위 20점 → 10위 2점
+        try:
+            for idx, row in enumerate(StockDataCollector.get_kr_popular()):
+                _merge(row, "국내", (10 - idx) * 2.0, f"네이버 인기검색 {idx + 1}위")
+        except Exception as e:
+            logger.warning(f"인기검색 후보 수집 실패(무시): {e}")
+
+        # ② 상·하한가 — 등락폭(±30%)이 공통 점수로 반영되므로 소스 자체 점수는 0
+        try:
+            for row in StockDataCollector.get_today_upper_limit():
+                _merge(row, "국내", 0.0, "코스피·코스닥 상한가")
+            for row in StockDataCollector.get_today_lower_limit():
+                _merge(row, "국내", 0.0, "코스피·코스닥 하한가")
+        except Exception as e:
+            logger.warning(f"상·하한가 후보 수집 실패(무시): {e}")
+
+        def _total(c: dict) -> float:
+            return c["_src_score"] + abs(
+                StockDataCollector._parse_pct(c.get("등락률(%)", c.get("등락률")))
+            )
+
+        # 국내 후보가 전부 비었을 때만 미국 워치리스트 폴백(휴장·크롤 실패 대비)
         if not candidates:
-            logger.warning(f"모드 {mode}({market}) 후보 없음 — 대체 소스로 폴백")
-            candidates = StockDataCollector.get_kr_popular()
-            for c in candidates:
-                c["선정사유"] = f"네이버 실시간 인기검색 상위(검색비율 {c.get('검색비율(%)', '-')})"
-            market = "국내"
+            logger.warning("국내 후보 없음 — 미국 워치리스트로 폴백")
+            try:
+                for row in StockDataCollector.get_us_movers():
+                    _merge(row, "미국", 0.0, "관심 종목군 내 당일 등락률 상위")
+            except Exception as e:
+                logger.warning(f"미국 무버 후보 수집 실패(무시): {e}")
         if not candidates:
             return None
 
-        picked = None
-        for c in candidates:
-            if c.get("종목명") not in recent_names:
-                picked = c
-                break
-        if picked is None:
-            picked = candidates[0]
+        scored = sorted(candidates.values(), key=_total, reverse=True)
+        picked = next((c for c in scored if c["종목명"] not in recent_names), scored[0])
+        logger.info(
+            "화제성 상위: "
+            + ", ".join(f"{c['종목명']}({_total(c):.1f})" for c in scored[:5])
+            + f" → 선정 {picked['종목명']}"
+        )
 
         picked = dict(picked)
-        picked["시장"] = market
+        why = picked.pop("_why", [])
+        pct = StockDataCollector._parse_pct(picked.get("등락률(%)", picked.get("등락률")))
+        if abs(pct) >= 5 and not any(("상한가" in w or "하한가" in w) for w in why):
+            why.append(f"당일 {pct:+.1f}% 급등락")
+        picked["선정사유"] = " · ".join(why) or "당일 화제 종목"
+        picked.pop("_src_score", None)
 
         # 국내 종목이면 상세 페이지(펀더멘털·투자의견·목표주가·최근뉴스)로 보강
         # _code는 차트 생성(yfinance 티커 조립)용으로 남겨두고, LLM 프롬프트 빌드 시에만 제외한다.
         code = picked.get("_code")
-        if market == "국내" and code:
+        if picked.get("시장") == "국내" and code:
             try:
                 detail = StockDataCollector.get_kr_stock_detail(code)
                 picked.update(detail)

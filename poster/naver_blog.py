@@ -917,6 +917,32 @@ def _compute_image_text_anchors(body: str) -> list[tuple[str, int]]:
     return anchors
 
 
+def _compute_image_following_anchors(body: str) -> dict[int, str]:
+    """[사진N] 마커의 '다음 산문 단락' 텍스트를 이미지 인덱스(0-based)별로 반환합니다.
+
+    2026-07-13: 문단 끝(End) 앵커는 랩된 긴 문단에서 시각줄 끝(문장 중간)에 캐럿이 놓여
+    이미지가 문장을 두 동강 내는 SE ONE 고질 버그가 있어(§7 2026-07-07 참고), insert_before가
+    없는 이미지(주식 차트 등)도 '다음 단락 앞(offset 0)' 삽입을 기본 경로로 쓰기 위한 계산.
+    다른 [사진N]·[구분선] 줄은 건너뛰고, 그 외 대괄호 플레이스홀더([표삽입] 등)·URL 줄을
+    만나면 빈 문자열(기존 문단 끝 앵커 폴백)로 처리한다.
+    """
+    marker = re.compile(r"\[사진(\d+)\]")
+    out: dict[int, str] = {}
+    for m in marker.finditer(body):
+        img_idx = int(m.group(1)) - 1
+        fol = ""
+        for line in body[m.end():].splitlines():
+            t = line.strip()
+            if not t or re.fullmatch(r"\[사진\d+\]|\[구분선\]", t):
+                continue
+            if t.startswith("[") or t.startswith("http://") or t.startswith("https://"):
+                break
+            fol = t
+            break
+        out.setdefault(img_idx, fol)
+    return out
+
+
 def _text_w(draw: ImageDraw.ImageDraw, s: str, font: ImageFont.FreeTypeFont) -> int:
     try:
         bbox = draw.textbbox((0, 0), s, font=font)
@@ -1060,9 +1086,20 @@ async def _move_cursor_after_text(page: Page, anchor_text: str, to_end: bool = T
             except Exception:
                 pass
             if not to_end:
-                # 소제목(짧은 단락) 앞 삽입용: 단락을 클릭하고 Home으로 시작에 캐럿을 둔다.
-                # 짧아서 랩되지 않으므로 우하단 클릭+End 같은 시각줄 보정이 필요없고 안전하다.
-                await best_loc.click()
+                # 단락 '시작'에 캐럿을 두는 경로(그 위 블록으로 이미지 삽입용).
+                # ★랩된 긴 문단 대비(2026-07-13): 요소 기본 클릭은 중앙 시각줄에 캐럿이 놓여
+                # Home이 문장 중간(그 시각줄의 시작)으로 감 → 좌상단(3,3) 클릭으로 첫 시각줄을
+                # 잡은 뒤 Home을 눌러야 진짜 단락 시작(offset 0)이 된다. 짧은 소제목은 어느 쪽이든 동일.
+                clicked = False
+                try:
+                    box = await best_loc.bounding_box()
+                    if box and box["width"] > 6 and box["height"] > 6:
+                        await best_loc.click(position={"x": 3, "y": 3})
+                        clicked = True
+                except Exception as e:
+                    logger.warning(f"단락 좌상단 클릭 실패(기본 클릭 폴백): {e}")
+                if not clicked:
+                    await best_loc.click()
                 await page.keyboard.press("Home")
                 await _delay(200, 400)
                 return True
@@ -3245,6 +3282,7 @@ async def _post(
         MAX_IMG = 7
         if images and marker_positions:
             anchors = _compute_image_text_anchors(body)
+            following_anchors = _compute_image_following_anchors(body)
             logger.info(f"이미지 앵커 {len(anchors)}개 계산 — 단락 위치별 삽입 시도")
             for anchor_text, img_idx in anchors:
                 if images_inserted >= MAX_IMG:
@@ -3258,6 +3296,12 @@ async def _post(
                 #   표/FAQ/URL 충돌 대상이 아니다 — 이 검사들을 건너뛴다(오검출로 이미지 유실 방지).
                 insert_before_sub = (images[img_idx].get("insert_before") or "").strip()
                 _a = (anchor_text or "").strip()
+                # 2026-07-13: insert_before 미지정 이미지(주식 차트 등)도 '마커 다음 단락 앞'
+                # 삽입을 기본 경로로 승격 — 문단 끝(End) 앵커가 랩된 시각줄 중간을 잡아 문장을
+                # 두 동강 내던 사고(콘텐트리중앙 라이브 실측)의 잔여 경로 제거. 헤더([사진1]
+                # 최상단)와 다음 줄이 플레이스홀더·URL인 경우만 기존 경로 유지.
+                if not insert_before_sub and _a:
+                    insert_before_sub = (following_anchors.get(img_idx) or "").strip()
                 if not insert_before_sub:
                     if _a and _a in table_anchor_set:
                         logger.warning(f"이미지 {img_idx+1}번 앵커가 표 앵커와 동일 — 표 안 삽입 방지로 건너뜀")
@@ -3302,9 +3346,9 @@ async def _post(
                 elif insert_before_sub:
                     used_before = await _move_cursor_after_text(write_page, insert_before_sub, to_end=False)
                     if used_before:
-                        logger.info(f"이미지 {img_idx+1}번 소제목 앞 삽입: '{insert_before_sub[:20]}'")
+                        logger.info(f"이미지 {img_idx+1}번 다음 단락 앞 삽입: '{insert_before_sub[:20]}'")
                     else:
-                        logger.warning(f"이미지 {img_idx+1}번 소제목 '{insert_before_sub[:20]}' 미발견 — 산문 앵커 폴백")
+                        logger.warning(f"이미지 {img_idx+1}번 앞삽입 앵커 '{insert_before_sub[:20]}' 미발견 — 산문 앵커 폴백")
                         await _move_cursor_for_image(write_page, anchor_text, img_idx)
                 else:
                     await _move_cursor_for_image(write_page, anchor_text, img_idx)
