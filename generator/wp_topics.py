@@ -40,19 +40,19 @@ CATEGORY_HUBS: dict[str, dict] = {
     },
 }
 
-# KST 요일 → 허브 (월=0 … 일=6). 월·화·목·토 4회 발행.
+# KST 요일 → 허브 (월=0 … 일=6). 매일 발행(2026-07-13 사용자 결정: 주 4회 → 하루 1편).
+# 일요일은 미지정 → 전체 풀에서 미발행·가장 오래된 주제 자동 선택(풀 균형 슬롯).
 HUB_BY_WEEKDAY: dict[int, str] = {
     0: "pension-tax",       # 월
     1: "insurance-risk",    # 화
+    2: "loan-credit",       # 수
     3: "tax-refund",        # 목
+    4: "policy-benefit",    # 금
     5: "housing-plan",      # 토
 }
 
-# 월·토에 loan-credit / policy-benefit 교차 (짝수주)
-ALT_HUB_BY_WEEKDAY: dict[int, str] = {
-    0: "loan-credit",
-    5: "policy-benefit",
-}
+# (구) 월·토 짝수주 교차용 — 매일 발행 전환으로 전 허브가 요일을 가져 교차 불필요(빈 dict 유지)
+ALT_HUB_BY_WEEKDAY: dict[int, str] = {}
 
 
 def hub_display(hub_id: str) -> str:

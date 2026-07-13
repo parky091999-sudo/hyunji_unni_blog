@@ -54,6 +54,25 @@ def _save_history(hist: dict) -> None:
         json.dump(hist, f, ensure_ascii=False, indent=2)
 
 
+# 주제별 '첫 발행일' — 하루 1건 가드가 신규 발행만 세도록 분리(2026-07-13).
+# wp_post_history.json의 날짜는 재발행(수정 upsert) 시 갱신되는 '최근 발행일'이라,
+# 아침에 기존 글을 고쳐 재발행하면 정기 크론의 신규 글이 스킵되던 문제의 근본 원인이었다.
+_FIRST_PUB_PATH = os.path.join(DATA_DIR, "wp_first_published.json")
+
+
+def _load_first_pub() -> dict:
+    if os.path.exists(_FIRST_PUB_PATH):
+        with open(_FIRST_PUB_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_first_pub(d: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(_FIRST_PUB_PATH, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+
+
 def _naver_keywords_last_n_days(days: int = 7) -> set[str]:
     """네이버 최근 N일 발행 키워드(부분일치용)."""
     cutoff = (datetime.now(KST) - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -153,12 +172,13 @@ def run():
     status = os.environ.get("WP_STATUS", "draft").strip().lower()
     hist = _load_history()
 
-    # 하루 1건 가드 (2026-07-12): 크론 지연분·수동 실행이 겹쳐 같은 날 2건(동일 카테고리)
-    # 발행된 사고 방지. 수동 재실행이 필요하면 WP_FORCE=true.
+    # 하루 1건 가드 (2026-07-12, 2026-07-13 개선): 크론 지연분·수동 실행이 겹쳐 같은 날
+    # 2건 발행된 사고 방지. ★'첫 발행'만 계산 — 기존 글 수정 재발행(upsert)은 슬롯을 소진하지
+    # 않는다(7/13 아침 연말정산 재발행이 정기 크론 신규 글을 스킵시킨 사고). 강제: WP_FORCE=true.
     if os.environ.get("WP_FORCE", "").lower() != "true":
         today = datetime.now(KST).strftime("%Y-%m-%d")
-        if any(d == today for d in hist.values()):
-            logger.info(f"오늘({today}) 이미 발행됨 — 하루 1건 가드로 스킵 (강제: WP_FORCE=true)")
+        if any(d == today for d in _load_first_pub().values()):
+            logger.info(f"오늘({today}) 신규 발행 완료 — 하루 1건 가드로 스킵 (강제: WP_FORCE=true)")
             return
 
     if not topic_id:
@@ -219,8 +239,13 @@ def run():
         logger.warning(f"대표 이미지 생성 실패(무시): {e}")
 
     if status == "publish":
-        hist[topic_id] = datetime.now(KST).strftime("%Y-%m-%d")
+        today = datetime.now(KST).strftime("%Y-%m-%d")
+        hist[topic_id] = today
         _save_history(hist)
+        first_pub = _load_first_pub()
+        if topic_id not in first_pub:  # 재발행은 첫 발행일 유지
+            first_pub[topic_id] = today
+            _save_first_pub(first_pub)
 
 
 if __name__ == "__main__":

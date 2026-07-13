@@ -95,14 +95,20 @@ header .wp-block-site-title a::before{
   color:var(--hj-fg);
 }
 
-/* ── 타이포그래피: 본문 가독(승인 샘플 16.5px/1.75 기준) ── */
-.entry-content p{font-size:1.06rem;line-height:1.85;margin-block-start:0;margin-block-end:1.15em}
-.entry-content li{font-size:1.03rem;line-height:1.75;margin-bottom:.5em}
-.entry-content ol,.entry-content ul{margin-block-end:1.2em}
-.wp-block-post-title{font-weight:800;line-height:1.35;letter-spacing:-.01em}
+/* ── 타이포그래피: 본문 가독 (2026-07-13 리서치 기반 재조정)
+ * 근거: 한글 본문 행간 150~175%(네이버 모바일 실측 155%, 접근성 지침 150%+ — 산세리프
+ * 한글은 행간을 넉넉히), 줄당 45~75자(Baymard·UXPin — 760px/17px ≈ 한글 42자),
+ * 자간 -0.01em(Pretendard 관행), word-break:keep-all(한글 단어 단위 줄바꿈으로
+ * 단어 중간 절단 방지), 문단 간격은 행간보다 뚜렷하게(1.25em). */
+.entry-content{word-break:keep-all;overflow-wrap:break-word;letter-spacing:-.01em;color:var(--hj-fg)}
+.entry-content p{font-size:1.06rem;line-height:1.75;margin-block-start:0;margin-block-end:1.25em}
+.entry-content li{font-size:1.03rem;line-height:1.7;margin-bottom:.55em}
+.entry-content ol,.entry-content ul{margin-block-start:0;margin-block-end:1.4em}
+.entry-content li::marker{color:var(--hj-muted)}
+.wp-block-post-title,.entry-header .entry-title{font-weight:800;line-height:1.35;letter-spacing:-.02em}
 .entry-content h2{
-  font-weight:800;letter-spacing:-.01em;
-  margin-top:2.1em;margin-bottom:.85em;padding-top:1.3em;
+  font-weight:800;letter-spacing:-.01em;font-size:1.5rem;line-height:1.4;
+  margin-top:2.4em;margin-bottom:.8em;padding-top:1.3em;
   border-top:1px solid var(--hj-line)
 }
 .entry-content h2:first-child{border-top:0;margin-top:0;padding-top:0}
@@ -111,8 +117,12 @@ header .wp-block-site-title a::before{
 .entry-content h2 + ul,
 .entry-content h2 + figure{margin-top:.35em}
 .entry-content .hj-h2-gap{display:block;height:.45em;line-height:0;font-size:0}
+.entry-content strong{font-weight:700;color:inherit}
 
-/* ── 본문 폭: 승인 샘플 760px (테마 기본 645px 확장) ── */
+/* ── 본문 폭: 승인 샘플 760px — Kadence 단일글 컨테이너 기준(2026-07-13)
+ * 구 테마(twentytwentyfive) 셀렉터는 Kadence 전환 후 무효 → 본문이 ~1,130px로 펼쳐져
+ * 한 줄 60자+가 되던 문제 수정. 제목·본문을 같은 폭으로 중앙 정렬. */
+.single-entry .entry-content-wrap{max-width:760px;margin-inline:auto}
 .wp-block-post-content.is-layout-constrained > :where(:not(.alignfull):not(.alignwide)){max-width:760px}
 
 /* ── 번호 목록: 항목 내 여러 문단 간격 ── */
@@ -140,6 +150,17 @@ header .wp-block-site-title a::before{
 .hj-summary ul{margin:0;padding-left:2px;list-style:none}
 .hj-summary li{position:relative;padding-left:24px;margin:0 0 8px;font-size:.95em;line-height:1.6}
 .hj-summary li:before{content:'✓';position:absolute;left:0;color:var(--hj-accent);font-weight:800}
+/* Kadence 테마 ul 패딩이 로드 순서로 이겨 체크가 오른쪽에서 시작하던 문제 —
+ * .entry-content 스코프로 구체성(0,2,1)을 높여 확정 (2026-07-13 사용자 피드백) */
+.entry-content .hj-summary ul{margin:0;padding-left:2px;list-style:none}
+.entry-content .hj-summary li{position:relative;padding-left:24px;margin:0 0 8px}
+
+/* ── 오해/사실 카드 (2026-07-13 — 번호식 오해/사실 나열 대체) ── */
+.hj-myth{border:1px solid var(--hj-line);border-left:4px solid #d05c5c;border-radius:8px;padding:14px 18px;margin:0 0 14px;background:#fff}
+.entry-content .hj-myth-q{position:relative;padding-left:26px;margin:0 0 8px;font-weight:700;color:#b34a4a;font-size:1em;line-height:1.6}
+.entry-content .hj-myth-q:before{content:'✕';position:absolute;left:2px;font-weight:800}
+.entry-content .hj-myth-a{position:relative;padding-left:26px;margin:0;color:#33393f;font-size:.97em;line-height:1.7}
+.entry-content .hj-myth-a:before{content:'✓';position:absolute;left:2px;color:var(--hj-accent);font-weight:800}
 
 /* ── 비교표 ── */
 .hj-table{margin:24px 0;overflow-x:auto}

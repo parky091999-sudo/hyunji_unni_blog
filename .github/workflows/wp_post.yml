@@ -1,13 +1,11 @@
 name: 워드프레스 심층분석 자동발행
 
-# 주 4회(월·화·목·토 09:05 KST) — 수익 허브별 심층 칼럼 (WP_PIPELINE.md §5 C).
-# 주제: scripts/wp_post.py 허브 로테이션 + 네이버 7일 키워드 회피.
+# 매일 09:05 KST(2026-07-13 사용자 결정: 주 4회 → 하루 1편) — 수익 허브별 심층 칼럼.
+# 요일→허브: 월 연금·절세 / 화 보험 / 수 대출·신용 / 목 세금·환급 / 금 제도·복지 / 토 주거·청약
+# / 일 자동(전체 풀에서 가장 오래된 주제). 풀 확장은 주간 제안 이슈(wp_propose) 검토가 전제.
 on:
   schedule:
-    - cron: "5 0 * * 1"   # 월 KST 09:05 — 연금·절세 (짝수주 대출·신용)
-    - cron: "5 0 * * 2"   # 화 — 보험·리스크
-    - cron: "5 0 * * 4"   # 목 — 세금·환급
-    - cron: "5 0 * * 6"   # 토 — 주거·청약 (짝수주 제도·복지)
+    - cron: "5 0 * * *"   # 매일 KST 09:05
   workflow_dispatch:
     inputs:
       topic:
@@ -78,7 +76,7 @@ jobs:
           with open('data/wp_post_history.json', 'w', encoding='utf-8') as f:
               json.dump(merged, f, ensure_ascii=False, indent=2)
           EOF
-            git add data/wp_post_history.json
+            git add data/wp_post_history.json data/wp_first_published.json
             if git diff --staged --quiet; then echo "이력 변경 없음"; exit 0; fi
             git commit -m "chore: 워드프레스 발행 이력 $(date +'%Y-%m-%d')"
             if git push; then exit 0; fi

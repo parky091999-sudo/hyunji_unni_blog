@@ -310,6 +310,61 @@ def _meta_description(body: str, summary_text: str) -> str:
     return src
 
 
+# '라벨: 설명' 줄의 라벨 자동 볼드 (2026-07-13 사용자 피드백 — 번호·불릿 항목 스캔 가독성)
+_LABEL_RE = re.compile(r"^([^:：]{2,20})([:：])\s*(.*)$")
+
+
+def _label_strong_html(s: str) -> str:
+    """'소득 기준: …' 형태 줄이면 라벨을 <strong>으로, 아니면 그대로 escape."""
+    t = _clean_inline(s)
+    m = _LABEL_RE.match(t)
+    if m and not m.group(1).strip().lower().startswith(("http", "www.")):
+        rest = m.group(3)
+        tail = f" {escape(rest)}" if rest else ""
+        return f"<strong>{escape(m.group(1))}</strong>{m.group(2)}{tail}"
+    return escape(t)
+
+
+# 오해/사실 카드 (2026-07-13 사용자 피드백 — 번호+오해/사실 나열 대신 카드형)
+_MYTH_RE = re.compile(r"^[\s①-⑳0-9.)]*오해\s*[:：]\s*(.+)$")
+_FACT_RE = re.compile(r"^\s*사실\s*[:：]\s*(.+)$")
+
+
+def _myth_card_html(q: str, a: str) -> str:
+    return (
+        '<div class="hj-myth">'
+        f'<p class="hj-myth-q">{escape(_clean_inline(q))}</p>'
+        f'<p class="hj-myth-a">{escape(_clean_inline(a))}</p>'
+        "</div>"
+    )
+
+
+def _merge_stray_list_items(pieces: list[str]) -> list[str]:
+    """<ul>…</ul> / <p>짧은 비문장 줄</p> / <ul>…</ul> 3연속 조각을 하나의 <ul>로 병합.
+
+    2026-07-13 에너지바우처 '노인' 실사고: 모델이 목록 중간 한 항목만 '· ' 마커를 빼먹으면
+    그 줄이 문단으로 떨어져 목록이 둘로 쪼개진다. 문장형(…요./다./죠.)이 아닌 짧은 줄만
+    목록 항목으로 회수한다(정상적인 리스트 사이 산문 문단은 보존)."""
+    out2: list[str] = []
+    i = 0
+    while i < len(pieces):
+        p = pieces[i]
+        if (
+            out2 and out2[-1].startswith("<ul>") and out2[-1].endswith("</ul>")
+            and p.startswith("<p>") and p.endswith("</p>")
+            and i + 1 < len(pieces) and pieces[i + 1].startswith("<ul>")
+        ):
+            inner = p[3:-4].strip()
+            plain = re.sub(r"<[^>]+>", "", inner)
+            if 0 < len(plain) <= 90 and not re.search(r"(요|다|죠)[.!?]?\s*$", plain):
+                out2[-1] = out2[-1][:-5] + f"<li>{inner}</li>" + pieces[i + 1][4:]
+                i += 2
+                continue
+        out2.append(p)
+        i += 1
+    return out2
+
+
 def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
                           slug_override: str = "", related_posts: list | None = None,
                           site_url: str = "", category_slug: str = "") -> dict:
@@ -336,16 +391,19 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
         if tag == "ol":
             lis = ""
             for parts in list_items:
-                inner = "".join(
-                    f"<p>{escape(_clean_inline(p))}</p>" for p in parts if _clean_inline(p)
-                )
+                inner = ""
+                for j, p in enumerate(parts):
+                    if not _clean_inline(p):
+                        continue
+                    # 항목 제목줄(첫 줄)의 '라벨:'만 볼드 — 이어지는 부연 문단은 평문
+                    inner += f"<p>{_label_strong_html(p) if j == 0 else escape(_clean_inline(p))}</p>"
                 lis += f"<li>{inner}</li>"
             start_attr = f' start="{list_start}"' if list_start and list_start > 1 else ""
             out.append(f"<ol{start_attr}>{lis}</ol>")
             list_start = None
         else:
             lis = "".join(
-                f"<li>{escape(_clean_inline(parts[0]))}</li>" for parts in list_items if parts
+                f"<li>{_label_strong_html(parts[0])}</li>" for parts in list_items if parts
             )
             out.append(f"<ul>{lis}</ul>")
         list_items = []
@@ -395,6 +453,36 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
                 i += 1
             continue
 
+        # 오해/사실 카드 (2026-07-13): '오해: …' 줄 + 이어지는 '사실: …' 줄(들)을 카드로.
+        # 구형('① 오해문장' + '사실: …')도 접두 번호를 흡수해 처리한다.
+        mm = _MYTH_RE.match(s)
+        if mm:
+            flush_list()
+            myth_q = mm.group(1).strip()
+            fact_parts: list[str] = []
+            while i < len(lines):
+                t = lines[i].strip()
+                if not t:
+                    i += 1
+                    if fact_parts:
+                        break
+                    continue
+                if _MYTH_RE.match(t) or t.startswith("[") or _bullet_kind(t):
+                    break  # 다음 블록 시작 — 소비하지 않음
+                fm = _FACT_RE.match(t)
+                i += 1
+                if fm:
+                    fact_parts.append(fm.group(1).strip())
+                elif fact_parts:
+                    fact_parts.append(t)
+                else:
+                    myth_q += " " + t
+            if fact_parts:
+                out.append(_myth_card_html(myth_q, " ".join(fact_parts)))
+            else:
+                out.append(f"<p>{escape(_clean_inline(myth_q))}</p>")
+            continue
+
         bk = _bullet_kind(s)
         if bk:
             kind, content, num = bk
@@ -412,10 +500,12 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
             continue
 
         flush_list()
-        out.append(f"<p>{escape(_clean_inline(s))}</p>")
+        out.append(f"<p>{_label_strong_html(s)}</p>")
 
     flush_list()
-    body_html = "\n".join(x for x in out if x)
+    # 마커 누락으로 쪼개진 목록 병합(2026-07-13 '노인' 실사고) — 조각 단위 보정
+    out = _merge_stray_list_items([x for x in out if x])
+    body_html = "\n".join(out)
 
     # ── v2 페이지 요소 조립 (WP_PIPELINE §1·§2) ──
     key_stats_html = _key_stats_html(post.get("key_stats"))
