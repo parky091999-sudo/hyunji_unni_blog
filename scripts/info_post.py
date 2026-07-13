@@ -215,6 +215,16 @@ def run():
 
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:500] + "...\n===== 끝 =====")
+    # 본문 전문을 아티팩트로 보존(2026-07-13) — 로그 500자 절단 때문에 발행 전
+    # 정밀 검증(사실관계·형식)이 불가했던 문제 해소. data/screenshots/는 아티팩트로 업로드됨.
+    try:
+        shot_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "data", "screenshots")
+        os.makedirs(shot_dir, exist_ok=True)
+        with open(os.path.join(shot_dir, "generated_body.txt"), "w", encoding="utf-8") as f:
+            f.write(f"TITLE: {post['title']}\nTAGS: {post.get('tags')}\n\n{post.get('body', '')}")
+    except Exception as e:
+        logger.warning(f"본문 아티팩트 저장 실패(무해): {e}")
 
     if dry_run:
         logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
