@@ -590,8 +590,9 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_char
         "이건 우리 의견이 아니라 증권사·애널리스트들의 평균 전망(컨센서스)이라는 점을 분명히 하고 "
         "현재가 대비 목표주가가 높은지 낮은지 실제 수치로 짚어라. "
         "'목표주가 = 그 가격이 된다는 보장이 아니라 참고 지표'라는 점도 꼭 명시. "
-        "★재료브리프·최근뉴스에 증권사 실명의 목표가 조정(상향/하향/유지·의견)이 있으면 평균 수치보다 "
-        "그것을 우선 인용하고, 의견이 갈리면(예: A사 상향 vs B사 하향) 그 대비 자체를 보여줘라. "
+        "★팩트에 '증권사리포트(최근)'(증권사 실명·리포트 제목·목표가·투자의견)가 있으면 그것을 최우선 인용 — "
+        "'○○증권은 목표가 N원·매수 유지(리포트 제목)'처럼 실명으로. 의견이 갈리면(A사 상향 vs B사 하향) "
+        "그 대비 자체를 보여줘라. 없으면 재료브리프·최근뉴스의 실명 코멘트 순으로. "
         "데이터에 이 정보가 전혀 없으면 이 섹션은 '이 종목은 컨센서스 데이터가 확인되지 않았다'로 "
         "짧게 대체(추정 금지). 불릿 3줄.)\n"
         "\n[소제목] 매매 전 실전 체크포인트\n"
@@ -599,6 +600,8 @@ def _struct_single_stock(cfg: dict, has_financials: bool = False, has_naver_char
         "'거래량 확인', '외국인 수급 확인', '공시 확인' 같은 범용 문구만 나열 금지. "
         "이 종목 재료의 구체 후속 이벤트를 최소 2개 포함하라 — 예: 재료가 부지·자산 이슈면 '○○ 발표 일정·"
         "부지 매각 공시 여부', 계약 이슈면 '계약 상대·규모 확정 공시', 정책 이슈면 '해당 정책의 다음 발표일'. "
+        "★팩트에 '최근공시(DART)'가 있으면 실제 공시(보고서명·접수일)를 후속 이벤트 근거로 우선 활용하라 — "
+        "예: '7월 N일 접수된 ○○ 보고서의 후속 발표'. "
         "재료브리프·최근뉴스에서 구체 이벤트를 못 찾으면 범용 문구로 채우지 말고 "
         "'현재로선 ○○ 공시가 유일한 확인 포인트' 식으로 짧게 줄여라. 불릿 3~4줄.)\n"
         "\n[소제목] 이 종목 단기·중기 시나리오 (참고용)\n"
@@ -1036,7 +1039,10 @@ def generate_stock_post(topic_id: str, fact_data: dict | list, api_key: str) -> 
         else:
             _name = llm_fact_data.get("종목명", "")
             if _name:
-                material_brief = _research_material_brief(
+                # 선정 단계 재료 예비조사(_material_brief)가 있으면 재사용 — 중복 조사 방지
+                material_brief = (
+                    fact_data.get("_material_brief", "") if isinstance(fact_data, dict) else ""
+                ) or _research_material_brief(
                     _name, api_key,
                     reason=str(llm_fact_data.get("선정사유", "")),
                     weekend=_is_weekend(),

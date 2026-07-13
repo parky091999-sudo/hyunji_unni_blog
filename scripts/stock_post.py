@@ -376,7 +376,32 @@ def run():
             logger.info(f"[시장 이벤트 모드] {market_event['설명']} — 개별 종목 대신 시장 브리핑")
         else:
             recent_names = {h.get("stock_name") for h in history[:20] if h.get("stock_name")}
-            fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+            if os.environ.get("STOCK_PIN", "").strip():
+                fact_data = StockDataCollector.pick_featured_stock(recent_names=recent_names, history_len=len(history))
+            else:
+                # 재료 예비조사(2026-07-13): 화제성 1위여도 검색으로 재료(스토리)가 확인 안 되면
+                # 차순위 후보로 — '글감 없는 1위' 회피. 확인된 브리프는 본문 생성에 재사용(중복 조사 방지).
+                from generator.stock_content import _research_material_brief
+
+                fact_data = None
+                candidates = StockDataCollector.pick_featured_candidates(recent_names=recent_names, limit=3)
+                is_wknd = datetime.now(KST).weekday() >= 5
+                for i, cand in enumerate(candidates):
+                    brief = _research_material_brief(
+                        cand["종목명"], GOOGLE_API_KEY,
+                        reason=str(cand.get("선정사유", "")), weekend=is_wknd,
+                    )
+                    if brief:
+                        cand["_material_brief"] = brief
+                        fact_data = cand
+                        if i > 0:
+                            logger.info(f"[재료 예비조사] 상위 {i}개 후보 원인 미확인 → {cand['종목명']} 선정")
+                        break
+                if fact_data is None and candidates:
+                    fact_data = candidates[0]
+                    logger.info("[재료 예비조사] 전 후보 원인 미확인 — 화제성 1위 유지(정직 서술 모드)")
+                if isinstance(fact_data, dict):
+                    fact_data = StockDataCollector.enrich_stock_detail(fact_data)
             # 시장 맥락 주입(2026-07-13): 종목 글에도 오늘 지수 흐름을 한 문장 짚게 한다
             if isinstance(fact_data, dict) and market_snap and datetime.now(KST).weekday() < 5:
                 fact_data["시장지수(오늘)"] = market_snap
@@ -448,6 +473,24 @@ def run():
                 fact_data["_fin_is_krw"] = is_krw
                 logger.info(f"재무 추이 보강: {yft}")
                 break
+
+    # ── 종목분석(국내): 증권사 리포트·DART 공시 보강 (2026-07-13 소스 확장) ──
+    # 리포트 = 실명 목표가·투자의견(급변일 '실명 인용 우선' 규칙의 실데이터),
+    # DART = 이벤트의 원본 소스(실적·유증·계약 공시). 둘 다 실패해도 글은 정상 진행.
+    if (STOCK_TOPIC == "종목분석" and isinstance(fact_data, dict)
+            and not fact_data.get("_market_event") and fact_data.get("시장") == "국내"):
+        if fact_data.get("종목명"):
+            try:
+                reports = StockDataCollector.get_analyst_reports(fact_data["종목명"])
+                if reports:
+                    fact_data["증권사리포트(최근)"] = reports
+                    logger.info(f"증권사 리포트 {len(reports)}건 수집: {fact_data['종목명']}")
+            except Exception as e:
+                logger.warning(f"증권사 리포트 수집 실패(무시): {e}")
+        if fact_data.get("_code"):
+            dart = StockDataCollector.get_dart_disclosures(fact_data["_code"])
+            if dart:
+                fact_data["최근공시(DART)"] = dart
 
     from generator.stock_content import generate_stock_post
 

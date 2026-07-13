@@ -575,6 +575,58 @@ class StockDataCollector:
             return picked
 
         recent_names = recent_names or set()
+        cands = StockDataCollector.pick_featured_candidates(recent_names=recent_names, limit=1)
+        if not cands:
+            return None
+        return StockDataCollector.enrich_stock_detail(cands[0])
+
+    @staticmethod
+    def pick_featured_candidates(recent_names: set[str] | None = None, limit: int = 3) -> list[dict]:
+        """화제성 상위 후보 limit개 — 재료 예비조사용(2026-07-13).
+
+        선정 전에 후보 여럿을 돌려주고, 호출부(stock_post)가 재료브리프 예비조사로
+        '스토리가 확인되는 종목'을 고른다(화제성 1위인데 글감이 없는 종목 회피).
+        상세 보강(enrich_stock_detail)은 최종 선정 후 호출부가 수행."""
+        recent_names = recent_names or set()
+        scored = StockDataCollector._scored_hot_candidates()
+        if not scored:
+            return []
+        pool = [c for c in scored if c["종목명"] not in recent_names] or scored[:1]
+        logger.info(
+            "화제성 상위: "
+            + ", ".join(f"{c['종목명']}({c['_total']:.1f})" for c in scored[:5])
+            + f" → 후보 {min(limit, len(pool))}개"
+        )
+        return [StockDataCollector._finalize_candidate(c) for c in pool[:limit]]
+
+    @staticmethod
+    def _finalize_candidate(c: dict) -> dict:
+        picked = dict(c)
+        why = picked.pop("_why", [])
+        pct = StockDataCollector._parse_pct(picked.get("등락률(%)", picked.get("등락률")))
+        if abs(pct) >= 5 and not any(("상한가" in w or "하한가" in w) for w in why):
+            why.append(f"당일 {pct:+.1f}% 급등락")
+        picked["선정사유"] = " · ".join(why) or "당일 화제 종목"
+        picked.pop("_src_score", None)
+        picked.pop("_total", None)
+        return picked
+
+    @staticmethod
+    def enrich_stock_detail(picked: dict) -> dict:
+        """국내 종목이면 상세 페이지(펀더멘털·투자의견·목표주가·최근뉴스)로 보강.
+        _code는 차트 생성(yfinance 티커 조립)용으로 남겨두고, LLM 프롬프트 빌드 시에만 제외."""
+        code = picked.get("_code")
+        if picked.get("시장") == "국내" and code:
+            try:
+                detail = StockDataCollector.get_kr_stock_detail(code)
+                picked.update(detail)
+            except Exception as e:
+                logger.warning(f"{picked.get('종목명')} 상세 보강 실패(무시): {e}")
+        return picked
+
+    @staticmethod
+    def _scored_hot_candidates() -> list[dict]:
+        """전 소스(인기검색·상하한가·미국 폴백) 병합 + 화제성 점수 정렬된 후보 리스트."""
         candidates: dict[str, dict] = {}
 
         def _merge(row: dict, market: str, src_score: float, why: str):
@@ -620,7 +672,7 @@ class StockDataCollector:
             except Exception as e:
                 logger.warning(f"미국 무버 후보 수집 실패(무시): {e}")
         if not candidates:
-            return None
+            return []
 
         scored = sorted(candidates.values(), key=_total, reverse=True)
 
@@ -634,33 +686,128 @@ class StockDataCollector:
             except Exception:
                 pass
         scored.sort(key=_total, reverse=True)
+        for c in scored:
+            c["_total"] = _total(c)
+        return scored
 
-        picked = next((c for c in scored if c["종목명"] not in recent_names), scored[0])
-        logger.info(
-            "화제성 상위: "
-            + ", ".join(f"{c['종목명']}({_total(c):.1f})" for c in scored[:5])
-            + f" → 선정 {picked['종목명']}"
-        )
+    @staticmethod
+    def get_analyst_reports(stock_name: str, days: int = 10, max_items: int = 4) -> list[dict]:
+        """네이버 금융 리서치(종목분석 리포트)에서 해당 종목의 최근 리포트 수집 —
+        증권사 실명·리포트 제목·목표가·투자의견(상세 페이지 .view_info).
+        2026-07-13: 급변일 '실명 목표가 조정 우선 인용' 규칙의 실데이터 소스."""
+        from datetime import timedelta as _td
 
-        picked = dict(picked)
-        why = picked.pop("_why", [])
-        pct = StockDataCollector._parse_pct(picked.get("등락률(%)", picked.get("등락률")))
-        if abs(pct) >= 5 and not any(("상한가" in w or "하한가" in w) for w in why):
-            why.append(f"당일 {pct:+.1f}% 급등락")
-        picked["선정사유"] = " · ".join(why) or "당일 화제 종목"
-        picked.pop("_src_score", None)
+        out: list[dict] = []
+        try:
+            cutoff = datetime.now() - _td(days=days)
+            detail_fetched = 0
+            for page in (1, 2):
+                r = requests.get(
+                    "https://finance.naver.com/research/company_list.naver",
+                    params={"page": page}, headers=_HEADERS, timeout=15,
+                )
+                r.raise_for_status()
+                soup = BeautifulSoup(r.text, "html.parser")
+                table = soup.select_one("table.type_1")
+                if not table:
+                    break
+                for tr in table.select("tr"):
+                    tds = tr.select("td")
+                    if len(tds) < 6:
+                        continue
+                    if tds[0].get_text(strip=True) != stock_name:
+                        continue
+                    date_s = tds[4].get_text(strip=True)  # '26.07.13'
+                    try:
+                        if datetime.strptime(date_s, "%y.%m.%d") < cutoff:
+                            continue
+                    except ValueError:
+                        pass
+                    item = {
+                        "증권사": tds[2].get_text(strip=True),
+                        "리포트제목": tds[1].get_text(" ", strip=True),
+                        "날짜": date_s,
+                    }
+                    a = tds[1].select_one("a[href*='company_read']")
+                    if a and detail_fetched < 3:  # 목표가·의견 상세는 최대 3건만 추가 요청
+                        detail_fetched += 1
+                        try:
+                            r2 = requests.get(
+                                "https://finance.naver.com/research/" + a["href"],
+                                headers=_HEADERS, timeout=15,
+                            )
+                            info = BeautifulSoup(r2.text, "html.parser").select_one(".view_info")
+                            if info:
+                                text = info.get_text(" ", strip=True)  # '목표가 60,000 | 투자의견 Buy'
+                                m = re.search(r"목표가\s*([\d,]+)", text)
+                                if m:
+                                    item["목표가"] = m.group(1) + "원"
+                                m = re.search(r"투자의견\s*([A-Za-z가-힣.]+)", text)
+                                if m:
+                                    item["투자의견"] = m.group(1)
+                        except Exception:
+                            pass
+                    out.append(item)
+                    if len(out) >= max_items:
+                        return out
+        except Exception as e:
+            logger.warning(f"리서치 리포트 수집 실패(무시, {stock_name}): {e}")
+        return out
 
-        # 국내 종목이면 상세 페이지(펀더멘털·투자의견·목표주가·최근뉴스)로 보강
-        # _code는 차트 생성(yfinance 티커 조립)용으로 남겨두고, LLM 프롬프트 빌드 시에만 제외한다.
-        code = picked.get("_code")
-        if picked.get("시장") == "국내" and code:
-            try:
-                detail = StockDataCollector.get_kr_stock_detail(code)
-                picked.update(detail)
-            except Exception as e:
-                logger.warning(f"{picked.get('종목명')} 상세 보강 실패(무시): {e}")
+    @staticmethod
+    def get_dart_disclosures(stock_code: str, days: int = 14, max_items: int = 8) -> list[dict]:
+        """DART(Open DART) 최근 공시 목록 — DART_API_KEY 없으면 빈 리스트(우아한 스킵).
+        corp_code 매핑은 corpCode.xml(zip, ~2MB)을 내려받아 조회(회당 1요청)."""
+        import io
+        import os as _os
+        import zipfile
+        import xml.etree.ElementTree as ET
+        from datetime import timedelta as _td
 
-        return picked
+        key = _os.environ.get("DART_API_KEY", "").strip()
+        if not key or not stock_code:
+            return []
+        try:
+            r = requests.get(
+                "https://opendart.fss.or.kr/api/corpCode.xml",
+                params={"crtfc_key": key}, timeout=30,
+            )
+            r.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+                xml_data = zf.read(zf.namelist()[0])
+            corp_code = None
+            for el in ET.fromstring(xml_data).iter("list"):
+                if (el.findtext("stock_code") or "").strip() == stock_code:
+                    corp_code = (el.findtext("corp_code") or "").strip()
+                    break
+            if not corp_code:
+                logger.info(f"DART corp_code 미발견: {stock_code}")
+                return []
+            end = datetime.now()
+            r2 = requests.get(
+                "https://opendart.fss.or.kr/api/list.json",
+                params={
+                    "crtfc_key": key, "corp_code": corp_code,
+                    "bgn_de": (end - _td(days=days)).strftime("%Y%m%d"),
+                    "end_de": end.strftime("%Y%m%d"),
+                    "page_count": max_items,
+                },
+                timeout=15,
+            )
+            data = r2.json()
+            if data.get("status") != "000":  # '013' = 조회 데이터 없음(정상)
+                if data.get("status") != "013":
+                    logger.warning(f"DART 응답 오류({data.get('status')}): {str(data.get('message'))[:60]}")
+                return []
+            out = [
+                {"보고서": i.get("report_nm"), "접수일": i.get("rcept_dt"), "제출인": i.get("flr_nm")}
+                for i in (data.get("list") or [])[:max_items]
+            ]
+            logger.info(f"DART 공시 {len(out)}건 수집: {stock_code}")
+            return out
+        except Exception as e:
+            logger.warning(f"DART 공시 수집 실패(무시): {e}")
+            return []
 
     @staticmethod
     def collect(topic_id: str) -> dict | list | None:

@@ -33,32 +33,64 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 
 
 def _collect_headlines() -> list[str]:
-    """네이버 금융 주요뉴스 + 많이 본 뉴스 헤드라인 (마크업 변경에 대비해 best-effort)."""
-    titles: list[str] = []
-    sources = [
-        ("https://finance.naver.com/news/mainnews.naver",
-         ["dd.articleSubject a", "dt.articleSubject a", ".mainNewsList a"]),
-        ("https://finance.naver.com/news/news_list.naver?mode=RANK",
-         ["ul.simpleNewsList li a", ".hotNewsList a", ".simpleNewsList a"]),
-    ]
-    for url, selectors in sources:
-        try:
-            r = requests.get(url, headers=_HEADERS, timeout=15)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "html.parser")
-            found = 0
-            for sel in selectors:
-                for a in soup.select(sel):
-                    t = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
-                    if len(t) >= 10 and t not in titles:
-                        titles.append(t)
-                        found += 1
-                if found:
-                    break
-            print(f"[수집] {url} → {found}건")
-        except Exception as e:
-            print(f"[수집 실패(무시)] {url}: {e}")
-    return titles[:40]
+    """네이버 금융 주요뉴스(제목+리드문) + 많이 본 뉴스(제목) — 마크업 변경 대비 best-effort.
+
+    리드문 보강(2026-07-13): 제목만으로는 이슈의 실체 판단이 얕아, 주요뉴스는
+    기사 첫 문단 요약(.articleSummary)까지 함께 넘겨 LLM 판단 근거를 높인다."""
+    items: list[str] = []
+    seen: set[str] = set()
+
+    # ① 주요뉴스 — 제목 + 리드문
+    try:
+        r = requests.get("https://finance.naver.com/news/mainnews.naver", headers=_HEADERS, timeout=15)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        found = 0
+        for li in soup.select(".mainNewsList li"):
+            subj = li.select_one(".articleSubject a")
+            if not subj:
+                continue
+            t = (subj.get("title") or subj.get_text(" ", strip=True) or "").strip()
+            if len(t) < 10 or t in seen:
+                continue
+            seen.add(t)
+            summ = li.select_one(".articleSummary")
+            lead = summ.get_text(" ", strip=True)[:130] if summ else ""
+            items.append(f"{t} — {lead}" if lead else t)
+            found += 1
+        # 구조 변경 폴백: li 파스 실패 시 제목만이라도
+        if not found:
+            for a in soup.select("dd.articleSubject a, dt.articleSubject a"):
+                t = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+                if len(t) >= 10 and t not in seen:
+                    seen.add(t)
+                    items.append(t)
+                    found += 1
+        print(f"[수집] mainnews → {found}건(리드문 포함)")
+    except Exception as e:
+        print(f"[수집 실패(무시)] mainnews: {e}")
+
+    # ② 많이 본 뉴스 — 제목만
+    try:
+        r = requests.get(
+            "https://finance.naver.com/news/news_list.naver?mode=RANK", headers=_HEADERS, timeout=15)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        found = 0
+        for sel in ("ul.simpleNewsList li a", ".hotNewsList a", ".simpleNewsList a"):
+            for a in soup.select(sel):
+                t = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+                if len(t) >= 10 and t not in seen:
+                    seen.add(t)
+                    items.append(t)
+                    found += 1
+            if found:
+                break
+        print(f"[수집] RANK → {found}건")
+    except Exception as e:
+        print(f"[수집 실패(무시)] RANK: {e}")
+
+    return items[:45]
 
 
 def _market_snapshot_line() -> str:
