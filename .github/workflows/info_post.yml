@@ -28,6 +28,10 @@ on:
         description: "임시저장 검증 모드 (true/false)"
         required: false
         default: "false"
+      keyword:
+        description: "키워드 강제 지정 (비우면 자동 — 오류 글 재발행용, 중복회피 우회)"
+        required: false
+        default: ""
 
 concurrency:
   # DRAFT 검증 런은 run_id로 독립 그룹 → 스케줄 실발행 큐를 막지 않음.
@@ -92,6 +96,7 @@ jobs:
           INFO_CATEGORY:  ${{ github.event.inputs.category }}
           FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
           DRAFT:          ${{ github.event.inputs.draft || 'false' }}
+          FORCE_KEYWORD:  ${{ github.event.inputs.keyword || '' }}
           RUN_SLOT:       ${{ env.RUN_SLOT }}
         run: python -m scripts.info_post
 
