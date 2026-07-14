@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-07-14",
+    "timestamp": "2026-07-14T11:48:31.347788+09:00",
+    "run_slot": "11",
+    "keyword": "내일배움카드 신청 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "내일배움카드 | 최대 500만원 지원받는 3가지 조건",
+    "tags": [
+      "내일배움카드",
+      "국민내일배움카드",
+      "정부지원",
+      "직업훈련",
+      "취업성공패키지",
+      "고용노동부",
+      "직업교육"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224346106172",
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-07-14",
     "timestamp": "2026-07-14T09:40:44.950705+09:00",
     "run_slot": "09",
     "keyword": "긴급복지지원 신청 방법",
