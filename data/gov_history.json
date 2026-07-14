@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-07-14",
+    "timestamp": "2026-07-14T12:01:36.953539+09:00",
+    "run_slot": "11",
+    "keyword": "긴급복지지원 신청 방법",
+    "gov_category": "정부지원&혜택",
+    "blog_category": "정부지원, 혜택",
+    "title": "긴급복지지원 | 2026년 생계비 최대 293만원 받는 3가지 조건",
+    "tags": [
+      "긴급복지",
+      "긴급복지지원",
+      "생계지원",
+      "의료지원",
+      "주거지원",
+      "위기가구",
+      "보건복지부"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224346119723",
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true
+  },
+  {
+    "date": "2026-07-14",
     "timestamp": "2026-07-14T11:48:31.347788+09:00",
     "run_slot": "11",
     "keyword": "내일배움카드 신청 방법",
