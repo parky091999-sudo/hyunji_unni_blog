@@ -18,6 +18,10 @@ on:
         description: "키워드 강제 지정 (비우면 자동 — 오류 글 재발행용)"
         required: false
         default: ""
+      facts:
+        description: "검증된 공식 수치 주입 (재발행용 — 이 값만 사용하도록 강제)"
+        required: false
+        default: ""
 
 concurrency:
   # DRAFT 검증 런은 run_id로 독립 그룹 → 스케줄 실발행 큐를 막지 않음.
@@ -71,6 +75,7 @@ jobs:
           FORCE_POST:     ${{ github.event.inputs.force_post || 'false' }}
           DRAFT:          ${{ github.event.inputs.draft || 'false' }}
           FORCE_KEYWORD:  ${{ github.event.inputs.keyword || '' }}
+          FORCE_FACTS:    ${{ github.event.inputs.facts || '' }}
           RUN_SLOT:       ${{ env.RUN_SLOT }}
         run: python -m scripts.gov_post
 

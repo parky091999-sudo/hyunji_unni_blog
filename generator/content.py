@@ -1077,6 +1077,14 @@ def generate_gov_post(
         logger.warning(f"정부 팩트 수집 스킵: {e}")
         fact_block = ""
 
+    # 검증 수치 주입(2026-07-14): 정밀점검-재발행 시 관리자가 공식 확인한 수치를 최우선 팩트로.
+    # 긴급복지 사례 — 뉴스·그라운딩에 정책 '단가'가 없으면 표의 수치 필수 규칙이 창작을 유도함.
+    forced_facts = os.environ.get("FORCE_FACTS", "").strip()
+    if forced_facts:
+        logger.info(f"검증 수치 주입(FORCE_FACTS {len(forced_facts)}자)")
+        fact_block = ("[검증된 공식 수치 — 금액·기준은 반드시 아래 값만 사용, 그 외 수치 창작 절대 금지]\n"
+                      + forced_facts + "\n\n") + fact_block
+
     user_msg = fact_block + (
         f"정부지원·혜택 키워드: {keyword}"
         + (f"\n카테고리 힌트: {gov_category}" if gov_category else "")
