@@ -118,18 +118,25 @@ def run():
     from generator.keyword import pick_keyword_for_blog_category
     recent_kws = _get_recent_posted_keywords(history)
 
-    # ★exclude로 풀 단계에서 자기 이력 제외 (DataLab 트렌딩 반복 반환 → 중복 발행 차단)
-    kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
-    keyword = kw_result["keyword"]
-    gov_category = kw_result["category_name"]
-
-    for _ in range(3):
-        if keyword not in recent_kws:
-            break
-        logger.info(f"최근 발행 키워드 중복 ({keyword!r}) — 재선정")
+    # 키워드 강제(2026-07-14): 오류 글 삭제 후 같은 키워드 재발행용 — 중복회피 우회
+    forced_kw = os.environ.get("FORCE_KEYWORD", "").strip()
+    if forced_kw:
+        logger.info(f"키워드 강제 지정: {forced_kw!r} (중복회피 우회)")
+        keyword = forced_kw
+        gov_category = "정부지원&혜택"
+    else:
+        # ★exclude로 풀 단계에서 자기 이력 제외 (DataLab 트렌딩 반복 반환 → 중복 발행 차단)
         kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
         keyword = kw_result["keyword"]
         gov_category = kw_result["category_name"]
+
+        for _ in range(3):
+            if keyword not in recent_kws:
+                break
+            logger.info(f"최근 발행 키워드 중복 ({keyword!r}) — 재선정")
+            kw_result = pick_keyword_for_blog_category(BLOG_CATEGORY, exclude=recent_kws)
+            keyword = kw_result["keyword"]
+            gov_category = kw_result["category_name"]
 
     logger.info(f"선정 키워드: {keyword!r} | 정부지원 카테고리: {gov_category}")
 
