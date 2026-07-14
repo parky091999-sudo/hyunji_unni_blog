@@ -4,6 +4,7 @@ Gemini 2.5 Flash로 네이버 블로그 글 생성
 body는 plain text (단락 구분 \n\n) — [사진N] 마커 포함 (naver_blog.py에서 이미지 삽입 위치로 사용)
 """
 import logging
+import os
 import random
 import re
 import time
