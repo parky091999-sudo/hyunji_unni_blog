@@ -10,6 +10,12 @@ NAVER_BLOG_ID = os.getenv("NAVER_BLOG_ID", "")  # 블로그 주소 ID: hyunji_un
 # GH Actions에서 쿠키 재사용 (JSON 문자열)
 NAVER_COOKIES = os.getenv("NAVER_COOKIES", "")
 
+# 형수의테크공장 블로그 (hyungsutech, khj 계정 — 현지언니와 별도 네이버 계정)
+TECH_NAVER_ID      = os.getenv("TECH_NAVER_ID", "")
+TECH_NAVER_PW      = os.getenv("TECH_NAVER_PW", "")
+TECH_NAVER_BLOG_ID = os.getenv("TECH_NAVER_BLOG_ID", "hyungsutech")
+TECH_NAVER_COOKIES = os.getenv("TECH_NAVER_COOKIES", "")
+
 # Google (Gemini)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
