@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-15",
+    "timestamp": "2026-07-15T22:42:50.790391+09:00",
+    "run_slot": "22",
+    "fmt": "pick",
+    "seed": "갤럭시 AI",
+    "headline": "삼성, 갤럭시Z 폴드8 새 티저 공개... 플래그십 스냅드래곤 탑재 암시",
+    "blog_category": "IT·테크",
+    "title": "갤럭시 Z 폴드8, 스냅드래곤 탑재와 AI 시대로의 도약!",
+    "tags": [
+      "갤럭시Z폴드8",
+      "스냅드래곤8엘리트5세대",
+      "갤럭시AI",
+      "제미나이인텔리전스",
+      "폴더블폰",
+      "AI폰"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224347861612",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-15",
     "timestamp": "2026-07-15T22:21:16.189247+09:00",
     "run_slot": "22",
     "fmt": "explain",
