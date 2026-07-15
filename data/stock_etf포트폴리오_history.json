@@ -1,5 +1,35 @@
 [
   {
+    "date": "2026-07-16",
+    "timestamp": "2026-07-16T08:13:16.609094+09:00",
+    "run_slot": "08",
+    "stock_topic": "etf포트폴리오",
+    "topic_name": "ETF 인사이트",
+    "blog_category": "ETF",
+    "title": "2026년 7월, TIGER 반도체TOP10 ETF 지금 사도 될까? 핵심만 딱 정리!",
+    "tags": [
+      "TIGER반도체TOP10",
+      "반도체ETF",
+      "국내ETF",
+      "미래에셋",
+      "반도체투자",
+      "ETF분석",
+      "주식초보",
+      "투자전략"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224348118752",
+    "images_count": 3,
+    "images_inserted": 3,
+    "has_table": true,
+    "has_faq": true,
+    "stock_name": null,
+    "etf_content_type": "kr_individual",
+    "etf_subject": "396500",
+    "ipo_mode": null,
+    "ipo_month": null
+  },
+  {
     "date": "2026-07-15",
     "timestamp": "2026-07-15T08:03:40.768346+09:00",
     "run_slot": "07",
