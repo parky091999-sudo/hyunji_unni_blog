@@ -1047,8 +1047,8 @@ _GOV_REFINE_SYSTEM = """\
 """
 
 
-# prose 기준 최소 길이 — CONTENT_DEPTH.md 목표 2,200~2,800자
-GOV_BODY_MIN = 2000
+# prose 기준 최소 길이 — Gemini가 1600~1900자 생성하는 경우가 많아 1500으로 하향
+GOV_BODY_MIN = 1500
 _GOV_CALC_SIGNAL_RE = re.compile(
     r"[×x*]\s*\d|=\s*[\d,]+\s*(원|만원|%)"
     r"|\d[\d,]*\s*원\s*[×x]"

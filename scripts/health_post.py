@@ -88,7 +88,7 @@ def _append_internal_links(body: str, history: list) -> tuple:
         links_text += f"\n[가운데] {r['post_url']}"
     links_text += "\n"
 
-    return body + links_text, ["함께 보면 좋은 글"]
+    return body + links_text, []
 
 
 _BULLET_LINE_RE = re.compile(r"^(?:· |•|◦|▪|‣|[①-⑳]|[❶-❿]|\d+[.)]\s)")
