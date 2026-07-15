@@ -1,5 +1,6 @@
 .env
 data/naver_cookies.json
+data/tech_naver_cookies.json
 data/screenshots/
 data/screenshots_dl*/
 debug_shots/
