@@ -1,0 +1,122 @@
+"""
+형수의테크공장 본문 실사진 수집 — 상황별 스마트 캐스케이드.
+
+1순위: 출처 뉴스 기사의 대표 이미지(og:image) — 그 뉴스의 실제 사진(가장 정확). '출처: 도메인' 캡션.
+2순위: Pexels 스톡 — OG 없거나 부실하면 주제 키워드로 안전한 스톡.
+실패 시: None (헤더 AI 카드만 유지).
+
+※ 뉴스 이미지는 출처 표기해도 저작권 회색지대 — 캡션에 출처 명시로 최소화.
+"""
+import logging
+import os
+import re
+import tempfile
+import urllib.parse
+import urllib.request
+from html import unescape
+
+logger = logging.getLogger("tech_image")
+
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+_OG_RE = re.compile(
+    r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)(?::secure_url)?["\'][^>]*'
+    r'content=["\']([^"\']+)["\']', re.IGNORECASE)
+_OG_RE2 = re.compile(
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\'](?:og:image|twitter:image)["\']',
+    re.IGNORECASE)
+
+
+def _domain(url: str) -> str:
+    try:
+        host = urllib.parse.urlparse(url).netloc
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+def _extract_og_url(page_html: str, base_url: str) -> str | None:
+    for rgx in (_OG_RE, _OG_RE2):
+        m = rgx.search(page_html)
+        if m:
+            u = unescape(m.group(1)).strip()
+            if u.startswith("//"):
+                u = "https:" + u
+            elif u.startswith("/"):
+                p = urllib.parse.urlparse(base_url)
+                u = f"{p.scheme}://{p.netloc}{u}"
+            if u.startswith("http"):
+                return u
+    return None
+
+
+def _download(url: str, min_bytes: int = 12000) -> str | None:
+    """이미지 다운로드 + 최소 크기 검증(로고·아이콘 배제). temp png 경로 반환."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            if "image" not in ctype:
+                return None
+            data = resp.read()
+        if len(data) < min_bytes:
+            logger.info(f"이미지 너무 작음({len(data)}B) — 로고 추정, 스킵")
+            return None
+        suffix = ".png" if "png" in ctype else ".jpg"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp.write(data)
+        tmp.close()
+        return tmp.name
+    except Exception as e:
+        logger.info(f"이미지 다운로드 실패: {str(e)[:60]}")
+        return None
+
+
+def _og_image_from_article(article_url: str) -> tuple[str, str] | None:
+    """기사 URL → og:image 다운로드. (local_path, 출처도메인) 반환."""
+    try:
+        req = urllib.request.Request(article_url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read(400_000).decode("utf-8", errors="ignore")
+    except Exception as e:
+        logger.info(f"기사 페이지 로드 실패: {str(e)[:60]}")
+        return None
+    og = _extract_og_url(html, article_url)
+    if not og:
+        return None
+    path = _download(og)
+    if not path:
+        return None
+    return path, _domain(article_url)
+
+
+def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
+    """캐스케이드로 본문 실사진 1장 확보.
+    반환: {"local_path"|"url", "label"(캡션), "source"} 또는 None.
+    """
+    # 1순위: 최신 뉴스 기사들의 og:image (위에서부터 성공하는 첫 장)
+    for n in topic.get("news", [])[:5]:
+        link = n.get("link") or ""
+        if not link.startswith("http"):
+            continue
+        got = _og_image_from_article(link)
+        if got:
+            path, dom = got
+            logger.info(f"본문 실사진: 뉴스 대표사진 확보 (출처 {dom})")
+            return {"local_path": path, "label": f"출처: {dom}" if dom else "출처: 뉴스", "source": "og"}
+
+    # 2순위: Pexels 스톡 (안전 폴백)
+    if pexels_key:
+        try:
+            from generator.image import _fetch_one_image, _keyword_to_en
+            q = _keyword_to_en(topic.get("seed", "technology")) or "technology gadget"
+            img = _fetch_one_image(q, pexels_key)
+            if img and img.get("url"):
+                logger.info(f"본문 실사진: Pexels 스톡 폴백 ({q})")
+                return {"url": img["url"], "label": "", "source": "pexels"}
+        except Exception as e:
+            logger.info(f"Pexels 폴백 실패: {str(e)[:60]}")
+
+    logger.info("본문 실사진 없음 — 헤더 카드만 유지")
+    return None

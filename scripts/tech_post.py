@@ -128,7 +128,7 @@ def run():
         return
 
     # ── 1. 형식 + 주제 선정 ──
-    from generator.tech_content import generate_tech_post, pick_tech_topic
+    from generator.tech_content import generate_tech_post, pick_tech_topic, category_for_seed
 
     forced_fmt = os.environ.get("FORCE_FMT", "").strip()
     fmt = forced_fmt if forced_fmt in FMT_ROTATION else _next_format(history)
@@ -143,7 +143,8 @@ def run():
         logger.info(f"최근 발행 헤드라인 중복 — 재선정 시도")
         topic = pick_tech_topic(exclude={topic["seed"]}) or topic
 
-    logger.info(f"형식={fmt} | 시드={topic['seed']} | 주제={topic['headline'][:40]}")
+    _post_category = category_for_seed(topic["seed"])
+    logger.info(f"형식={fmt} | 시드={topic['seed']} | 카테고리={_post_category} | 주제={topic['headline'][:40]}")
 
     # ── 2. 글 생성 ──
     post = generate_tech_post(GOOGLE_API_KEY, fmt=fmt, topic=topic)
@@ -187,6 +188,22 @@ def run():
         images.append({"local_path": header_path, "url": "", "alt_text": post.get("seed", "테크"), "label": post.get("seed", "테크")})
         logger.info(f"헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
 
+    # ── 3-1. 본문 실사진 (뉴스 OG → Pexels 캐스케이드), 첫 소제목 앞 삽입 ──
+    try:
+        from generator.tech_image import get_tech_body_image
+        from config import PEXELS_API_KEY
+        subs = post.get("subheadings", [])
+        body_img = get_tech_body_image(topic, PEXELS_API_KEY) if subs else None
+        if body_img:
+            body_img.setdefault("url", "")
+            body_img.setdefault("local_path", "")
+            body_img.setdefault("alt_text", post.get("seed", "테크"))
+            body_img["insert_before"] = subs[0]
+            images.append(body_img)
+            logger.info(f"본문 실사진 예약: {body_img.get('source')} → '{subs[0][:15]}' 앞")
+    except Exception as e:
+        logger.warning(f"본문 실사진 실패(무시): {e}")
+
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog
     try:
@@ -205,7 +222,7 @@ def run():
             table_strs=post.get("table_strs", []),
             subheadings=post.get("subheadings", []),
             faq_questions=post.get("faq_questions", []),
-            category=BLOG_CATEGORY,
+            category=_post_category,
             faq_pairs=post.get("faq_pairs", []),
             summary_text=post.get("summary_text", ""),
         )
