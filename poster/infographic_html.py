@@ -182,16 +182,17 @@ _STYLES: dict[str, dict] = {
         "sub_below": "정부지원 혜택 총정리",
     },
     "tech": {
-        "bg":          "linear-gradient(145deg, #05080F 0%, #0F2540 45%, #1E88E5 100%)",
-        "accent":      "#4DD0E1",
+        "bg":          "linear-gradient(150deg, #0A0F1E 0%, #142E5C 40%, #00ACC1 100%)",
+        "accent":      "#26E6C3",
         "tag_color":   "#05080F",
         "card_border": "#26C6DA",
-        "badge":       "형수의테크공장  테크",
+        "badge":       "형수의테크공장",
+        "brand":       "형수의테크공장",
         "footer":      "최신 테크 총정리",
         "color":     "#0277BD",
         "bg_light":  "#E8F6FB",
-        "label":     "테크",
-        "icons":     ["📱", "💻", "⚡", "✅"],
+        "label":     "IT·테크",
+        "icons":     ["📱", "💻", "⚡", "🔌"],
         "cta":       "최신 소식 확인하세요!",
         "sub_below": "형수의테크공장",
     },
@@ -314,6 +315,7 @@ def _build_html(display_title: str, bullets: list[str] | None, style: dict) -> s
     accent    = style["accent"]
     tag_color = style["tag_color"]
     label     = style["label"]
+    brand     = style.get("brand", "현지언니")  # 블로그 브랜드 — 계정별 누출 방지(형수 vs 현지언니)
     icons     = style.get("icons", ["💡", "📌", "✅", "🔑"])
 
     lines, tf = _layout_title(display_title)
@@ -449,7 +451,7 @@ body{{width:{W}px;height:{H}px;overflow:hidden;}}
   </div>
 
   <div class="searchbar">
-    <span class="sb-text">현지언니 {escape(label)}</span>
+    <span class="sb-text">{escape(brand)} {escape(label)}</span>
     <span class="sb-btn">🔍 검색</span>
   </div>
 
