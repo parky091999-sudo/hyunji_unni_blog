@@ -3253,6 +3253,7 @@ async def _post(
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
     summary_text: str = "",
+    set_representative: bool = False,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -3584,8 +3585,9 @@ async def _post(
         logger.info(f"이미지 {images_inserted}장 실제 삽입 완료 (검증: 에디터 이미지 수 기준)")
 
         # 다중 이미지면 첫(최상단) 이미지를 대표(홈판 썸네일)로 명시 지정 — 네이버가 섹션 사진을
-        # 대표로 잡던 문제 대응(2026-07-16). best-effort.
-        if images_inserted >= 2:
+        # 대표로 잡던 문제 대응(2026-07-16). ★호출부 opt-in(tech 전용) — '대표' 버튼이 토글로
+        # 동작할 가능성이 있어 검증 안 된 블로그(현지언니)에는 발동시키지 않는다(회귀 방지).
+        if set_representative and images_inserted >= 2:
             await _set_first_image_representative(write_page)
 
         # 발행 전 휴먼 제스처 시뮬레이션
@@ -3625,6 +3627,7 @@ def post_to_naver_blog(
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
     summary_text: str = "",
+    set_representative: bool = False,
 ) -> dict | None:
     return asyncio.run(
         _post(
@@ -3645,5 +3648,6 @@ def post_to_naver_blog(
             category=category,
             faq_pairs=faq_pairs,
             summary_text=summary_text,
+            set_representative=set_representative,
         )
     )

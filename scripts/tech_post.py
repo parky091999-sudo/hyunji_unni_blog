@@ -133,15 +133,12 @@ def run():
     forced_fmt = os.environ.get("FORCE_FMT", "").strip()
     fmt = forced_fmt if forced_fmt in FMT_ROTATION else _next_format(history)
 
+    # 최근 발행 헤드라인은 후보에서 원천 제외 — 같은 뉴스가 연일 상위여도 재발행 안 함(2026-07-16)
     recent_heads = _recent_headlines(history)
-    topic = pick_tech_topic(exclude=set())
+    topic = pick_tech_topic(exclude_headlines=recent_heads)
     if topic is None:
-        logger.error("최신 테크 뉴스 없음 — 종료")
+        logger.error("최신 테크 뉴스 없음(최근 발행 제외 후) — 종료")
         sys.exit(1)
-    # 최근 발행 헤드라인 중복 회피(간단): 겹치면 한 번 더 시도
-    if topic["headline"] in recent_heads:
-        logger.info(f"최근 발행 헤드라인 중복 — 재선정 시도")
-        topic = pick_tech_topic(exclude={topic["seed"]}) or topic
 
     _post_category = category_for_seed(topic["seed"])
     logger.info(f"형식={fmt} | 시드={topic['seed']} | 카테고리={_post_category} | 주제={topic['headline'][:40]}")
@@ -209,8 +206,10 @@ def run():
 
     # 섹션 사진 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 위에 [사진N] 주입 + insert_before
     if images and len(photos) > 1:
-        _skip = {"핵심 요약 3줄", "목차", "총평", "자주 묻는 질문"}
-        content_subs = [s for s in post.get("subheadings", []) if s.strip() not in _skip]
+        # 모델이 소제목 문구를 변형('핵심 요약'/'목차 정리' 등)해도 걸리도록 부분일치로 스킵(2026-07-16)
+        _skip_kw = ("핵심 요약", "핵심만", "목차", "총평", "자주 묻는 질문", "요약")
+        content_subs = [s for s in post.get("subheadings", [])
+                        if not any(k in s.strip() for k in _skip_kw)]
         targets = content_subs[1:] or content_subs  # 첫 콘텐츠 섹션은 헤더와 가까워 두 번째부터
         body = post.get("body", "")
         marker_n = 2
@@ -220,6 +219,12 @@ def run():
             sub = targets[i]
             pat = f"[구분선]\n{sub}\n"  # 실제 소제목([구분선] 뒤)만 매칭 — 목차 '· {sub}'는 안 걸림
             if pat not in body:
+                continue
+            # 소제목 바로 다음 줄이 표/요약/FAQ 플레이스홀더면 스킵 — [사진N] 다음 앵커가 산문이 아니라
+            # following-anchor가 비어 소제목 텍스트 폴백(목차 충돌 위험)을 타는 경로 차단(2026-07-16)
+            after = body.split(pat, 1)[1].lstrip("\n")
+            if after.startswith(("[표삽입]", "[요약삽입]", "[FAQ삽입]", "[표시작]")):
+                logger.info(f"섹션 실사진 스킵: '{sub[:15]}' 다음이 플레이스홀더({after[:8]}…)")
                 continue
             local = _ensure_local(ph)
             if not local:
@@ -272,6 +277,7 @@ def run():
             category=_post_category,
             faq_pairs=post.get("faq_pairs", []),
             summary_text=post.get("summary_text", ""),
+            set_representative=True,  # 헤더카드를 홈판 대표 썸네일로(tech 전용 opt-in)
         )
     except Exception as e:
         logger.error(f"포스팅 중 예외: {e}")

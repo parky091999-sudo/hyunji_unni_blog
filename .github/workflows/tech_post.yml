@@ -85,7 +85,8 @@ jobs:
           retention-days: 3
 
       - name: 포스팅 이력 커밋
-        if: github.event.inputs.draft != 'true'
+        # always(): 발행 실패(step exit 1)여도 failed 이력을 커밋해 기록 유실 방지(2026-07-16)
+        if: always() && github.event.inputs.draft != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
