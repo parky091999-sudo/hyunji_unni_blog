@@ -3336,15 +3336,19 @@ async def _post(
                     await _delay(150, 300)
                     # 직전 작업(요약/표)으로 커서가 표 셀 안이면 Ctrl+Home이 셀 내부에서만 이동해
                     # 표를 못 벗어남 → 첫 일반 텍스트 단락을 직접 클릭해 탈출(2026-07-04 헤더카드 유실 원인).
-                    if await _caret_in_table(write_page):
-                        try:
-                            _tf = await _get_editor_frame(write_page)
-                            _first_para = _tf.locator(".se-section-text .se-text-paragraph").first
-                            if await _first_para.count():
-                                await _first_para.click()
-                                await write_page.keyboard.press("Home")
-                                await _delay(150, 300)
-                        except Exception as _e:
+                    # ★2026-07-16(hyungsutech 실측): _caret_in_table 감지가 표 안을 놓쳐 탈출을 건너뛰고
+                    #   헤더 실사진이 표 우측 열에 삽입되던 사고. → 감지 여부와 무관하게 '항상' 첫 텍스트
+                    #   단락(.se-section-text, 표 셀은 여기 안 잡힘)을 클릭해 표 밖 최상단으로 강제 이동.
+                    try:
+                        _tf = await _get_editor_frame(write_page)
+                        _first_para = _tf.locator(".se-section-text .se-text-paragraph").first
+                        if await _first_para.count():
+                            await _first_para.click()
+                            await write_page.keyboard.press("Home")
+                            await _delay(150, 300)
+                        if await _caret_in_table(write_page):
+                            logger.warning("헤더 이미지: 최상단 단락 클릭 후에도 캐럿이 표 안 — 삽입 위치 주의")
+                    except Exception as _e:
                             logger.warning(f"헤더 이미지용 표 탈출 클릭 실패(계속): {_e}")
                 elif insert_before_sub:
                     used_before = await _move_cursor_after_text(write_page, insert_before_sub, to_end=False)
