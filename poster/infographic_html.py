@@ -801,7 +801,13 @@ def create_photo_header_card(photo_path: str, title: str, keyword: str = "",
     display = _hook_phrase(title, keyword, category)
     if not display:
         display = _re.sub(r"^\s*\d{4}년\s*\d{0,2}월?\s*", "", title).split("|")[0].strip()
-        display = _re.sub(r"\([^)]*\)", "", display).strip(" ,·|-")[:22]
+        display = _re.sub(r"\([^)]*\)", "", display).strip(" ,·|-")
+        # 단어 중간 절단 방지 — 20자 넘으면 통째 단어를 덜어낸다('모니터 시'처럼 끊기지 않게).
+        if len(display) > 20:
+            words = display.split()
+            while len(words) > 1 and len(" ".join(words)) > 20:
+                words.pop()
+            display = " ".join(words).rstrip(" ,·")
     lines, tf = _layout_title(display)
     tf = max(60, min(int(tf * 1.05), 150))
     title_html = "<br>".join(escape(ln) for ln in lines)

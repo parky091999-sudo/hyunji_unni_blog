@@ -2097,6 +2097,47 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             pass
 
 
+async def _set_first_image_representative(page: Page) -> bool:
+    """첫(최상단) 이미지를 대표(홈판 썸네일)로 지정. best-effort — 실패해도 무해.
+    다중 이미지에서 네이버가 섹션 사진을 대표로 잡던 문제(2026-07-16) 대응."""
+    try:
+        target = await _get_editor_frame(page)
+        img = target.locator(".se-section-image .se-image-resource, .se-section-image img").first
+        if not await img.count():
+            return False
+        try:
+            await img.scroll_into_view_if_needed(timeout=2000)
+            await img.click(timeout=2000)  # 이미지 선택 → 대표 토글/툴바 노출
+        except Exception:
+            pass
+        await _delay(300, 500)
+        # 대표 토글 후보(이미 대표면 굳이 재클릭 안 함 — '✓' 없는 '대표' 우선)
+        for sel in ("button:has-text('대표'):not(:has-text('✓'))",
+                    "[class*='represent'] button", "button[class*='represent']",
+                    "[class*='represent']", "[aria-label*='대표']"):
+            for fr in (target, page):
+                try:
+                    b = fr.locator(sel).first
+                    if await b.count() and await b.is_visible(timeout=400):
+                        await b.click(timeout=1500)
+                        await _delay(200, 400)
+                        logger.info(f"대표 이미지 지정 시도: {sel}")
+                        return True
+                except Exception:
+                    continue
+        try:
+            dump = await target.evaluate("""() => [...document.querySelectorAll('button,[role=button],[class*=represent]')]
+                .filter(b=>b.offsetParent && /대표|represent|cover|thumbnail/i.test((b.textContent||'')+(b.className||'')+(b.getAttribute('aria-label')||'')))
+                .map(b=>({t:(b.textContent||'').trim().slice(0,14),c:(b.className||'').slice(0,45)})).slice(0,15)""")
+            logger.info(f"[대표지정 후보 덤프] {dump}")
+        except Exception:
+            pass
+        return False
+    except Exception as e:
+        logger.info(f"대표 이미지 지정 예외(무시): {str(e)[:50]}")
+        return False
+
+
 async def _add_tags(page: Page, tags: list[str]):
     target = await _get_editor_frame(page)
     tag_sels = [
@@ -3541,6 +3582,11 @@ async def _post(
         await _delay(1000, 1500)
         await _screenshot(write_page, "after_body", full_page=True)
         logger.info(f"이미지 {images_inserted}장 실제 삽입 완료 (검증: 에디터 이미지 수 기준)")
+
+        # 다중 이미지면 첫(최상단) 이미지를 대표(홈판 썸네일)로 명시 지정 — 네이버가 섹션 사진을
+        # 대표로 잡던 문제 대응(2026-07-16). best-effort.
+        if images_inserted >= 2:
+            await _set_first_image_representative(write_page)
 
         # 발행 전 휴먼 제스처 시뮬레이션
         await _simulate_human_review(write_page)
