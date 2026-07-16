@@ -6,6 +6,19 @@
 
 ---
 
+## ★★★★★ 2026-07-16 저녁 세션 — WP 발행 중단 해결 + 품질 보강 (Claude Code, 집 PC)
+
+1. **발행 공백 원인 해결**: 목요일 tax-refund 허브 미발행 주제 전부가 네이버 7일 중복회피에
+   걸리면 타 허브 미발행이 있어도 스킵되던 결함 → 허브 소진 시 전체 풀 폴백(wp_post.py).
+   오늘 글 복구 발행 완료(pension_withdraw_tax, https://hyunjiunni.com/pension-withdrawal-tax/).
+2. **관련글 링크 결함**: base_url(글 URL) 기준이라 /글슬러그/관련슬러그/로 저장 → site_url
+   기준으로 수정(wp_render.py) + 라이브 6편 scripts/wp_fix_related.py로 소급 교정.
+3. **07-15 실패 내성**: 5회 전부 본문 짧음(2,261~2,988자) → 재시도 7회 + 짧음 실패 시
+   3,500자·깊이 지시 피드백(deep_content.py).
+4. 🔜 형수의테크공장 첫 정기 크론(21:00 KST + 지연) 라이브 검증 — 아래 회사 세션 체크리스트.
+
+---
+
 ## ★★★★★ 2026-07-16 세션 — 형수의테크공장(hyungsutech) 대전환 완성 (Claude Code, 회사 PC)
 
 > 커밋 범위 38201dc~ef63f0c(~15커밋, 전부 push·클라우드 DRAFT 검증 완료). 원격과 로컬 동기 0/0.
