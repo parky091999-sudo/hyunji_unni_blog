@@ -511,7 +511,9 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
     key_stats_html = _key_stats_html(post.get("key_stats"))
     toc_html = _toc_html(toc)
     sources_html = _sources_html(post.get("sources"))
-    related_html = _related_posts_html(related_posts or [], base_url)
+    # 관련글 링크는 사이트 루트 기준(2026-07-16: base_url=글 URL이라 /글슬러그/관련슬러그/로
+    # 렌더되던 결함 — WP canonical 301이 구제했지만 저장 HTML 자체를 바로잡음)
+    related_html = _related_posts_html(related_posts or [], site_url or base_url)
     disclaimer_html = _disclaimer_html(category)
     breadcrumb_html = _breadcrumb_html(category, site_url, category_slug)
     meta_line_html = _meta_line_html(len(re.sub(r"\s", "", body)))

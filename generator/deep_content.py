@@ -256,7 +256,8 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
         "데이터에 없는 수치는 '공식 자료로 확인'으로 처리하라."
     )
 
-    waits = [10, 30, 60, 90]
+    # 2026-07-16: 07-15 크론이 5회 전부 '본문 짧음(2,261~2,988자)'으로 실패 → 2회 증설
+    waits = [10, 30, 60, 90, 60, 60]
     feedback = ""
     for attempt in range(1, len(waits) + 2):
         try:
@@ -278,6 +279,12 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
                     f"- {'; '.join(issues[:4])}\n"
                     "- '것이 중요합니다'·'하시면 됩니다' 등 AI 교과서체 절대 금지."
                 )
+                # 짧음 실패엔 구체 지시 — 일반 피드백만으론 같은 길이로 재생성됨(07-15 실측)
+                if any("짧음" in i for i in issues):
+                    feedback += (
+                        "\n- 본문이 너무 짧다. 각 섹션에 사례·계산 과정·표 해설을 더 붙여 "
+                        "공백 제외 3,500자 이상으로 써라. 섹션을 빼지 말고 깊이를 더해라."
+                    )
                 continue
             if issues:
                 logger.info(f"통과(경미 이슈): {'; '.join(issues)}")
