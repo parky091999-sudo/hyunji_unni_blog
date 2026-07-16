@@ -52,7 +52,12 @@ def _extract_og_url(page_html: str, base_url: str) -> str | None:
 
 
 def _download(url: str, min_bytes: int = 12000) -> str | None:
-    """이미지 다운로드 + 최소 크기 검증(로고·아이콘 배제). temp png 경로 반환."""
+    """이미지 다운로드 → PIL로 깨끗한 baseline RGB JPG로 재인코딩해 반환.
+
+    ★뉴스 og:image가 CMYK·프로그레시브·ICC 프로파일 등을 지니면 네이버 SE 에디터가
+    업로드해도 0장으로 무시하는 사례가 있어(2026-07-16 실측), 반드시 정규화한다.
+    PIL이 못 여는 손상/HTML 응답은 여기서 걸러져 None → 다음 소스(캐스케이드)로.
+    """
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -63,13 +68,27 @@ def _download(url: str, min_bytes: int = 12000) -> str | None:
         if len(data) < min_bytes:
             logger.info(f"이미지 너무 작음({len(data)}B) — 로고 추정, 스킵")
             return None
-        suffix = ".png" if "png" in ctype else ".jpg"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        tmp.write(data)
+        from io import BytesIO
+        from PIL import Image
+        im = Image.open(BytesIO(data))
+        im.load()
+        # 아이콘·로고 배제(작은 정사각/저해상)
+        if min(im.size) < 200:
+            logger.info(f"이미지 해상도 낮음({im.size}) — 로고 추정, 스킵")
+            return None
+        if im.mode != "RGB":
+            im = im.convert("RGB")
+        # 과대 크기 축소(네이버 업로드 안정화)
+        max_side = 1600
+        if max(im.size) > max_side:
+            r = max_side / max(im.size)
+            im = im.resize((max(1, int(im.width * r)), max(1, int(im.height * r))))
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        im.save(tmp.name, "JPEG", quality=88, optimize=True)  # baseline·RGB·메타제거
         tmp.close()
         return tmp.name
     except Exception as e:
-        logger.info(f"이미지 다운로드 실패: {str(e)[:60]}")
+        logger.info(f"이미지 다운로드/정규화 실패(손상 추정 스킵): {str(e)[:70]}")
         return None
 
 

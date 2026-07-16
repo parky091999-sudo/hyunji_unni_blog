@@ -1944,6 +1944,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
     def _all_frames():
         return [page] + [f for f in page.frames if f is not page]
 
+    inserted = False  # 성공 시에만 임시파일 삭제 → 실패 시 파일 보존해 호출부 재시도 가능(2026-07-16)
     try:
         target = await _get_editor_frame(page)
         before = await _count_editor_images(target)
@@ -2019,6 +2020,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
             if after1 > before:
                 logger.info(f"이미지 삽입 성공 (방법1 file_chooser) — 이미지 {before}→{after1}")
                 await _fill_image_caption(page, alt_text)
+                inserted = True
                 return True
             logger.warning(f"방법1 후 이미지 수 변화 없음 ({before}→{after1}) — 방법2 시도")
 
@@ -2044,6 +2046,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
                         if after2 > before:
                             logger.info(f"이미지 삽입 성공 (방법2 file input) — 이미지 {before}→{after2}")
                             await _fill_image_caption(page, alt_text)
+                            inserted = True
                             return True
                     except Exception:
                         continue
@@ -2088,7 +2091,7 @@ async def _insert_image_file(page: Page, local_path: str, alt_text: str = "") ->
         except Exception:
             pass
         try:
-            if local_path and os.path.exists(local_path):
+            if inserted and local_path and os.path.exists(local_path):
                 os.unlink(local_path)
         except Exception:
             pass
