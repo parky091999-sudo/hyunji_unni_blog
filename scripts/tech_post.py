@@ -164,35 +164,65 @@ def run():
         logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
         return
 
-    # ── 3. 대표 이미지 = 뉴스 실사진(홈판 썸네일 최적화) ──
-    # 카테크 홈판 노출 글은 전부 '실사진' 썸네일 — 현지언니식 인포그래픽 헤더카드는 복제 인상을
-    # 주므로 폐기. 첫 이미지([사진1] 최상단 = 홈판 대표 썸네일)를 뉴스 og:image 실사진으로 넣는다.
-    # 인포그래픽 카드는 실사진을 하나도 못 구했을 때만 최후 폴백(썸네일 없는 글 방지)으로 사용.
+    # ── 3. 실사진: 대표(헤더) + 섹션 사진 여러 장(테크티노식) ──
+    # 홈판 대표 썸네일=[사진1] 최상단 실사진. 추가로 콘텐츠 소제목마다 관련 실사진을 [사진2][사진3]로
+    # 주입해 섹션마다 사진이 오게 한다. 실사진 전무 시에만 인포그래픽 카드 폴백.
     images: list[dict] = []
     from config import PEXELS_API_KEY
 
-    lead = None
-    try:
-        from generator.tech_image import get_tech_body_image
-        lead = get_tech_body_image(topic, PEXELS_API_KEY)
-    except Exception as e:
-        logger.warning(f"대표 실사진 확보 실패: {e}")
-
-    if lead:
-        lead_local = lead.get("local_path")
-        # Pexels 폴백 등 URL만 있는 경우: 최상단 헤더 삽입은 local_path가 필수 → 로컬 다운로드
-        if not lead_local and lead.get("url"):
+    def _ensure_local(p: dict):
+        lp = p.get("local_path")
+        if not lp and p.get("url"):
             try:
                 from poster.naver_blog import _download_image_to_temp
-                lead_local = _download_image_to_temp(lead["url"], label=lead.get("label"))
+                lp = _download_image_to_temp(p["url"], label=p.get("label"))
             except Exception as e:
-                logger.warning(f"대표 실사진 다운로드 실패: {e}")
+                logger.warning(f"이미지 다운로드 실패: {e}")
+        return lp
+
+    photos: list[dict] = []
+    try:
+        from generator.tech_image import get_tech_photos
+        photos = get_tech_photos(topic, PEXELS_API_KEY, want=3)
+    except Exception as e:
+        logger.warning(f"실사진 확보 실패: {e}")
+
+    # 대표(헤더) = 첫 장
+    if photos:
+        lead_local = _ensure_local(photos[0])
         if lead_local:
             images.append({
                 "local_path": lead_local, "url": "",
-                "alt_text": post.get("seed", "테크"), "label": lead.get("label", ""),
+                "alt_text": post.get("seed", "테크"), "label": photos[0].get("label", ""),
             })
-            logger.info(f"대표 실사진(홈판 썸네일) 확보: {lead.get('source')} | {lead.get('label', '')}")
+            logger.info(f"대표 실사진(홈판 썸네일) 확보: {photos[0].get('source')} | {photos[0].get('label', '')}")
+
+    # 섹션 사진 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 위에 [사진N] 주입 + insert_before
+    if images and len(photos) > 1:
+        _skip = {"핵심 요약 3줄", "목차", "총평", "자주 묻는 질문"}
+        content_subs = [s for s in post.get("subheadings", []) if s.strip() not in _skip]
+        targets = content_subs[1:] or content_subs  # 첫 콘텐츠 섹션은 헤더와 가까워 두 번째부터
+        body = post.get("body", "")
+        marker_n = 2
+        for i, ph in enumerate(photos[1:]):
+            if i >= len(targets):
+                break
+            sub = targets[i]
+            pat = f"[구분선]\n{sub}"
+            if pat not in body:
+                continue
+            local = _ensure_local(ph)
+            if not local:
+                continue
+            body = body.replace(pat, f"[사진{marker_n}]\n{pat}", 1)
+            images.append({
+                "local_path": local, "url": "",
+                "alt_text": post.get("seed", "테크"), "label": ph.get("label", ""),
+                "insert_before": sub,
+            })
+            logger.info(f"섹션 실사진 예약: [사진{marker_n}] → '{sub[:15]}' 앞 ({ph.get('source')})")
+            marker_n += 1
+        post["body"] = body
 
     if not images:
         # 실사진 전무 → 썸네일 없는 글 방지용 최후 폴백(인포그래픽 카드)

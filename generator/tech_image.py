@@ -206,3 +206,43 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
 
     logger.info("본문 실사진 없음 — 헤더 카드만 유지")
     return None
+
+
+def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[dict]:
+    """대표+섹션용 실사진을 여러 장 확보(테크티노처럼 섹션마다 사진).
+    서로 다른 신뢰 언론사 og:image 우선 → 부족하면 Pexels로 보충. 최대 want장.
+    반환: [{"local_path"|"url", "label", "source"}, ...] (0~want장)."""
+    photos: list[dict] = []
+    used_domains: set[str] = set()
+    for n in topic.get("news", [])[:8]:
+        if len(photos) >= want:
+            break
+        link = n.get("link") or ""
+        if not link.startswith("http"):
+            continue
+        dom = _domain(link)
+        if dom in used_domains:  # 같은 매체 중복 컷 방지
+            continue
+        got = _og_image_from_article(link)  # 신뢰언론사 화이트리스트+블록호스트 검증은 내부에서
+        if got:
+            path, d = got
+            used_domains.add(d)
+            photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
+    # 부족분 Pexels 보충 — exclude_ids로 서로 다른 사진을 뽑는다.
+    if len(photos) < want and pexels_key:
+        try:
+            from generator.image import _fetch_one_image
+            q = _pexels_query(topic.get("seed", ""))
+            exclude: set = set()
+            for _ in range(want - len(photos) + 2):  # 여유 시도
+                if len(photos) >= want:
+                    break
+                img = _fetch_one_image(q, pexels_key, exclude_ids=exclude)
+                if not img or not img.get("url"):
+                    break
+                exclude.add(img.get("pexels_id"))
+                photos.append({"url": img["url"], "label": "", "source": "pexels"})
+        except Exception as e:
+            logger.info(f"Pexels 다중 보충 실패: {str(e)[:50]}")
+    logger.info(f"섹션 실사진 확보: {len(photos)}장 (og {sum(1 for p in photos if p.get('source')=='og')} / pexels {sum(1 for p in photos if p.get('source')=='pexels')})")
+    return photos
