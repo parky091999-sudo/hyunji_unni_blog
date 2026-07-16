@@ -192,26 +192,17 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
             # 아티팩트 업로드가 실패하던 문제(2026-07-16) 회피. 캡션 자체도 콜론 없이 자연스럽다.
             return {"local_path": path, "label": f"출처 {dom}" if dom else "출처 뉴스", "source": "og"}
 
-    # 2순위: Pexels 스톡 (안전 폴백) — seed를 테크 카테고리 영어 쿼리로 매핑해 주제 관련성 확보
-    if pexels_key:
-        try:
-            from generator.image import _fetch_one_image
-            q = _pexels_query(topic.get("seed", ""))
-            img = _fetch_one_image(q, pexels_key)
-            if img and img.get("url"):
-                logger.info(f"본문 실사진: Pexels 스톡 폴백 ({q})")
-                return {"url": img["url"], "label": "", "source": "pexels"}
-        except Exception as e:
-            logger.info(f"Pexels 폴백 실패: {str(e)[:60]}")
-
+    # Pexels 폴백 제거(2026-07-16 사용자 피드백): 배터리 글에 주방 주전자 스톡이 붙는 등
+    # '엉뚱한 이미지'가 글 신뢰를 깎음 — 무관 사진보다 무사진이 낫다. 신뢰 언론사 og만 사용.
     logger.info("본문 실사진 없음 — 헤더 카드만 유지")
     return None
 
 
 def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[dict]:
     """대표+섹션용 실사진을 여러 장 확보(테크티노처럼 섹션마다 사진).
-    서로 다른 신뢰 언론사 og:image 우선 → 부족하면 Pexels로 보충. 최대 want장.
-    반환: [{"local_path"|"url", "label", "source"}, ...] (0~want장)."""
+    신뢰 언론사 og:image만 사용, 최대 want장. Pexels 보충은 제거(2026-07-16 사용자
+    피드백: 주제 무관 스톡이 섞임 — 무관 사진보다 무사진이 낫다).
+    반환: [{"local_path", "label", "source"}, ...] (0~want장)."""
     photos: list[dict] = []
     used_domains: set[str] = set()
     for n in topic.get("news", [])[:8]:
@@ -228,21 +219,5 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
             path, d = got
             used_domains.add(d)
             photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
-    # 부족분 Pexels 보충 — exclude_ids로 서로 다른 사진을 뽑는다.
-    if len(photos) < want and pexels_key:
-        try:
-            from generator.image import _fetch_one_image
-            q = _pexels_query(topic.get("seed", ""))
-            exclude: set = set()
-            for _ in range(want - len(photos) + 2):  # 여유 시도
-                if len(photos) >= want:
-                    break
-                img = _fetch_one_image(q, pexels_key, exclude_ids=exclude)
-                if not img or not img.get("url"):
-                    break
-                exclude.add(img.get("pexels_id"))
-                photos.append({"url": img["url"], "label": "", "source": "pexels"})
-        except Exception as e:
-            logger.info(f"Pexels 다중 보충 실패: {str(e)[:50]}")
-    logger.info(f"섹션 실사진 확보: {len(photos)}장 (og {sum(1 for p in photos if p.get('source')=='og')} / pexels {sum(1 for p in photos if p.get('source')=='pexels')})")
+    logger.info(f"섹션 실사진 확보: {len(photos)}장 (전부 신뢰 언론사 og)")
     return photos

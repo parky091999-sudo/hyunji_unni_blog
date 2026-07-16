@@ -137,8 +137,9 @@ def run():
     recent_heads = _recent_headlines(history)
     topic = pick_tech_topic(exclude_headlines=recent_heads)
     if topic is None:
-        logger.error("최신 테크 뉴스 없음(최근 발행 제외 후) — 종료")
-        sys.exit(1)
+        # 뉴스 없음 또는 소비자 주제 점수 미달 — 억지 발행 대신 정상 스킵(2026-07-16)
+        logger.warning("발행할 소비자 주제 없음(뉴스 부족 또는 전부 B2B성) — 오늘 스킵")
+        sys.exit(0)
 
     _post_category = category_for_seed(topic["seed"])
     logger.info(f"형식={fmt} | 시드={topic['seed']} | 카테고리={_post_category} | 주제={topic['headline'][:40]}")
