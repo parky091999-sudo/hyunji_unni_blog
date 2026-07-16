@@ -66,6 +66,7 @@ jobs:
           TECH_NAVER_BLOG_ID: ${{ secrets.TECH_NAVER_BLOG_ID }}
           TECH_NAVER_COOKIES: ${{ secrets.TECH_NAVER_COOKIES }}
           GOOGLE_API_KEY:     ${{ secrets.GOOGLE_API_KEY }}
+          PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
           NAVER_CLIENT_ID:     ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           FORCE_POST:  ${{ github.event.inputs.force_post || 'false' }}

@@ -2152,15 +2152,26 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
             sc = await sel_btn.count()
             logger.info(f"[열삭제] '{last_idx}열 선택' 버튼 {sc}개 발견")
             if sc:
-                # force=True: 오버레이 액션어빌리티 체크 우회(컨트롤바가 hover-only 오버레이라 timeout 나던 문제)
+                # 뷰포트 밖이면 스크롤 후 클릭(force는 자동 스크롤을 건너뛰어 'outside of viewport'
+                # 에러가 나므로 scroll_into_view를 먼저 — 2026-07-16 실측). 오버레이 액션어빌리티는
+                # force로 우회. 선택 → 컨텍스트 메뉴(행분할/열분할/삭제) → '삭제' 클릭.
+                try:
+                    await sel_btn.last.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
                 await sel_btn.last.click(force=True, timeout=2500)
                 await _delay(400, 600)
                 del_btn = target.locator(
-                    ".se-cell-context-menu-button.se-context-menu-button-delete"
-                )
+                    ".se-cell-context-menu-button.se-context-menu-button-delete, "
+                    ".se-cell-context-menu-item"
+                ).filter(has_text="삭제")
                 dc = await del_btn.count()
                 logger.info(f"[열삭제] 삭제버튼 {dc}개 발견(열 선택 후)")
                 if dc:
+                    try:
+                        await del_btn.first.scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
                     await del_btn.first.click(force=True, timeout=2500)
                     await _delay(500, 700)
                     logger.info(f"열 삭제 성공(열선택+삭제버튼 force): {last_idx}열")
