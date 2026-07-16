@@ -1,5 +1,34 @@
 [
   {
+    "date": "2026-07-17",
+    "timestamp": "2026-07-17T08:12:40.023053+09:00",
+    "run_slot": "08",
+    "stock_topic": "etf포트폴리오",
+    "topic_name": "ETF 인사이트",
+    "blog_category": "ETF",
+    "title": "2026년 7월, SCHD ETF 핵심 분석: 배당 재투자 효과로 진짜 수익 잡는 법",
+    "tags": [
+      "SCHD",
+      "미국배당주ETF",
+      "배당성장",
+      "배당재투자",
+      "ETF투자",
+      "현지언니",
+      "미국주식"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyunji_unni/224349171573",
+    "images_count": 4,
+    "images_inserted": 4,
+    "has_table": true,
+    "has_faq": true,
+    "stock_name": null,
+    "etf_content_type": "us_individual",
+    "etf_subject": "SCHD",
+    "ipo_mode": null,
+    "ipo_month": null
+  },
+  {
     "date": "2026-07-16",
     "timestamp": "2026-07-16T08:13:16.609094+09:00",
     "run_slot": "08",
