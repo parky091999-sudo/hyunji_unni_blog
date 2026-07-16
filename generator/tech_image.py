@@ -155,17 +155,19 @@ def _pexels_query(seed: str) -> str:
     """테크 seed → 주제 관련 Pexels 영어 쿼리(사람 배제는 image._fetch_one_image가 처리).
     _keyword_to_en이 테크 용어를 엉뚱한 쿼리(실내/화분 등)로 매핑하던 문제 보정(2026-07-16)."""
     s = seed or ""
+    # ★사물 중심(플랫레이/제품컷) 쿼리 — 인물/손이 들어간 컷은 image._OFFTOPIC_RE가 걸러 폴백되므로
+    #   물체만 나오는 스톡이 잡히도록 flat lay/on desk/still life 등을 붙인다(2026-07-16).
     groups = [
         (("아이폰", "갤럭시", "픽셀", "스마트폰", "에어팟", "버즈", "이어폰", "워치", "AI 스마트폰"),
-         "modern smartphone device closeup"),
+         "smartphone flat lay on desk still life"),
         (("노트북", "맥북", "RTX", "그래픽카드", "게이밍", "모니터", "PC", "부품"),
-         "laptop computer desk technology"),
+         "laptop computer on wooden desk still life"),
         (("로봇청소기", "에어프라이어", "TV", "청소기", "공기청정기", "제습기", "정수기", "가전", "냉장고", "세탁기"),
-         "modern home appliance interior"),
+         "modern home appliance product still life"),
         (("아이오닉", "기아", "테슬라", "전기차", "EV", "자동차", "모빌리티", "충전"),
-         "electric car charging station"),
+         "electric car charging station empty"),
         (("챗GPT", "AI", "인공지능", "챗봇"),
-         "artificial intelligence technology abstract"),
+         "circuit board technology abstract closeup"),
     ]
     for keys, q in groups:
         if any(k in s for k in keys):
