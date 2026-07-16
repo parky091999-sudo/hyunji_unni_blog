@@ -2139,6 +2139,30 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
         cx, cy = bbox['x'] + bbox['width'] / 2, bbox['y'] + bbox['height'] / 2
         logger.info(f"열 삭제 대상 좌표: ({cx:.0f}, {cy:.0f})")
 
+        # ★[정밀·1순위] SE ONE 표 컨트롤 정확 경로(2026-07-16 DOM덤프 확인):
+        #   셀 클릭 → 컨트롤바 노출 → '{N}열 선택'(.se-cell-select-button)로 마지막 열 전체 선택
+        #   → 삭제 버튼(.se-cell-context-menu-button.se-context-menu-button-delete) 클릭.
+        try:
+            await page.mouse.click(cx, cy)
+            await _delay(300, 500)
+            last_idx = cur_grid_cols - 1
+            sel_btn = target.locator(".se-cell-select-button").filter(has_text=f"{last_idx}열 선택")
+            if not await sel_btn.count():
+                sel_btn = target.locator(".se-cell-select-button").filter(has_text="열 선택")
+            if await sel_btn.count():
+                await sel_btn.last.click(timeout=2000)
+                await _delay(300, 500)
+                del_btn = target.locator(
+                    ".se-cell-context-menu-button.se-context-menu-button-delete"
+                )
+                if await del_btn.count() and await del_btn.first.is_visible(timeout=1200):
+                    await del_btn.first.click(timeout=2000)
+                    await _delay(400, 600)
+                    logger.info(f"열 삭제 성공(열선택+삭제버튼): {last_idx}열")
+                    return True
+        except Exception as e:
+            logger.info(f"열선택+삭제버튼 시도 실패(폴백 진행): {str(e)[:50]}")
+
         # ② 컨트롤바 / data-name 버튼 먼저 시도 (셀 클릭 후 나타나는 경우)
         await page.mouse.move(cx, cy)
         await _delay(100, 200)
