@@ -185,18 +185,27 @@ def run():
         hub_id = _hub_for_today()
         if hub_id:
             logger.info(f"오늘 허브: {hub_id} ({hub_display(hub_id)})")
-        topic_id = _pick_topic(hist, hub_id or None)
+        # 재발행 최소주기 가드 — 자동 선택에만 적용(수동 WP_TOPIC 지정은 의도된 갱신).
+        # 오늘 허브에 신선한 주제가 없으면 전체 풀에서 재선택(2026-07-16: 허브 소진인데
+        # 타 허브 미발행 주제가 있어도 스킵되던 결함 — 발행 공백이 허브 순수성보다 손해).
+        scopes = [hub_id, None] if hub_id else [None]
+        for scope in scopes:
+            topic_id = _pick_topic(hist, scope)
+            last = hist.get(topic_id, "")
+            days = None
+            if last:
+                days = (datetime.now(KST).date() - datetime.strptime(last, "%Y-%m-%d").date()).days
+            if not last or days >= REPUBLISH_MIN_DAYS:
+                break
+            if scope is not None:
+                logger.info(f"오늘 허브({scope}) 소진 — 전체 풀에서 재선택")
+        else:
+            logger.info(
+                f"풀 소진 — '{topic_id}' 최근 발행 {days}일 전(최소 {REPUBLISH_MIN_DAYS}일). "
+                f"오늘 발행 스킵. 주제 풀 확장 필요(제안 이슈 확인)."
+            )
+            return
         logger.info(f"WP_TOPIC 자동 선택: {topic_id}")
-        # 재발행 최소주기 가드 — 자동 선택에만 적용(수동 WP_TOPIC 지정은 의도된 갱신)
-        last = hist.get(topic_id, "")
-        if last:
-            days = (datetime.now(KST).date() - datetime.strptime(last, "%Y-%m-%d").date()).days
-            if days < REPUBLISH_MIN_DAYS:
-                logger.info(
-                    f"풀 소진 — '{topic_id}' 최근 발행 {days}일 전(최소 {REPUBLISH_MIN_DAYS}일). "
-                    f"오늘 발행 스킵. 주제 풀 확장 필요(제안 이슈 확인)."
-                )
-                return
     topic = TOPICS.get(topic_id)
     if not topic:
         logger.error(f"알 수 없는 WP_TOPIC: {topic_id!r}")
