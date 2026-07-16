@@ -2149,19 +2149,24 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
             sel_btn = target.locator(".se-cell-select-button").filter(has_text=f"{last_idx}열 선택")
             if not await sel_btn.count():
                 sel_btn = target.locator(".se-cell-select-button").filter(has_text="열 선택")
-            if await sel_btn.count():
-                await sel_btn.last.click(timeout=2000)
-                await _delay(300, 500)
+            sc = await sel_btn.count()
+            logger.info(f"[열삭제] '{last_idx}열 선택' 버튼 {sc}개 발견")
+            if sc:
+                # force=True: 오버레이 액션어빌리티 체크 우회(컨트롤바가 hover-only 오버레이라 timeout 나던 문제)
+                await sel_btn.last.click(force=True, timeout=2500)
+                await _delay(400, 600)
                 del_btn = target.locator(
                     ".se-cell-context-menu-button.se-context-menu-button-delete"
                 )
-                if await del_btn.count() and await del_btn.first.is_visible(timeout=1200):
-                    await del_btn.first.click(timeout=2000)
-                    await _delay(400, 600)
-                    logger.info(f"열 삭제 성공(열선택+삭제버튼): {last_idx}열")
+                dc = await del_btn.count()
+                logger.info(f"[열삭제] 삭제버튼 {dc}개 발견(열 선택 후)")
+                if dc:
+                    await del_btn.first.click(force=True, timeout=2500)
+                    await _delay(500, 700)
+                    logger.info(f"열 삭제 성공(열선택+삭제버튼 force): {last_idx}열")
                     return True
         except Exception as e:
-            logger.info(f"열선택+삭제버튼 시도 실패(폴백 진행): {str(e)[:50]}")
+            logger.info(f"열선택+삭제버튼 시도 실패(폴백 진행): {e.__class__.__name__}: {str(e)[:50]}")
 
         # ② 컨트롤바 / data-name 버튼 먼저 시도 (셀 클릭 후 나타나는 경우)
         await page.mouse.move(cx, cy)

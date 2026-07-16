@@ -27,6 +27,39 @@ _OG_RE2 = re.compile(
     r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\'](?:og:image|twitter:image)["\']',
     re.IGNORECASE)
 
+# ★신뢰 언론사/IT매체 도메인 화이트리스트 — og:image는 '이 목록 기사'에서만 사용한다.
+# 목록 외(연예·라이프스타일 매체, 개인블로그, SNS, 인플루언서 등)는 남의 개인사진·아동 사진·
+# 저작권 회색지대 이미지를 대표로 긁어오는 사고가 있어(2026-07-16 실측: 연예뉴스가 인플루언서
+# 인스타 사진을 og로 제공) og를 쓰지 않고 Pexels 스톡으로 폴백한다.
+_TRUSTED_NEWS_DOMAINS = (
+    # 통신·종합일간
+    "yna.co.kr", "yonhapnews", "newsis.com", "news1.kr",
+    "chosun.com", "donga.com", "joongang.co.kr", "joins.com", "hani.co.kr",
+    "khan.co.kr", "seoul.co.kr", "kmib.co.kr", "munhwa.com", "segye.com",
+    "hankookilbo.com", "kyunghyang.com",
+    # 경제
+    "mk.co.kr", "hankyung.com", "mt.co.kr", "sedaily.com", "edaily.co.kr",
+    "fnnews.com", "asiae.co.kr", "etoday.co.kr", "heraldcorp.com", "newspim.com",
+    "ajunews.com", "biz.chosun.com", "wowtv.co.kr",
+    # 방송
+    "ytn.co.kr", "kbs.co.kr", "imbc.com", "sbs.co.kr", "jtbc.co.kr",
+    # IT·테크·과학 전문
+    "etnews.com", "zdnet.co.kr", "bloter.net", "ddaily.co.kr", "dt.co.kr",
+    "inews24.com", "itchosun.com", "betanews.net", "aitimes.com", "aitimes.kr",
+    "thelec.kr", "kbench.com", "itworld.co.kr", "ciokorea.com", "boannews.com",
+    "dongascience.com", "hellot.net",
+)
+# og:image URL 자체가 이 호스트면 차단(SNS·개인블로그 이미지 CDN — 화이트리스트 통과 기사라도 방어)
+_BLOCKED_IMG_HOSTS = (
+    "cdninstagram", "fbcdn.net", "instagram.com", "postfiles.pstatic",
+    "blogfiles.naver", "pinimg.com", "ytimg.com", "tiktokcdn", "twimg.com",
+)
+
+
+def _is_trusted_news(url: str) -> bool:
+    dom = _domain(url)
+    return any(t in dom for t in _TRUSTED_NEWS_DOMAINS)
+
 
 def _domain(url: str) -> str:
     try:
@@ -93,7 +126,11 @@ def _download(url: str, min_bytes: int = 12000) -> str | None:
 
 
 def _og_image_from_article(article_url: str) -> tuple[str, str] | None:
-    """기사 URL → og:image 다운로드. (local_path, 출처도메인) 반환."""
+    """기사 URL → og:image 다운로드. (local_path, 출처도메인) 반환.
+    ★신뢰 언론사 화이트리스트 기사만 허용 + og 이미지 URL이 SNS/개인 CDN이면 차단(개인사진 방어)."""
+    if not _is_trusted_news(article_url):
+        logger.info(f"비신뢰 도메인({_domain(article_url)}) — og 스킵, Pexels 폴백")
+        return None
     try:
         req = urllib.request.Request(article_url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -103,6 +140,10 @@ def _og_image_from_article(article_url: str) -> tuple[str, str] | None:
         return None
     og = _extract_og_url(html, article_url)
     if not og:
+        return None
+    og_host = _domain(og)
+    if any(b in og_host for b in _BLOCKED_IMG_HOSTS):
+        logger.info(f"og 이미지 호스트 차단({og_host}) — SNS/개인 CDN 추정, 스킵")
         return None
     path = _download(og)
     if not path:
