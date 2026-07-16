@@ -164,45 +164,51 @@ def run():
         logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
         return
 
-    # ── 3. 헤더 인포그래픽 카드 ──
+    # ── 3. 대표 이미지 = 뉴스 실사진(홈판 썸네일 최적화) ──
+    # 카테크 홈판 노출 글은 전부 '실사진' 썸네일 — 현지언니식 인포그래픽 헤더카드는 복제 인상을
+    # 주므로 폐기. 첫 이미지([사진1] 최상단 = 홈판 대표 썸네일)를 뉴스 og:image 실사진으로 넣는다.
+    # 인포그래픽 카드는 실사진을 하나도 못 구했을 때만 최후 폴백(썸네일 없는 글 방지)으로 사용.
     images: list[dict] = []
-    from generator.content import extract_summary_bullets
-    bullets = extract_summary_bullets(post.get("summary_text", "")) or None
-    header_path = None
+    from config import PEXELS_API_KEY
+
+    lead = None
     try:
-        from poster.infographic_html import create_infographic_via_html
-        header_path = create_infographic_via_html(
-            title=post["title"], keyword=post.get("seed", "테크"), category="tech", bullets=bullets
-        )
+        from generator.tech_image import get_tech_body_image
+        lead = get_tech_body_image(topic, PEXELS_API_KEY)
     except Exception as e:
-        logger.warning(f"HTML 인포그래픽 실패 — PIL 폴백: {e}")
-    if not header_path:
+        logger.warning(f"대표 실사진 확보 실패: {e}")
+
+    if lead:
+        lead_local = lead.get("local_path")
+        # Pexels 폴백 등 URL만 있는 경우: 최상단 헤더 삽입은 local_path가 필수 → 로컬 다운로드
+        if not lead_local and lead.get("url"):
+            try:
+                from poster.naver_blog import _download_image_to_temp
+                lead_local = _download_image_to_temp(lead["url"], label=lead.get("label"))
+            except Exception as e:
+                logger.warning(f"대표 실사진 다운로드 실패: {e}")
+        if lead_local:
+            images.append({
+                "local_path": lead_local, "url": "",
+                "alt_text": post.get("seed", "테크"), "label": lead.get("label", ""),
+            })
+            logger.info(f"대표 실사진(홈판 썸네일) 확보: {lead.get('source')} | {lead.get('label', '')}")
+
+    if not images:
+        # 실사진 전무 → 썸네일 없는 글 방지용 최후 폴백(인포그래픽 카드)
+        logger.warning("실사진 미확보 — 인포그래픽 카드 폴백(대표이미지 공백 방지)")
+        from generator.content import extract_summary_bullets
+        bullets = extract_summary_bullets(post.get("summary_text", "")) or None
+        header_path = None
         try:
-            from poster.naver_blog import create_info_infographic
-            header_path = create_info_infographic(
+            from poster.infographic_html import create_infographic_via_html
+            header_path = create_infographic_via_html(
                 title=post["title"], keyword=post.get("seed", "테크"), category="tech", bullets=bullets
             )
         except Exception as e:
-            logger.warning(f"PIL 헤더 카드 실패 (무시): {e}")
-    if header_path:
-        images.append({"local_path": header_path, "url": "", "alt_text": post.get("seed", "테크"), "label": post.get("seed", "테크")})
-        logger.info(f"헤더 카드 완료 (불릿 {len(bullets) if bullets else 0}개)")
-
-    # ── 3-1. 본문 실사진 (뉴스 OG → Pexels 캐스케이드), 첫 소제목 앞 삽입 ──
-    try:
-        from generator.tech_image import get_tech_body_image
-        from config import PEXELS_API_KEY
-        subs = post.get("subheadings", [])
-        body_img = get_tech_body_image(topic, PEXELS_API_KEY) if subs else None
-        if body_img:
-            body_img.setdefault("url", "")
-            body_img.setdefault("local_path", "")
-            body_img.setdefault("alt_text", post.get("seed", "테크"))
-            body_img["insert_before"] = subs[0]
-            images.append(body_img)
-            logger.info(f"본문 실사진 예약: {body_img.get('source')} → '{subs[0][:15]}' 앞")
-    except Exception as e:
-        logger.warning(f"본문 실사진 실패(무시): {e}")
+            logger.warning(f"HTML 인포그래픽 폴백 실패: {e}")
+        if header_path:
+            images.append({"local_path": header_path, "url": "", "alt_text": post.get("seed", "테크"), "label": post.get("seed", "테크")})
 
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog
