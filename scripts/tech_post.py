@@ -187,15 +187,25 @@ def run():
     except Exception as e:
         logger.warning(f"실사진 확보 실패: {e}")
 
-    # 대표(헤더) = 첫 장
+    # 대표(헤더) = 첫 장을 배경으로 '사진+훅텍스트' 헤더카드(테크티노 스타일). 실패 시 원본 사진.
     if photos:
         lead_local = _ensure_local(photos[0])
         if lead_local:
+            header_local = None
+            try:
+                from poster.infographic_html import create_photo_header_card
+                header_local = create_photo_header_card(
+                    lead_local, post["title"], keyword=post.get("seed", "테크"), category="tech"
+                )
+            except Exception as e:
+                logger.warning(f"사진 헤더카드 실패 — 원본 사진 사용: {e}")
             images.append({
-                "local_path": lead_local, "url": "",
-                "alt_text": post.get("seed", "테크"), "label": photos[0].get("label", ""),
+                "local_path": header_local or lead_local, "url": "",
+                "alt_text": post.get("seed", "테크"),
+                # 카드는 사진이 이미 박혀 있어 '출처' 캡션 불필요, 원본사진 폴백 시에만 캡션.
+                "label": "" if header_local else photos[0].get("label", ""),
             })
-            logger.info(f"대표 실사진(홈판 썸네일) 확보: {photos[0].get('source')} | {photos[0].get('label', '')}")
+            logger.info(f"대표 헤더{'카드' if header_local else '(원본사진)'} 확보: {photos[0].get('source')}")
 
     # 섹션 사진 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 위에 [사진N] 주입 + insert_before
     if images and len(photos) > 1:

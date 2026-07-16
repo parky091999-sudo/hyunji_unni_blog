@@ -770,3 +770,76 @@ def create_concept_infographic(bullets: list[str], category: str = "금융재테
     tmp.close()
     logger.info(f"개념 카드 인포그래픽 생성: {len(items)}항목 [{category}] → {tmp.name}")
     return tmp.name
+
+
+# ─────────────────────────────────────────────────────────────
+# 실사진 배경 헤더카드 (테크티노 벤치마크) — 실제 뉴스/스톡 사진 위에 굵은 훅 텍스트 오버레이.
+# 대표 썸네일용. 그라디언트 카드(브랜드 누출/복제 인상)와 달리 '사진+한 줄 훅'으로 클릭 유도.
+# ─────────────────────────────────────────────────────────────
+
+def create_photo_header_card(photo_path: str, title: str, keyword: str = "",
+                             category: str = "tech") -> str | None:
+    """photo_path(로컬 실사진)를 배경으로 깔고 하단에 굵은 훅 텍스트를 얹은 1080x1080 헤더카드.
+    실패 시 None(호출부가 원본 실사진으로 폴백)."""
+    import base64
+    import re as _re
+    try:
+        with open(photo_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+    except Exception as e:
+        logger.warning(f"헤더카드 배경 사진 읽기 실패: {e}")
+        return None
+    mime = "image/png" if photo_path.lower().endswith(".png") else "image/jpeg"
+    bg_uri = f"data:{mime};base64,{b64}"
+
+    style = _STYLES.get(category, _DEFAULT)
+    accent = style["accent"]
+    tag_color = style.get("tag_color", "#05080F")
+    label = style.get("label", "IT·테크")
+
+    # 훅 문구: 제목 기반 완결형(6~18자). 실패 시 제목 앞부분.
+    display = _hook_phrase(title, keyword, category)
+    if not display:
+        display = _re.sub(r"^\s*\d{4}년\s*\d{0,2}월?\s*", "", title).split("|")[0].strip()
+        display = _re.sub(r"\([^)]*\)", "", display).strip(" ,·|-")[:22]
+    lines, tf = _layout_title(display)
+    tf = max(60, min(int(tf * 1.05), 150))
+    title_html = "<br>".join(escape(ln) for ln in lines)
+
+    W = 1080
+    html = f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700;800;900&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;}}
+.cardwrap{{position:relative;width:{W}px;height:{W}px;overflow:hidden;
+  font-family:'Noto Sans KR','Malgun Gothic',sans-serif;background:#111;}}
+.bg{{position:absolute;inset:0;background:url('{bg_uri}') center/cover no-repeat;}}
+.shade{{position:absolute;inset:0;
+  background:linear-gradient(180deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,0) 38%, rgba(0,0,0,.55) 72%, rgba(0,0,0,.86) 100%);}}
+.content{{position:absolute;left:56px;right:56px;bottom:64px;
+  display:flex;flex-direction:column;align-items:flex-start;gap:22px;}}
+.chip{{background:{accent};color:{tag_color};font-size:34px;font-weight:800;
+  padding:10px 34px;border-radius:999px;letter-spacing:.5px;}}
+.title{{color:#FFFFFF;font-size:{tf}px;font-weight:900;line-height:1.12;
+  letter-spacing:-2px;word-break:keep-all;text-shadow:0 4px 22px rgba(0,0,0,.55);}}
+.title b{{color:{accent};}}
+.bar{{position:absolute;left:0;right:0;bottom:0;height:16px;background:{accent};}}
+</style></head><body>
+<div class="cardwrap">
+  <div class="bg"></div><div class="shade"></div>
+  <div class="content">
+    <div class="chip">{escape(label)}</div>
+    <div class="title">{title_html}</div>
+  </div>
+  <div class="bar"></div>
+</div></body></html>"""
+
+    try:
+        png = asyncio.run(_pw_screenshot_element(html, width=W))
+    except Exception as e:
+        logger.warning(f"사진 헤더카드 스크린샷 실패: {e}")
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp.write(png)
+    tmp.close()
+    logger.info(f"사진 헤더카드 생성: {display!r} → {tmp.name}")
+    return tmp.name
