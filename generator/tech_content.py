@@ -301,20 +301,26 @@ def generate_tech_post(api_key: str, fmt: str = "breaking", topic: dict | None =
 
     news_block = _build_news_block(topic)
     system = _FMT_PROMPTS[fmt]
-    user_msg = news_block + (
+    base_user = news_block + (
         f"\n위 뉴스 중 가장 화제성 있는 '{topic['headline']}' 관련 내용을 중심으로 "
         f"'{fmt}' 형식의 테크 글을 작성해라.\n"
-        "- ★본문 1,700~2,400자. 각 소제목마다 3~5줄로 충실히 — 배경·맥락·소비자 영향·구체 예시를 담아 밀도를 채워라(빈약한 한두 줄 금지).\n"
+        "- ★본문 1,800~2,400자. 각 소제목마다 4~6줄로 충실히 — 배경·맥락·소비자 영향·구체 예시를 담아 밀도를 채워라(빈약한 한두 줄 금지).\n"
         "- ★구체 팩트 필수: 모델명·수치·가격대·이전 세대나 경쟁 제품과의 비교를 뉴스 팩트 범위에서 최대한 담아라(막연한 서술 금지).\n"
         "- 확정 안 된 건 '~로 알려졌다' 톤, 기준일 표기 필수.\n"
         "- 맨 위 [사진1]은 발행 스크립트가 뉴스 실사진을 자동으로 얹는 자리다. 마커는 [사진1] 하나만 두고, 도입부에서 '사진을 보면' 식으로 이미지를 설명하지 마라."
     )
 
+    # ✔요약박스·FAQ 제거로 본문이 짧아지는 경향 → 목표 미달 시 '더 두껍게' 피드백을 주입해 재생성.
+    # 하한(TECH_BODY_MIN)은 return None 방지용 안전망, 목표(TARGET)는 품질 유도용.
+    TECH_BODY_TARGET = 1700
+    extra = ""
+    best = None
+    best_len = 0
     waits = [10, 30]
     for attempt in range(1, len(waits) + 2):
         try:
             # 실시간성 강화: Google Search Grounding 활성화(뉴스 팩트 보강)
-            raw = _gen_text(api_key, user_msg, system, 8192, 0.85, use_search=True)
+            raw = _gen_text(api_key, base_user + extra, system, 8192, 0.85, use_search=True)
             if not raw:
                 logger.warning(f"테크글 빈 응답 (시도 {attempt})")
                 continue
@@ -325,21 +331,39 @@ def generate_tech_post(api_key: str, fmt: str = "breaking", topic: dict | None =
             body_len = len(_IMAGE_MARKER.sub("", parsed.get("body", "")))
             if body_len < TECH_BODY_MIN:
                 logger.warning(f"테크글 본문 짧음 ({body_len}자, 최소 {TECH_BODY_MIN}) — 재생성")
+                extra = (
+                    f"\n\n[재작성 지시] 직전 원고가 {body_len}자로 너무 짧았다. 각 소제목 섹션을 4~6줄로 "
+                    "늘리고 배경·이전 세대/경쟁 제품 비교·소비자 영향·구체 수치를 더 담아 전체 1,800자 "
+                    "이상으로 다시 써라. 단, [최신 뉴스]에 없는 사실은 절대 지어내지 마라."
+                )
                 continue
-            parsed["fmt"] = fmt
-            parsed["seed"] = topic["seed"]
-            parsed["image_strategy"] = FMT_IMAGE[fmt]
-            logger.info(
-                f"테크글 생성 완료 [{fmt}]: {parsed.get('title')!r} "
-                f"(본문 {body_len}자, 표={bool(parsed.get('table_str'))}, "
-                f"FAQ={bool(parsed.get('faq_str'))}, 요약={bool(parsed.get('summary_text'))})"
-            )
-            return parsed
+            # 하한 통과 — 최장본 보관(마지막에 목표 미달이어도 최선본으로 발행)
+            if body_len > best_len:
+                best, best_len = parsed, body_len
+            if body_len < TECH_BODY_TARGET and attempt <= len(waits):
+                logger.info(f"본문 {body_len}자 — 목표({TECH_BODY_TARGET}자) 미달, 더 두껍게 재시도")
+                extra = (
+                    f"\n\n[재작성 지시] 직전 원고가 {body_len}자였다. 사실 왜곡·창작 없이 각 섹션의 "
+                    "설명·맥락·비교를 더 풍부하게 늘려 1,800자 이상으로 다시 써라."
+                )
+                continue
+            break  # 목표 도달 or 마지막 시도 — best 확정
         except Exception as e:
             logger.error(f"테크글 생성 실패 (시도 {attempt}): {e}")
             if attempt <= len(waits):
                 time.sleep(waits[attempt - 1])
-    return None
+
+    if best is None:
+        return None
+    best["fmt"] = fmt
+    best["seed"] = topic["seed"]
+    best["image_strategy"] = FMT_IMAGE[fmt]
+    logger.info(
+        f"테크글 생성 완료 [{fmt}]: {best.get('title')!r} "
+        f"(본문 {best_len}자, 표={bool(best.get('table_str'))}, "
+        f"FAQ={bool(best.get('faq_str'))}, 요약={bool(best.get('summary_text'))})"
+    )
+    return best
 
 
 if __name__ == "__main__":
