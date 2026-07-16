@@ -208,19 +208,20 @@ def run():
             if i >= len(targets):
                 break
             sub = targets[i]
-            pat = f"[구분선]\n{sub}"
+            pat = f"[구분선]\n{sub}\n"  # 실제 소제목([구분선] 뒤)만 매칭 — 목차 '· {sub}'는 안 걸림
             if pat not in body:
                 continue
             local = _ensure_local(ph)
             if not local:
                 continue
-            body = body.replace(pat, f"[사진{marker_n}]\n{pat}", 1)
+            # ★소제목 '다음 줄'에 [사진N] 주입 → 마커 다음의 '고유한 본문 첫 줄'이 앵커가 되어 그 앞에 삽입.
+            #   insert_before(소제목 텍스트)는 목차에도 같은 텍스트가 있어 목차 항목에 먼저 걸리므로 쓰지 않는다.
+            body = body.replace(pat, f"{pat}[사진{marker_n}]\n", 1)
             images.append({
                 "local_path": local, "url": "",
                 "alt_text": post.get("seed", "테크"), "label": ph.get("label", ""),
-                "insert_before": sub,
             })
-            logger.info(f"섹션 실사진 예약: [사진{marker_n}] → '{sub[:15]}' 앞 ({ph.get('source')})")
+            logger.info(f"섹션 실사진 예약: [사진{marker_n}] → '{sub[:15]}' 섹션 ({ph.get('source')})")
             marker_n += 1
         post["body"] = body
 
