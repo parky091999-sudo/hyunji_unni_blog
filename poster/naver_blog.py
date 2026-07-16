@@ -2127,11 +2127,33 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
     """현재(마지막) 표의 마지막 열을 SE ONE 우클릭 컨텍스트 메뉴로 삭제.
     bounding_box()로 페이지 좌표를 얻어 page.mouse.click(right) → isTrusted=true."""
     target = await _get_editor_frame(page)
+
+    async def _mouse_click_center(loc) -> bool:
+        """요소를 화면에 스크롤 후 bbox 중앙을 page.mouse로 실제 클릭(뷰포트 액션어빌리티 에러 회피)."""
+        try:
+            await loc.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+        try:
+            bb = await loc.bounding_box()
+        except Exception:
+            bb = None
+        if not bb:
+            return False
+        await page.mouse.click(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+        return True
+
     try:
-        # ① 마지막 표 첫 행의 마지막 셀 좌표를 bounding_box()로 취득 (액션어빌리티 체크 없음)
+        # ① 마지막 표 첫 행의 마지막 셀 — ★먼저 화면에 스크롤(표가 문서 하단이면 뷰포트 밖이라
+        #    컨트롤바·컨텍스트메뉴 클릭이 'outside of viewport'로 실패하던 근본 원인, 2026-07-16).
         last_col_loc = target.locator(
             "table tr:first-child td:last-child, table tr:first-child th:last-child"
         )
+        try:
+            await last_col_loc.last.scroll_into_view_if_needed(timeout=2500)
+            await _delay(200, 400)
+        except Exception:
+            pass
         bbox = await last_col_loc.last.bounding_box()
         if not bbox:
             logger.warning("열 삭제: 마지막 열 셀 bbox 취득 실패")
@@ -2141,7 +2163,7 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
 
         # ★[정밀·1순위] SE ONE 표 컨트롤 정확 경로(2026-07-16 DOM덤프 확인):
         #   셀 클릭 → 컨트롤바 노출 → '{N}열 선택'(.se-cell-select-button)로 마지막 열 전체 선택
-        #   → 삭제 버튼(.se-cell-context-menu-button.se-context-menu-button-delete) 클릭.
+        #   → 컨텍스트 메뉴 '삭제' 클릭. 전부 스크롤+page.mouse 실좌표 클릭으로.
         try:
             await page.mouse.click(cx, cy)
             await _delay(300, 500)
@@ -2151,15 +2173,7 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
                 sel_btn = target.locator(".se-cell-select-button").filter(has_text="열 선택")
             sc = await sel_btn.count()
             logger.info(f"[열삭제] '{last_idx}열 선택' 버튼 {sc}개 발견")
-            if sc:
-                # 뷰포트 밖이면 스크롤 후 클릭(force는 자동 스크롤을 건너뛰어 'outside of viewport'
-                # 에러가 나므로 scroll_into_view를 먼저 — 2026-07-16 실측). 오버레이 액션어빌리티는
-                # force로 우회. 선택 → 컨텍스트 메뉴(행분할/열분할/삭제) → '삭제' 클릭.
-                try:
-                    await sel_btn.last.scroll_into_view_if_needed(timeout=2000)
-                except Exception:
-                    pass
-                await sel_btn.last.click(force=True, timeout=2500)
+            if sc and await _mouse_click_center(sel_btn.last):
                 await _delay(400, 600)
                 del_btn = target.locator(
                     ".se-cell-context-menu-button.se-context-menu-button-delete, "
@@ -2167,17 +2181,12 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
                 ).filter(has_text="삭제")
                 dc = await del_btn.count()
                 logger.info(f"[열삭제] 삭제버튼 {dc}개 발견(열 선택 후)")
-                if dc:
-                    try:
-                        await del_btn.first.scroll_into_view_if_needed(timeout=2000)
-                    except Exception:
-                        pass
-                    await del_btn.first.click(force=True, timeout=2500)
+                if dc and await _mouse_click_center(del_btn.first):
                     await _delay(500, 700)
-                    logger.info(f"열 삭제 성공(열선택+삭제버튼 force): {last_idx}열")
+                    logger.info(f"열 삭제 성공(열선택+삭제 실좌표 클릭): {last_idx}열")
                     return True
         except Exception as e:
-            logger.info(f"열선택+삭제버튼 시도 실패(폴백 진행): {e.__class__.__name__}: {str(e)[:50]}")
+            logger.info(f"열선택+삭제 시도 실패(폴백 진행): {e.__class__.__name__}: {str(e)[:50]}")
 
         # ② 컨트롤바 / data-name 버튼 먼저 시도 (셀 클릭 후 나타나는 경우)
         await page.mouse.move(cx, cy)
@@ -3454,10 +3463,13 @@ async def _post(
                     continue
                 # 소제목 앞 삽입은 이미 캐럿이 단락 시작(offset 0)이라 Enter 없이 그 위에 블록으로
                 # 들어간다. Enter를 누르면 인용구(소제목) 블록이 쪼개지므로 이 경로에선 생략한다.
-                if not used_before:
+                if not used_before and not is_header_top:
                     # 단락 바로 아래에 단독 삽입되도록 Enter를 입력하여 새로운 단락 라인을 만든 뒤 삽입
                     await write_page.keyboard.press("Enter")
                     await _delay(200, 400)
+                # ※헤더 최상단 이미지는 Enter 생략 — 캐럿이 문서 맨앞(offset 0)이라 그대로 삽입하면
+                #   첫 단락 위 블록으로 들어간다. Enter를 누르면 캐럿이 첫 단어 사이일 때 리드 문장을
+                #   두 동강 내던 문제('최|근' 2026-07-16 실측) 유발.
                 img_caption = images[img_idx].get("label") or images[img_idx].get("alt_text", "")
                 ok = await _insert_image_file(
                     write_page,
@@ -3479,7 +3491,7 @@ async def _post(
                             await _move_cursor_for_image(write_page, anchor_text, img_idx)
                     else:
                         await _move_cursor_for_image(write_page, anchor_text, img_idx)
-                    if not retry_before:
+                    if not retry_before and not is_header_top:
                         await write_page.keyboard.press("Enter")
                         await _delay(200, 400)
                     ok = await _insert_image_file(

@@ -151,6 +151,28 @@ def _og_image_from_article(article_url: str) -> tuple[str, str] | None:
     return path, _domain(article_url)
 
 
+def _pexels_query(seed: str) -> str:
+    """테크 seed → 주제 관련 Pexels 영어 쿼리(사람 배제는 image._fetch_one_image가 처리).
+    _keyword_to_en이 테크 용어를 엉뚱한 쿼리(실내/화분 등)로 매핑하던 문제 보정(2026-07-16)."""
+    s = seed or ""
+    groups = [
+        (("아이폰", "갤럭시", "픽셀", "스마트폰", "에어팟", "버즈", "이어폰", "워치", "AI 스마트폰"),
+         "modern smartphone device closeup"),
+        (("노트북", "맥북", "RTX", "그래픽카드", "게이밍", "모니터", "PC", "부품"),
+         "laptop computer desk technology"),
+        (("로봇청소기", "에어프라이어", "TV", "청소기", "공기청정기", "제습기", "정수기", "가전", "냉장고", "세탁기"),
+         "modern home appliance interior"),
+        (("아이오닉", "기아", "테슬라", "전기차", "EV", "자동차", "모빌리티", "충전"),
+         "electric car charging station"),
+        (("챗GPT", "AI", "인공지능", "챗봇"),
+         "artificial intelligence technology abstract"),
+    ]
+    for keys, q in groups:
+        if any(k in s for k in keys):
+            return q
+    return "technology gadget device"
+
+
 def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
     """캐스케이드로 본문 실사진 1장 확보.
     반환: {"local_path"|"url", "label"(캡션), "source"} 또는 None.
@@ -168,11 +190,11 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
             # 아티팩트 업로드가 실패하던 문제(2026-07-16) 회피. 캡션 자체도 콜론 없이 자연스럽다.
             return {"local_path": path, "label": f"출처 {dom}" if dom else "출처 뉴스", "source": "og"}
 
-    # 2순위: Pexels 스톡 (안전 폴백)
+    # 2순위: Pexels 스톡 (안전 폴백) — seed를 테크 카테고리 영어 쿼리로 매핑해 주제 관련성 확보
     if pexels_key:
         try:
-            from generator.image import _fetch_one_image, _keyword_to_en
-            q = _keyword_to_en(topic.get("seed", "technology")) or "technology gadget"
+            from generator.image import _fetch_one_image
+            q = _pexels_query(topic.get("seed", ""))
             img = _fetch_one_image(q, pexels_key)
             if img and img.get("url"):
                 logger.info(f"본문 실사진: Pexels 스톡 폴백 ({q})")
