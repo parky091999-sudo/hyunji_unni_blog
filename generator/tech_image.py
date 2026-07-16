@@ -151,6 +151,33 @@ def _og_image_from_article(article_url: str) -> tuple[str, str] | None:
     return path, _domain(article_url)
 
 
+def _person_dominant(path: str) -> bool:
+    """Gemini Vision으로 '인물 중심 컷' 판별 — 신뢰 언론사 사진이어도 연예인·모델 홍보컷이면
+    초상권 리스크(2026-07-16 실측: 언팩 홍보컷의 아이돌 얼굴이 헤더카드 대표사진으로 실림).
+    YES면 사용 안 함. 판별 API 실패 시 기존 동작 유지(False)."""
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        return False
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key)
+        img = open(path, "rb").read()
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",  # content.py 텍스트 체인과 동일 모델(무료 한도 공유)
+            contents=[gtypes.Part.from_bytes(data=img, mime_type="image/jpeg"),
+                      "이 사진에서 사람(얼굴이나 상반신)이 화면의 주요 피사체인가? "
+                      "제품·기기만 있거나 사람이 배경의 작은 요소면 NO. 답은 YES 또는 NO 한 단어만."],
+        )
+        verdict = (resp.text or "").strip().upper().startswith("YES")
+        if verdict:
+            logger.info("인물 중심 컷 감지 — 초상 리스크로 사용 안 함")
+        return verdict
+    except Exception as e:
+        logger.info(f"인물 판별 생략({e.__class__.__name__}: {str(e)[:50]})")
+        return False
+
+
 def _pexels_query(seed: str) -> str:
     """테크 seed → 주제 관련 Pexels 영어 쿼리(사람 배제는 image._fetch_one_image가 처리).
     _keyword_to_en이 테크 용어를 엉뚱한 쿼리(실내/화분 등)로 매핑하던 문제 보정(2026-07-16)."""
@@ -187,6 +214,8 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
         got = _og_image_from_article(link)
         if got:
             path, dom = got
+            if _person_dominant(path):
+                continue
             logger.info(f"본문 실사진: 뉴스 대표사진 확보 (출처 {dom})")
             # 캡션에 콜론(:)을 넣지 않음 — 스크린샷 파일명(alt_text 사용)에 콜론이 섞여
             # 아티팩트 업로드가 실패하던 문제(2026-07-16) 회피. 캡션 자체도 콜론 없이 자연스럽다.
@@ -217,7 +246,9 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
         got = _og_image_from_article(link)  # 신뢰언론사 화이트리스트+블록호스트 검증은 내부에서
         if got:
             path, d = got
+            if _person_dominant(path):  # 연예인·모델 홍보컷 초상 리스크 차단
+                continue
             used_domains.add(d)
             photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
-    logger.info(f"섹션 실사진 확보: {len(photos)}장 (전부 신뢰 언론사 og)")
+    logger.info(f"섹션 실사진 확보: {len(photos)}장 (전부 신뢰 언론사 og, 인물컷 제외)")
     return photos
