@@ -123,7 +123,9 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
         if got:
             path, dom = got
             logger.info(f"본문 실사진: 뉴스 대표사진 확보 (출처 {dom})")
-            return {"local_path": path, "label": f"출처: {dom}" if dom else "출처: 뉴스", "source": "og"}
+            # 캡션에 콜론(:)을 넣지 않음 — 스크린샷 파일명(alt_text 사용)에 콜론이 섞여
+            # 아티팩트 업로드가 실패하던 문제(2026-07-16) 회피. 캡션 자체도 콜론 없이 자연스럽다.
+            return {"local_path": path, "label": f"출처 {dom}" if dom else "출처 뉴스", "source": "og"}
 
     # 2순위: Pexels 스톡 (안전 폴백)
     if pexels_key:
