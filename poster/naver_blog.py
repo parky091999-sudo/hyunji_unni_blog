@@ -2185,15 +2185,61 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
             except Exception:
                 continue
 
-        # ④ 실패 디버그 덤프
+        # ④ SE ONE 열 컨트롤바 핸들 클릭 → 팝업 '열 삭제' (헤드리스에서 우클릭 메뉴가 안 뜨는 경우 대안)
         try:
-            visible = await target.evaluate("""() =>
-                [...document.querySelectorAll('button,[role=menuitem]')]
-                  .filter(b => b.offsetParent && (b.textContent||'').trim())
-                  .map(b => ({txt:(b.textContent||'').trim().slice(0,25), dn:b.getAttribute('data-name'), cls:(b.className||'').slice(0,40)}))
-                  .slice(0,20)
-            """)
-            logger.info(f"[열삭제 실패 가시버튼] {visible}")
+            await page.mouse.move(cx, cy)
+            await _delay(200, 350)
+            ctrl_sels = [
+                ".se-cell-controlbar-col", ".se-controlbar-col", ".se-table-controlbar-col",
+                ".se-cell-controlbar-column", "[class*='controlbar'][class*='col']",
+                "[class*='cell-controlbar']",
+            ]
+            for csel in ctrl_sels:
+                loc = target.locator(csel)
+                if not await loc.count():
+                    continue
+                try:
+                    await loc.last.click(timeout=1200)
+                    await _delay(300, 500)
+                except Exception:
+                    continue
+                for fr in [target, page]:
+                    items = fr.locator("button, [role='menuitem'], .se-popup-item, li, a")
+                    for i in range(min(await items.count(), 60)):
+                        it = items.nth(i)
+                        try:
+                            if not await it.is_visible(timeout=120):
+                                continue
+                            t = (await it.inner_text()).strip()
+                            if t in ("열 삭제", "칼럼 삭제") or ("삭제" in t and "열" in t and len(t) <= 8):
+                                await it.click(timeout=1500)
+                                await _delay(400, 600)
+                                logger.info(f"열 삭제 성공(컨트롤바 메뉴): {t}")
+                                return True
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.info(f"컨트롤바 열삭제 시도 실패: {str(e)[:50]}")
+
+        # ⑤ 실패 디버그 덤프 — 표 관련 컨트롤(controlbar/cell/col)과 '삭제'/'열' 텍스트 요소 포괄 수집
+        try:
+            dump = await target.evaluate("""() => {
+                const out = {controls: [], menus: []};
+                for (const el of document.querySelectorAll("[class*='controlbar'],[class*='cell-control'],[class*='se-cell'],[class*='se-table']")) {
+                    const c = (el.className||'').toString();
+                    if (/control|handle|col|row|delete/i.test(c))
+                        out.controls.push({tag:el.tagName.toLowerCase(), cls:c.slice(0,55), vis:!!el.offsetParent});
+                }
+                for (const b of document.querySelectorAll("button,[role=menuitem],.se-popup-item,li,a")) {
+                    const t = (b.textContent||'').trim();
+                    if (b.offsetParent && (/삭제|열|행/.test(t)) && t.length<=12)
+                        out.menus.push({txt:t, cls:(b.className||'').slice(0,45), dn:b.getAttribute('data-name')});
+                }
+                out.controls = out.controls.slice(0,25); out.menus = out.menus.slice(0,25);
+                return out;
+            }""")
+            logger.info(f"[열삭제 실패 DOM덤프] controls={dump.get('controls')}")
+            logger.info(f"[열삭제 실패 DOM덤프] menus={dump.get('menus')}")
         except Exception:
             pass
         await page.keyboard.press("Escape")
@@ -3343,10 +3389,10 @@ async def _post(
                         _tf = await _get_editor_frame(write_page)
                         _first_para = _tf.locator(".se-section-text .se-text-paragraph").first
                         if await _first_para.count():
-                            await _first_para.click()
-                            # 표 밖 텍스트 섹션으로 포커스가 온 상태에서 Control+Home으로 문서 절대
-                            # 최상단(첫 단락 시작)으로. Home만 쓰면 랩된 둘째 줄 시작에 캐럿이 놓여
-                            # 리드 문장을 두 동강 내며 이미지가 문단 중간에 끼던 문제(2026-07-16).
+                            # ★첫 단락의 '좌상단'을 클릭해 캐럿을 문단 맨 앞(offset 0)에 둔다.
+                            # 중앙 클릭(기본)은 캐럿을 랩된 둘째 줄 중간에 놓아 Control+Home으로도
+                            # offset 0까지 못 가고 리드 문장을 두 동강 내던 문제(2026-07-16 실측).
+                            await _first_para.click(position={"x": 2, "y": 2})
                             await write_page.keyboard.press("Control+Home")
                             await _delay(150, 300)
                         if await _caret_in_table(write_page):

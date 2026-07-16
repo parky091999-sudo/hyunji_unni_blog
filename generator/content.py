@@ -439,6 +439,20 @@ def _parse_response(raw: str) -> dict | None:
             # 모델이 커스텀 [소제목] 마커 대신 마크다운 ATX 헤더(#~######)를 쓰는 경우 대비 —
             # 그대로 두면 "### 텍스트"가 스타일 적용 없이 본문에 리터럴 노출됨(실라이브 확인).
             body = re.sub(r"^#{1,6}\s+", "[소제목] ", body, flags=re.MULTILINE)
+            # 모델이 [소제목]/# 대신 HTML(<div ...><b>제목</b></div> 또는 <b>/<strong> 단독줄)을
+            # 뱉는 경우 → [소제목]으로 변환해 스타일 유지. 그 외 잔여 태그는 제거해 리터럴 노출 방지
+            # (2026-07-16 hyungsutech 실측: <div style=...><b>무슨 일이 있었나</b></div>가 본문에 노출).
+            body = re.sub(
+                r"^\s*<div[^>]*>\s*<(?:b|strong)>\s*(.+?)\s*</(?:b|strong)>\s*</div>\s*$",
+                r"[소제목] \1", body, flags=re.MULTILINE | re.IGNORECASE,
+            )
+            body = re.sub(
+                r"^\s*<(?:b|strong)>\s*(.+?)\s*</(?:b|strong)>\s*$",
+                r"[소제목] \1", body, flags=re.MULTILINE | re.IGNORECASE,
+            )
+            body = re.sub(r"<br\s*/?>", "\n", body, flags=re.IGNORECASE)
+            # 실제 HTML 태그만 제거(< 뒤 ASCII 영문자) — 한글 '<사진>'·부등호 '5<10'은 보존
+            body = re.sub(r"</?[a-zA-Z][^>]*>", "", body)
             # 모델이 ①②③ 대신 아라비아 "1. " 번호를 쓰면 SE ONE 오토포맷이 타이핑 중
             # 네이티브 번호 리스트를 만들어 리터럴 번호와 중복됨("2. 2." — 2026-07-06
             # 도시가스 라이브 실사고). 원형 숫자로 정규화해 검증된 변환 경로
