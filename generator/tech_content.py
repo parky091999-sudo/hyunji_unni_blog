@@ -274,8 +274,12 @@ def pick_tech_topic(days: int = 7, exclude: set | None = None) -> dict | None:
     if best_score <= 0:
         logger.warning(f"소비자 관심 신호 약함(최고점 {best_score}) — 그래도 최상위 채택: {item['title'][:30]}")
     logger.info(f"주제 선정: [{seed}] {item['title'][:40]} (점수 {best_score})")
-    # 선정 헤드라인과 같은 시드의 뉴스만 맥락으로 전달(초점 유지)
-    return {"seed": seed, "headline": item["title"], "news": news}
+    # 선정 헤드라인과 같은 시드의 뉴스만 맥락으로 전달(초점 유지).
+    # 선정 기사를 news 맨 앞으로 → 대표 실사진(og:image)이 '헤드라인 기사'에서 우선 추출되어
+    # 본문 주제와 무관한 다른 기사 사진이 대표로 붙던 문제 방지(2026-07-16: 태양광카메라 글에
+    # 폰가격 배너가 붙던 실측).
+    news_ordered = [item] + [n for n in news if n is not item]
+    return {"seed": seed, "headline": item["title"], "news": news_ordered}
 
 
 def _build_news_block(topic: dict) -> str:

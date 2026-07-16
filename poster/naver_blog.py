@@ -3344,7 +3344,10 @@ async def _post(
                         _first_para = _tf.locator(".se-section-text .se-text-paragraph").first
                         if await _first_para.count():
                             await _first_para.click()
-                            await write_page.keyboard.press("Home")
+                            # 표 밖 텍스트 섹션으로 포커스가 온 상태에서 Control+Home으로 문서 절대
+                            # 최상단(첫 단락 시작)으로. Home만 쓰면 랩된 둘째 줄 시작에 캐럿이 놓여
+                            # 리드 문장을 두 동강 내며 이미지가 문단 중간에 끼던 문제(2026-07-16).
+                            await write_page.keyboard.press("Control+Home")
                             await _delay(150, 300)
                         if await _caret_in_table(write_page):
                             logger.warning("헤더 이미지: 최상단 단락 클릭 후에도 캐럿이 표 안 — 삽입 위치 주의")
