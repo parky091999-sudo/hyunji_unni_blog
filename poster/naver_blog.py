@@ -2164,7 +2164,17 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
         # ★[정밀·1순위] SE ONE 표 컨트롤 정확 경로(2026-07-16 DOM덤프 확인):
         #   셀 클릭 → 컨트롤바 노출 → '{N}열 선택'(.se-cell-select-button)로 마지막 열 전체 선택
         #   → 컨텍스트 메뉴 '삭제' 클릭. 전부 스크롤+page.mouse 실좌표 클릭으로.
+        async def _last_table_cols() -> int:
+            try:
+                return await target.evaluate("""() => {
+                    const ts = document.querySelectorAll('table'); if(!ts.length) return -1;
+                    const r = ts[ts.length-1].querySelector('tr'); return r ? r.children.length : -1;
+                }""")
+            except Exception:
+                return -1
+
         try:
+            cols_before = await _last_table_cols()
             await page.mouse.click(cx, cy)
             await _delay(300, 500)
             last_idx = cur_grid_cols - 1
@@ -2175,16 +2185,24 @@ async def _delete_table_last_col(page: Page, cur_grid_cols: int) -> bool:
             logger.info(f"[열삭제] '{last_idx}열 선택' 버튼 {sc}개 발견")
             if sc and await _mouse_click_center(sel_btn.last):
                 await _delay(400, 600)
-                del_btn = target.locator(
-                    ".se-cell-context-menu-button.se-context-menu-button-delete, "
-                    ".se-cell-context-menu-item"
-                ).filter(has_text="삭제")
-                dc = await del_btn.count()
-                logger.info(f"[열삭제] 삭제버튼 {dc}개 발견(열 선택 후)")
-                if dc and await _mouse_click_center(del_btn.first):
+                # 삭제 후보: 특정 삭제 버튼 → 일반 컨텍스트메뉴 '삭제' 순으로, 실제 열 수가 줄 때까지 시도.
+                # (이전엔 클릭만 하고 '성공' 로깅했으나 실제로는 안 지워지던 오탐 — 열 수로 검증, 2026-07-16)
+                del_candidates = [
+                    target.locator(".se-cell-context-menu-button.se-context-menu-button-delete"),
+                    target.locator(".se-cell-context-menu-button").filter(has_text="삭제"),
+                    target.locator(".se-cell-context-menu-item").filter(has_text="삭제"),
+                ]
+                for cand in del_candidates:
+                    if not await cand.count():
+                        continue
+                    if not await _mouse_click_center(cand.first):
+                        continue
                     await _delay(500, 700)
-                    logger.info(f"열 삭제 성공(열선택+삭제 실좌표 클릭): {last_idx}열")
-                    return True
+                    cols_after = await _last_table_cols()
+                    if cols_before > 0 and 0 < cols_after < cols_before:
+                        logger.info(f"열 삭제 성공(검증됨 {cols_before}→{cols_after}열)")
+                        return True
+                    logger.info(f"[열삭제] 클릭했으나 열 수 변화 없음({cols_before}→{cols_after}) — 다음 후보")
         except Exception as e:
             logger.info(f"열선택+삭제 시도 실패(폴백 진행): {e.__class__.__name__}: {str(e)[:50]}")
 
@@ -3443,6 +3461,10 @@ async def _post(
                             # offset 0까지 못 가고 리드 문장을 두 동강 내던 문제(2026-07-16 실측).
                             await _first_para.click(position={"x": 2, "y": 2})
                             await write_page.keyboard.press("Control+Home")
+                            # Control+Home이 offset 1에 멈춰 첫 글자를 쪼개던('최|근') 잔여 케이스 방어:
+                            # ArrowLeft로 절대 맨 앞(offset 0)까지 확실히 이동(맨앞이면 무동작).
+                            for _ in range(3):
+                                await write_page.keyboard.press("ArrowLeft")
                             await _delay(150, 300)
                         if await _caret_in_table(write_page):
                             logger.warning("헤더 이미지: 최상단 단락 클릭 후에도 캐럿이 표 안 — 삽입 위치 주의")
