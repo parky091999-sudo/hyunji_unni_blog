@@ -3,7 +3,7 @@ name: 정부지원&혜택 포스팅
 on:
   # 리런치(2026-06-30): 고CPC 정보성 재개. 1일 1회.
   schedule:
-    - cron: "0 0 * * *"   # KST 09:00
+    - cron: "11 0 * * *"   # KST 09:11 — 정각 혼잡 회피(2026-07-17)
   workflow_dispatch:
     inputs:
       force_post:

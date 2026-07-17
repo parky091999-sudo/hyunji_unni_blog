@@ -4,7 +4,7 @@ name: 워드프레스 주제 제안 (주간)
 # 목적: 같은 주제 재발행 최소주기 365일(wp_post.py REPUBLISH_MIN_DAYS)을 지키려면 풀이 계속 커져야 함.
 on:
   schedule:
-    - cron: "0 1 * * 1"
+    - cron: "9 1 * * 1"
   workflow_dispatch:
 
 concurrency:
