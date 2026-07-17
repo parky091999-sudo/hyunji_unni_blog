@@ -800,6 +800,25 @@ async def _apply_subheading_color(page: Page, target) -> bool:
     return False
 
 
+async def _apply_bg_to_selection(page: Page) -> bool:
+    """선택 영역에 배경색(형광펜) — 버튼 기본색 1클릭 시도(팔레트 상호작용은 불가 이력).
+    실패 시 False → 호출부가 볼드 폴백 (2026-07-17 청약 네이버 음영 강조)."""
+    target = await _get_editor_frame(page)
+    for sel in ("[data-name='background-color']", ".se-toolbar-item-background-color",
+                "[data-name='backgroundColor']", "button[aria-label*='배경색']",
+                "[class*='toolbar'][class*='background-color']"):
+        try:
+            btn = target.locator(sel).first
+            if await btn.count() and await btn.is_visible(timeout=400):
+                await btn.click(timeout=1500)
+                await _delay(250, 400)
+                await page.keyboard.press("Escape")  # 팔레트가 열렸으면 닫기(무해)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def _style_paragraphs(
     page: Page,
     texts: list[str],
@@ -843,7 +862,13 @@ async def _style_paragraphs(
             await _delay(150, 260)
             
             ok_styled = False
-            if style_type == "heading":
+            if style_type == "highlight":
+                # 줄 단위 음영(형광펜) — 실패 시 볼드 폴백(중요 표시가 아예 없는 것 방지)
+                ok_styled = await _apply_bg_to_selection(page)
+                if not ok_styled:
+                    await page.keyboard.press("Control+b")
+                    ok_styled = True
+            elif style_type == "heading":
                 ok_styled = await _apply_paragraph_style(page, "제목 2")
             elif style_type in ["quotation", "quotation_vertical"]:
                 await page.keyboard.press("Backspace")
@@ -2585,8 +2610,11 @@ async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor
     """FAQ (질문/답변) 짝을 네이버 에디터 인용구 하나에 묶어서 개행 타이핑하여 삽입"""
     if not faq_pairs:
         return False
-    # FAQ도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지
-    faq_pairs = [(_EMPHASIS_RE.sub(r"\1", q), _EMPHASIS_RE.sub(r"\1", a)) for q, a in faq_pairs]
+    # FAQ도 별도 타이핑 경로 — [[강조]] 마커 리터럴 노출 방지.
+    # ★공백·개행 정규화: A 끝의 잔여 개행이 그대로 타이핑돼 인용구 안에 빈 줄 2줄이 남던
+    # 문제(2026-07-17 청약 draft 사용자 피드백) — Q/A를 한 문단으로 접는다.
+    faq_pairs = [(" ".join(_EMPHASIS_RE.sub(r"\1", q).split()),
+                  " ".join(_EMPHASIS_RE.sub(r"\1", a).split())) for q, a in faq_pairs]
     logger.info(f"FAQ 인용구 삽입 시도 ({len(faq_pairs)}개 세트, 앵커텍스트: {anchor_text[:30]})")
     target = await _get_editor_frame(page)
     
@@ -3297,6 +3325,8 @@ async def _post(
     summary_text: str = "",
     summary_quote_style: str = "버티컬 라인",
     set_representative: bool = False,
+    center_align: bool = False,
+    style_line_markers: bool = False,
 ) -> dict | None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -3409,6 +3439,19 @@ async def _post(
         # 혹시 본문에 남은 표/FAQ 마커 잔재 제거(대괄호 유무 무관) — 본문 노출 방지
         body_text = re.sub(r"\[?\s*(?:표시작|표끝|FAQ시작|FAQ끝|요약시작|요약끝)\s*\]?", "", body_text)
         body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+
+        # 줄 단위 강조({{…}} 음영)·미니 소제목([[…]] 단독줄) 마커 추출 — opt-in(청약 네이버, 2026-07-17).
+        # {{…}}는 타이핑 전에 평문화하고 목록만 수집(발행 후 단락 선택 스타일링).
+        highlight_texts: list[str] = []
+        minor_headings: list[str] = []
+        if style_line_markers:
+            for m in re.finditer(r"^\{\{(.+?)\}\}\s*$", body_text, flags=re.MULTILINE):
+                highlight_texts.append(m.group(1).strip())
+            body_text = re.sub(r"^\{\{(.+?)\}\}\s*$", r"\1", body_text, flags=re.MULTILINE)
+            for m in re.finditer(r"^\[\[(.+?)\]\]\s*$", body_text, flags=re.MULTILINE):
+                minor_headings.append(m.group(1).strip())
+        # 인라인 {{…}} 잔재는 어느 모드든 평문화(리터럴 노출 방지)
+        body_text = re.sub(r"\{\{(.+?)\}\}", r"\1", body_text)
 
         logger.info(f"본문 전체 입력 시작 ({len(body_text)}자, [사진] 마커 {len(marker_positions)}개, 표 {len(table_jobs)}개, FAQ앵커텍스트: {faq_anchor_text[:20] if faq_anchor_text else None})")
         await _type_in_editor(write_page, body_text)
@@ -3634,6 +3677,34 @@ async def _post(
         if set_representative and images_inserted >= 2:
             await _set_first_image_representative(write_page)
 
+        # ── 마무리 서식 (opt-in, 2026-07-17 청약 네이버): 전체 가운데 정렬 → 미니 소제목 → 음영 ──
+        if center_align:
+            try:
+                tf = await _get_editor_frame(write_page)
+                first_para = tf.locator(".se-section-text .se-text-paragraph").first
+                if await first_para.count():
+                    await first_para.click(timeout=3000)
+                    await _delay(150, 300)
+                await write_page.keyboard.press("Control+a")
+                await _delay(200, 350)
+                ok_center = await _apply_align_center(write_page)
+                await write_page.keyboard.press("Control+End")
+                logger.info(f"본문 전체 가운데 정렬: {'성공' if ok_center else '실패(좌정렬 유지)'}")
+            except Exception as e:
+                logger.info(f"가운데 정렬 실패(계속): {e.__class__.__name__}")
+        if style_line_markers and minor_headings:
+            try:
+                await _style_paragraphs(write_page, minor_headings, size_label="19",
+                                        bold=True, label="미니 소제목", style_type=None)
+            except Exception as e:
+                logger.info(f"미니 소제목 스타일 실패(계속): {e.__class__.__name__}")
+        if style_line_markers and highlight_texts:
+            try:
+                await _style_paragraphs(write_page, highlight_texts, size_label=None,
+                                        bold=False, label="음영 강조", style_type="highlight")
+            except Exception as e:
+                logger.info(f"음영 강조 실패(계속): {e.__class__.__name__}")
+
         # 발행 전 휴먼 제스처 시뮬레이션
         await _simulate_human_review(write_page)
 
@@ -3673,6 +3744,8 @@ def post_to_naver_blog(
     summary_text: str = "",
     summary_quote_style: str = "버티컬 라인",
     set_representative: bool = False,
+    center_align: bool = False,
+    style_line_markers: bool = False,
 ) -> dict | None:
     return asyncio.run(
         _post(
@@ -3695,5 +3768,7 @@ def post_to_naver_blog(
             summary_text=summary_text,
             summary_quote_style=summary_quote_style,
             set_representative=set_representative,
+            center_align=center_align,
+            style_line_markers=style_line_markers,
         )
     )

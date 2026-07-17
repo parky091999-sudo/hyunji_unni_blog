@@ -136,8 +136,8 @@ def run():
     marker_n = 2
     for c in captures:
         anchor = plan_anchor if "평면" in c["label"] else money_anchor
-        src_line = f"(위 자료: {name} 입주자모집공고문 p.{c.get('page', '')} — 출처: 청약홈)"
-        block = f"[사진{marker_n}]\n{src_line}\n"
+        # 출처는 본문에 안 적고 말미 '자료 출처' 섹션에 몰아서(2026-07-17 사용자 피드백)
+        block = f"[사진{marker_n}]\n"
         pat = f"[구분선]\n{anchor}\n" if anchor else ""
         if pat and pat in body:
             body = body.replace(pat, block + pat, 1)
@@ -152,6 +152,16 @@ def run():
             img["insert_before"] = anchor
         images.append(img)
         marker_n += 1
+
+    # 말미 '자료 출처' 섹션 — 본문 곳곳의 출처 표기를 여기로 일원화
+    src_lines = ["· 입주자모집공고문 원문: 청약홈(applyhome.co.kr)"]
+    if captures:
+        pages = "·".join(f"p.{c.get('page', '')}" for c in captures)
+        src_lines.append(f"· 본문 표 이미지: 입주자모집공고문 {pages} 캡처 (출처: 청약홈)")
+    if "주변 아파트 실거래 시세(국토교통부, 최근 6개월)" in facts:
+        src_lines.append("· 실거래가: 국토교통부 실거래가 공개시스템")
+    body += "\n\n[구분선]\n자료 출처\n" + "\n".join(src_lines) + "\n"
+    post.setdefault("subheadings", subs).append("자료 출처")
     post["body"] = body
     logger.info(f"이미지 구성: 헤더 1장 + 공고문 캡처 {len(captures)}장 "
                 f"(마커 [사진2]~, 금액표→'{money_anchor[:14]}' 앞)")
@@ -177,6 +187,8 @@ def run():
             category=BLOG_CATEGORY,
             faq_pairs=post.get("faq_pairs", []),
             summary_text=post.get("summary_text", ""),
+            center_align=True,        # 전체 가운데 정렬 (2026-07-17 사용자 피드백)
+            style_line_markers=True,  # [[미니 소제목]]·{{음영 강조}} 줄 마커 스타일링
         )
     except Exception as e:
         logger.error(f"포스팅 중 예외: {e}")
