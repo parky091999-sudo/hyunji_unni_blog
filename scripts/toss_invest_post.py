@@ -75,17 +75,18 @@ def _ensure_category() -> None:
 
 
 def run():
-    from generator.toss_collector import build_invest_facts, is_mock
+    from generator.toss_collector import build_invest_facts, is_mock, has_manual_snapshot
 
     status = os.environ.get("WP_STATUS", "publish").strip().lower()
     dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
     allow_mock = os.environ.get("ALLOW_MOCK", "false").lower() == "true"
 
-    if is_mock():
+    manual = is_mock() and has_manual_snapshot()  # 캡처 스냅샷 = 실데이터(반자동 모드)
+    if is_mock() and not manual:
         if not (allow_mock or dry_run):
             logger.info("토스 키 미발급(MOCK) — 크론 스킵. 검증은 ALLOW_MOCK=true 또는 DRY_RUN=true")
             return
-        status = "draft"  # MOCK은 어떤 경우에도 실발행 금지
+        status = "draft"  # 가짜(MOCK) 데이터는 어떤 경우에도 실발행 금지
         logger.warning("MOCK 모드 — 강제 draft")
 
     history = _load_history()

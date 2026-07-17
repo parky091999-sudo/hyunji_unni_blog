@@ -141,8 +141,35 @@ def _pct(v) -> str:
     return f"{_num(v) * 100:.2f}%"
 
 
+_MANUAL_PATH = os.path.join(DATA_DIR, "toss_manual_snapshot.json")
+
+
+def has_manual_snapshot() -> bool:
+    return os.path.exists(_MANUAL_PATH)
+
+
+def build_manual_facts(period_label: str) -> dict:
+    """API 승인 전 반자동 모드 — 사용자가 캡처로 준 실계좌 스냅샷(수기 파싱본)을 팩트로.
+    계좌번호 등 식별정보는 스냅샷에 아예 넣지 않는 것이 원칙(2026-07-17)."""
+    s = json.load(open(_MANUAL_PATH, encoding="utf-8"))
+    facts = {
+        "기준": f"{period_label} (토스증권 실계좌, {s.get('as_of', '')} 캡처 기준)",
+        "계좌 요약": s.get("summary", {}),
+        "보유 종목": s.get("holdings", []),
+        "이번 주 매매·자금 흐름": s.get("trades_this_week", []),
+        "최근 배당": s.get("dividends_recent", []),
+        "대기 중인 조건주문": s.get("pending_orders", []),
+        "운용 메모(주인장 관점)": s.get("notes", []),
+    }
+    return {k: v for k, v in facts.items() if v}
+
+
 def build_invest_facts(period_label: str) -> dict:
-    """holdings+orders → deep_content facts. 계좌번호 등 식별정보는 수집 자체를 안 한다."""
+    """holdings+orders → deep_content facts. 계좌번호 등 식별정보는 수집 자체를 안 한다.
+    키 미발급이어도 수동 스냅샷이 있으면 그것(실데이터)을 우선 사용."""
+    if is_mock() and has_manual_snapshot():
+        logger.info("토스 수동 스냅샷(실계좌 캡처) 모드 — API 승인 전 반자동")
+        return build_manual_facts(period_label)
     h = fetch_holdings()
     orders = fetch_recent_orders()
     fx = fetch_exchange_rate()
