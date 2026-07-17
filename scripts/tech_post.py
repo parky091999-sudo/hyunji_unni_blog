@@ -29,11 +29,14 @@ from config import (
 )
 
 KST = timezone(timedelta(hours=9))
-BLOG_CATEGORY = "IT·테크"
 HISTORY_PATH = os.path.join(DATA_DIR, "tech_history.json")
 
 # 형식 로테이션 순서 — 매 발행 다음 형식으로 (지루함 방지)
 FMT_ROTATION = ["breaking", "explain", "pick", "compare"]
+
+# 카테고리별 하루 1편 발행 순서 (2026-07-17 사용자 지시) — 크론 슬롯마다
+# '오늘 아직 안 나간 카테고리' 중 첫 번째를 발행. 뉴스 없으면 다음 카테고리로 넘어감.
+CATEGORY_ORDER = ["스마트폰·모바일", "PC·노트북", "가전·디지털", "자동차·모빌리티", "AI·IT"]
 
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
@@ -61,12 +64,17 @@ def _save_history(history: list):
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 
-def _already_posted_this_run(history: list, run_slot: str) -> bool:
+def _posted_categories_today(history: list) -> set:
+    """오늘 이미 발행된 블로그 카테고리 집합. 구 이력(category 필드 없음)은 seed로 역추론."""
+    from generator.tech_content import SEED_CATEGORY
     today = datetime.now(KST).strftime("%Y-%m-%d")
+    cats = set()
     for h in history:
-        if h.get("date") == today and h.get("run_slot") == run_slot and h.get("status") == "posted":
-            return True
-    return False
+        if h.get("date") == today and h.get("status") == "posted":
+            cat = h.get("category") or SEED_CATEGORY.get(h.get("seed", ""), "")
+            if cat:
+                cats.add(cat)
+    return cats
 
 
 def _recent_headlines(history: list, days: int = 14) -> set:
@@ -98,6 +106,22 @@ def _clean_shopping_placeholder(body: str) -> str:
     return body
 
 
+def _extract_summary_for_postit(post: dict):
+    """본문의 '핵심 요약' 소제목+불릿 섹션을 인용구용으로 분리 (2026-07-17 사용자 지시).
+    성공 시 post['summary_text']를 채우고 본문 자리는 [요약삽입] 마커로 교체
+    → poster가 도입부 뒤 '포스트잇' 인용구 블록으로 삽입한다."""
+    body = post.get("body", "")
+    m = re.search(r"\[구분선\]\n([^\n]*(?:요약|핵심만)[^\n]*)\n((?:·[^\n]+\n?)+)", body)
+    if not m:
+        logger.info("핵심 요약 섹션 미검출 — 포스트잇 인용구 생략(본문 그대로)")
+        return
+    post["summary_text"] = m.group(2).strip()
+    post["body"] = body[:m.start()] + "[요약삽입]\n" + body[m.end():]
+    sub = m.group(1).strip()
+    post["subheadings"] = [s for s in post.get("subheadings", []) if s != sub]
+    logger.info(f"핵심 요약 {len(post['summary_text'].splitlines())}줄 → 포스트잇 인용구로 분리 ('{sub}')")
+
+
 def run():
     run_slot = os.environ.get("RUN_SLOT", datetime.now(KST).strftime("%H"))
     logger.info("=" * 60)
@@ -123,26 +147,41 @@ def run():
         sys.exit(1)
 
     history = _load_history()
-    if _already_posted_this_run(history, run_slot) and not force and not draft and not dry_run:
-        logger.info(f"오늘 슬롯 {run_slot}에 이미 발행 완료 — 건너뜀")
-        return
 
-    # ── 1. 형식 + 주제 선정 ──
-    from generator.tech_content import generate_tech_post, pick_tech_topic, category_for_seed
+    # ── 1. 카테고리(하루 1편) + 형식 + 주제 선정 ──
+    from generator.tech_content import generate_tech_post, pick_tech_topic, SEED_CATEGORY
 
     forced_fmt = os.environ.get("FORCE_FMT", "").strip()
     fmt = forced_fmt if forced_fmt in FMT_ROTATION else _next_format(history)
 
+    # 카테고리별 하루 1편(2026-07-17 사용자 지시): 크론 슬롯마다 '오늘 미발행 카테고리'를
+    # 순서대로 시도 → 뉴스 없는 카테고리는 건너뛰어 슬롯을 낭비하지 않는다.
+    forced_cat = os.environ.get("TECH_CATEGORY", "").strip()
+    posted_today = set() if force else _posted_categories_today(history)
+    if forced_cat:
+        cats_to_try = [forced_cat]
+    else:
+        cats_to_try = [c for c in CATEGORY_ORDER if c not in posted_today]
+    if not cats_to_try:
+        logger.info(f"오늘 카테고리별 1편({len(CATEGORY_ORDER)}편) 전부 발행 완료 — 슬롯 {run_slot} 건너뜀")
+        return
+
     # 최근 발행 헤드라인은 후보에서 원천 제외 — 같은 뉴스가 연일 상위여도 재발행 안 함(2026-07-16)
     recent_heads = _recent_headlines(history)
-    topic = pick_tech_topic(exclude_headlines=recent_heads)
+    topic, _post_category = None, ""
+    for cat in cats_to_try:
+        cat_seeds = [s for s, c in SEED_CATEGORY.items() if c == cat]
+        topic = pick_tech_topic(exclude_headlines=recent_heads, seeds=cat_seeds)
+        if topic:
+            _post_category = cat
+            break
+        logger.info(f"카테고리 '{cat}' 최신 소비자 뉴스 없음 — 다음 카테고리 시도")
     if topic is None:
         # 뉴스 없음 또는 소비자 주제 점수 미달 — 억지 발행 대신 정상 스킵(2026-07-16)
-        logger.warning("발행할 소비자 주제 없음(뉴스 부족 또는 전부 B2B성) — 오늘 스킵")
+        logger.warning("발행할 소비자 주제 없음(잔여 카테고리 전부 뉴스 부족/B2B성) — 이번 슬롯 스킵")
         sys.exit(0)
 
-    _post_category = category_for_seed(topic["seed"])
-    logger.info(f"형식={fmt} | 시드={topic['seed']} | 카테고리={_post_category} | 주제={topic['headline'][:40]}")
+    logger.info(f"형식={fmt} | 카테고리={_post_category} | 시드={topic['seed']} | 주제={topic['headline'][:40]}")
 
     # ── 2. 글 생성 ──
     post = generate_tech_post(GOOGLE_API_KEY, fmt=fmt, topic=topic)
@@ -154,6 +193,9 @@ def run():
     if post.get("body"):
         post["body"] = re.sub(r"^\s*\[사진([2-9]|\d{2,})\]\s*$\n?", "", post["body"], flags=re.MULTILINE)
         post["body"] = _clean_shopping_placeholder(post["body"])
+
+    # 핵심 요약 섹션 → 포스트잇 인용구로 분리 (2026-07-17 사용자 지시)
+    _extract_summary_for_postit(post)
 
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:600] + "...\n===== 끝 =====")
@@ -278,6 +320,7 @@ def run():
             category=_post_category,
             faq_pairs=post.get("faq_pairs", []),
             summary_text=post.get("summary_text", ""),
+            summary_quote_style="포스트잇",  # 핵심 요약=포스트잇 인용구 (2026-07-17 사용자 지시)
             set_representative=True,  # 헤더카드를 홈판 대표 썸네일로(tech 전용 opt-in)
         )
     except Exception as e:
@@ -298,7 +341,7 @@ def run():
         "fmt": fmt,
         "seed": post.get("seed", ""),
         "headline": topic["headline"],
-        "blog_category": BLOG_CATEGORY,
+        "category": _post_category,  # 카테고리별 하루 1편 가드 기준(2026-07-17)
         "title": post["title"],
         "tags": post["tags"],
         "status": "posted" if is_posted else "failed",

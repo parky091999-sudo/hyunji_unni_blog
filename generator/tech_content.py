@@ -43,8 +43,8 @@ TECH_SEEDS = [
     "로봇청소기", "에어프라이어", "삼성 TV 신제품", "무선청소기", "공기청정기", "제습기",
     # 자동차 (소비자 관심 신차/전기차)
     "아이오닉", "기아 EV", "테슬라 모델", "전기차 신차 출시",
-    # AI 소비자 서비스
-    "챗GPT 신기능", "AI 스마트폰",
+    # AI 소비자 서비스 (카테고리별 하루 1편 전환으로 AI·IT 시드 보강, 2026-07-17)
+    "챗GPT 신기능", "AI 스마트폰", "제미나이", "AI 노트북",
 ]
 
 # 시드 → 블로그 카테고리 매핑 (hyungsutech에 생성된 주제별 카테고리로 자동 분류)
@@ -58,7 +58,7 @@ SEED_CATEGORY = {
     "무선청소기": "가전·디지털", "공기청정기": "가전·디지털", "제습기": "가전·디지털",
     "아이오닉": "자동차·모빌리티", "기아 EV": "자동차·모빌리티", "테슬라 모델": "자동차·모빌리티",
     "전기차 신차 출시": "자동차·모빌리티",
-    "챗GPT 신기능": "AI·IT", "AI 스마트폰": "AI·IT",
+    "챗GPT 신기능": "AI·IT", "AI 스마트폰": "AI·IT", "제미나이": "AI·IT", "AI 노트북": "AI·IT",
 }
 
 
@@ -267,15 +267,17 @@ def _score_headline(title: str) -> int:
 
 
 def pick_tech_topic(days: int = 7, exclude: set | None = None,
-                    exclude_headlines: set | None = None) -> dict | None:
+                    exclude_headlines: set | None = None,
+                    seeds: list | None = None) -> dict | None:
     """여러 시드의 최신 뉴스를 모아 '소비자 관심도' 최고 헤드라인을 글감으로 선정.
     학술/B2B/지역 뉴스는 감점으로 배제 → 트래픽 되는 소비자 주제로 편향.
     exclude_headlines: 최근 발행 헤드라인 — 후보에서 원천 제외(같은 글감 반복 발행 방지, 2026-07-16).
+    seeds: 시드 부분집합(카테고리별 하루 1편 발행용, 2026-07-17) — 없으면 전체 TECH_SEEDS.
     반환: {seed, headline, news:[...]} — headline이 실제 글 주제.
     """
     exclude = exclude or set()
     exclude_headlines = exclude_headlines or set()
-    seeds = [s for s in TECH_SEEDS if s not in exclude]
+    seeds = [s for s in (seeds or TECH_SEEDS) if s not in exclude]
     random.shuffle(seeds)
     candidates = []  # (score, seed, news_item, news_list)
     for seed in seeds[:10]:

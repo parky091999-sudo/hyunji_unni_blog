@@ -2776,12 +2776,23 @@ async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
             
             if quote_type:
                 # 네이버 인용구 스타일은 텍스트 라벨이 아닌 아이콘 버튼이라, 다양한 셀렉터로 탐색.
-                # '버티컬 라인'(세로줄) 스타일을 우선 적용.
-                style_sels = [
-                    "[data-value='line']", "[data-name='quotation-line']",
-                    ".se-quotation-style-line", "[class*='quotation-style-line']",
-                    "[class*='quotation'][class*='line']", "[class*='vertical']",
-                    "button[aria-label*='라인']", "[aria-label*='세로']",
+                # 스타일별 후보 셀렉터 — 못 찾으면 기본 인용구로 폴백(리터럴 노출 없음).
+                _style_sels_map = {
+                    "버티컬 라인": [
+                        "[data-value='line']", "[data-name='quotation-line']",
+                        ".se-quotation-style-line", "[class*='quotation-style-line']",
+                        "[class*='quotation'][class*='line']", "[class*='vertical']",
+                        "button[aria-label*='라인']", "[aria-label*='세로']",
+                    ],
+                    # 포스트잇(메모지) — SE ONE 인용구 5번째 스타일 (2026-07-17 형수테크 핵심요약용)
+                    "포스트잇": [
+                        "[data-value='postit']", "[data-name='quotation-postit']",
+                        ".se-quotation-style-postit", "[class*='quotation-style-postit']",
+                        "[class*='quotation'][class*='postit']", "[class*='postit']",
+                        "button[aria-label*='포스트잇']", "[aria-label*='포스트잇']",
+                    ],
+                }
+                style_sels = _style_sels_map.get(quote_type, []) + [
                     f"button:has-text('{quote_type}')", f"[role='option']:has-text('{quote_type}')",
                 ]
                 applied = False
@@ -2791,7 +2802,7 @@ async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
                         if await opt.count() and await opt.is_visible(timeout=500):
                             await opt.click(timeout=1500)
                             await _delay(300, 550)
-                            logger.info(f"인용구 버티컬라인 스타일 적용: {sel}")
+                            logger.info(f"인용구 '{quote_type}' 스타일 적용: {sel}")
                             applied = True
                             break
                     except Exception:
@@ -2806,8 +2817,9 @@ async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
     return False
 
 
-async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str) -> bool:
-    """도입부 뒤 앵커 위치에 핵심 요약 버티컬라인 인용구 블록 삽입"""
+async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str,
+                                quote_style: str = "버티컬 라인") -> bool:
+    """도입부 뒤 앵커 위치에 핵심 요약 인용구 블록 삽입 (기본 버티컬라인, tech=포스트잇)"""
     if not summary_text:
         return False
     # 요약 블록은 본문과 별도 타이핑 경로 — [[강조]] 마커가 그대로 노출되므로 텍스트만 남김
@@ -2822,7 +2834,7 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str)
             await _delay(150, 300)
         await page.keyboard.press("Enter")
         await _delay(300, 500)
-        ok = await _apply_quotation(page, quote_type="버티컬 라인")
+        ok = await _apply_quotation(page, quote_type=quote_style or "버티컬 라인")
         if ok:
             # ★요약 불릿을 '✓ '로 통일(2026-07-05 사용자 지시). 카테고리마다 마커가 달랐고
             # (info/gov=✓, stock=·), 내어쓰기 폴백이 '✓' 위에 '· '를 덧붙여 '· ✓' 중복 +
@@ -3253,6 +3265,7 @@ async def _post(
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
     summary_text: str = "",
+    summary_quote_style: str = "버티컬 라인",
     set_representative: bool = False,
 ) -> dict | None:
     async with async_playwright() as pw:
@@ -3427,10 +3440,11 @@ async def _post(
             except Exception as e:
                 logger.warning(f"FAQ 인용구 세트 삽입 예외(계속): {e}")
 
-        # ── 핵심 요약 버티컬라인 블록 삽입 (도입부 바로 뒤) ──
+        # ── 핵심 요약 인용구 블록 삽입 (도입부 바로 뒤, 스타일=summary_quote_style) ──
         if summary_text and summary_anchor_text is not None:
             try:
-                ok_summary = await _insert_summary_block(write_page, summary_text, summary_anchor_text)
+                ok_summary = await _insert_summary_block(
+                    write_page, summary_text, summary_anchor_text, quote_style=summary_quote_style)
                 logger.info(f"요약 블록 삽입 {'성공' if ok_summary else '실패(본문 유지)'}")
             except Exception as e:
                 logger.warning(f"요약 블록 삽입 예외(계속): {e}")
@@ -3627,6 +3641,7 @@ def post_to_naver_blog(
     category: str = "",
     faq_pairs: list[tuple[str, str]] | None = None,
     summary_text: str = "",
+    summary_quote_style: str = "버티컬 라인",
     set_representative: bool = False,
 ) -> dict | None:
     return asyncio.run(
@@ -3648,6 +3663,7 @@ def post_to_naver_blog(
             category=category,
             faq_pairs=faq_pairs,
             summary_text=summary_text,
+            summary_quote_style=summary_quote_style,
             set_representative=set_representative,
         )
     )

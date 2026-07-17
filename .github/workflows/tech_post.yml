@@ -2,7 +2,12 @@ name: 형수의테크공장 포스팅
 
 on:
   schedule:
+    # 카테고리별 하루 1편 × 5카테고리 (2026-07-17) — 각 슬롯이 '오늘 미발행 카테고리' 중
+    # 첫 번째를 발행. KST 09/11/13/17/21시.
     - cron: "0 0 * * *"    # KST 09:00
+    - cron: "0 2 * * *"    # KST 11:00
+    - cron: "0 4 * * *"    # KST 13:00
+    - cron: "0 8 * * *"    # KST 17:00
     - cron: "0 12 * * *"   # KST 21:00
   workflow_dispatch:
     inputs:
@@ -16,6 +21,10 @@ on:
         default: "false"
       fmt:
         description: "형식 강제 (breaking/explain/pick/compare, 비우면 자동 로테이션)"
+        required: false
+        default: ""
+      category:
+        description: "카테고리 강제 (스마트폰·모바일/PC·노트북/가전·디지털/자동차·모빌리티/AI·IT, 비우면 자동)"
         required: false
         default: ""
 
@@ -72,6 +81,7 @@ jobs:
           FORCE_POST:  ${{ github.event.inputs.force_post || 'false' }}
           DRAFT:       ${{ github.event.inputs.draft || 'false' }}
           FORCE_FMT:   ${{ github.event.inputs.fmt || '' }}
+          TECH_CATEGORY: ${{ github.event.inputs.category || '' }}
           RUN_SLOT:    ${{ env.RUN_SLOT }}
         run: python -m scripts.tech_post
 
