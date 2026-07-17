@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-17",
+    "timestamp": "2026-07-17T14:47:53.692586+09:00",
+    "run_slot": "14",
+    "fmt": "explain",
+    "seed": "픽셀 스마트폰",
+    "headline": "[칩플레이션 쇼크] 메모리값 급등에 삼성·애플·구글 신제품 가격 오르...",
+    "category": "스마트폰·모바일",
+    "title": "픽셀11 가격 오르나? 당신의 지갑이 위험한 이유",
+    "tags": [
+      "픽셀11",
+      "구글",
+      "스마트폰",
+      "가격인상",
+      "칩플레이션",
+      "테크"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224349434472",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-17",
     "timestamp": "2026-07-17T11:02:35.302008+09:00",
     "run_slot": "10",
     "fmt": "breaking",
