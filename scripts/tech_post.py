@@ -282,11 +282,8 @@ def run():
             local = _ensure_local(ph)
             if local:
                 pool.append({"local_path": local, "label": ph.get("label", ""), "kind": "실사진"})
-        want = min(len(targets), 2)
-        for sub in targets[len(pool):want]:
-            il = generate_editorial_illustration(f"{topic['seed']} {sub}", "tech", GOOGLE_API_KEY)
-            if il:
-                pool.append({"local_path": il, "label": "", "kind": "AI 일러스트"})
+        # 실사진 잔여분만, 상한 2장 — 부족하면 그만큼만 삽입(AI 일러스트 채움 폴백 삭제, 07-17)
+        pool = pool[:2]
         body = post.get("body", "")
         marker_n = 2
         for i, im in enumerate(pool):
