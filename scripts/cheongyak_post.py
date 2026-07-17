@@ -43,7 +43,9 @@ _EXTRA_INSTRUCTIONS = """\
      '모집공고문 발췌' 원문에 있는 내용만 근거로 쓰고, 발췌에 없으면 '공고문 확인 필요'로 처리
   ④ 어떤 타입이 유리한가 — 세대수·면적·가격을 비교해 경쟁률 관점 코멘트
   ⑤ 신청 유형별 체크 — 특별공급 종류·1순위 요건·규제(투기과열/조정대상/분양가상한) 적용 여부
-  ⑥ 가격은 적당한가 — 주변 시세와 비교. 검색으로 확인된 내용은 반드시 '~로 알려져 있다' 톤,
+  ⑥ 가격은 적당한가 — 팩트에 '주변 아파트 실거래 시세(국토교통부)'가 있으면 그것을 1순위
+     근거로 삼아 분양가와 직접 비교하라(예: 84㎡ 최고분양가가 같은 구 준신축 평균 대비 몇 %
+     수준인지 계산, 최근 실거래 사례 1~2건 인용). 검색 정보는 보조로만, '~로 알려져 있다' 톤,
      확인 안 되면 단정 금지
   ⑦ 마지막 소제목은 '현지언니의 판단' — [해볼 만하다 / 조건부 추천 / 보류] 셋 중 하나를 첫 문장에서
      명확히 고르고, 근거 3가지 + '이런 분께 맞다/이런 분은 보류' 를 불릿으로
@@ -139,11 +141,22 @@ def run():
     excerpt = pdf_excerpt(pdf) if pdf else ""
     captures = pdf_capture_key_pages(pdf) if pdf else []
 
+    # 주변 실거래 시세(국토부) — 가격 적정성의 확정 팩트 근거 (2026-07-17, 실패해도 발행)
+    rt_facts = None
+    try:
+        from generator.rt_price import build_trade_facts
+        rt_facts = build_trade_facts(detail.get("HSSPLY_ADRES", ""), types)
+    except Exception as e:
+        logger.warning(f"실거래 시세 수집 실패(무시): {e}")
+
+    facts = build_facts(detail, types, excerpt)
+    if rt_facts:
+        facts["주변 아파트 실거래 시세(국토교통부, 최근 6개월)"] = rt_facts
     topic = {
         "keyword": f"{name} 청약",
         "category": hub_display(HUB_ID),
         "hub_id": HUB_ID,
-        "facts": build_facts(detail, types, excerpt),
+        "facts": facts,
         "key_stats": build_key_stats(detail, types),
         "sources": [(f"{name} 입주자모집공고 (청약홈)", detail.get("PBLANC_URL", "") or "https://www.applyhome.co.kr"),
                     ("청약홈 청약일정", "https://www.applyhome.co.kr")],

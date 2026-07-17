@@ -403,8 +403,22 @@ def _parse_response(raw: str) -> dict | None:
             summary_m = _SUMMARY_RE.search(body_raw)
             result["summary_text"] = summary_m.group(1).strip() if summary_m else ""
 
-            table_strs_raw = [m.strip() for m in _TABLE_RE.findall(body_raw) if m.strip()]
-            table_strs = [_strip_empty_table_cols(t) for t in table_strs_raw]
+            def _clean_table_rows(t: str) -> str:
+                """표 행 정화 — 모델이 프롬프트 지시문('★ [표시작] 마커를 반드시…')을 에코하면
+                지시문 줄부터 표로 캡처돼 리터럴 행이 생김(2026-07-17 주거급여 라이브 실사고).
+                실데이터 행은 반드시 '|' 구분이므로: 파이프 없는 줄·지시문·마커 잔재 줄 제거."""
+                rows = []
+                for ln in t.splitlines():
+                    s = ln.strip()
+                    if not s or "|" not in s:
+                        continue
+                    if "마커를" in s or "삽입됩니다" in s or "표시작" in s or "표끝" in s:
+                        continue
+                    rows.append(s)
+                return "\n".join(rows)
+
+            table_strs_raw = [_clean_table_rows(m) for m in _TABLE_RE.findall(body_raw)]
+            table_strs = [_strip_empty_table_cols(t) for t in table_strs_raw if t.strip()]
             result["table_strs"] = table_strs
             result["table_str"] = table_strs[0] if table_strs else ""  # 하위호환(단일 표 기준 코드)
 

@@ -2621,10 +2621,13 @@ async def _insert_faq_pairs(page: Page, faq_pairs: list[tuple[str, str]], anchor
                 # 4. 답변(A) 타이핑
                 await page.keyboard.type(a_text, delay=random.randint(10, 20))
                 await _delay(300, 500)
-                
+
                 # 5. Escape 로 인용구 상자 탈출
                 await page.keyboard.press("Escape")
                 await _delay(200, 400)
+
+                # 5-1. 빈 '출처' 줄 제거 — 안 쓰는 출처 칸이 발행본에 빈 줄로 남는 문제(2026-07-17)
+                await _remove_empty_cite(page, q_text)
                 
                 # 6. 다음 FAQ와 간격 확보 위해 Enter 입력
                 await page.keyboard.press("Enter")
@@ -2764,6 +2767,30 @@ async def _format_table_header(page: Page, cell_loc, ccount: int, grid_cols: int
     logger.info(f"표 헤더/첫열 서식 적용: {applied}/{len(idxs)}개 셀 (굵게+가운데 시도)")
 
 
+async def _remove_empty_cite(page: Page, anchor_text: str) -> None:
+    """방금 삽입한 인용구의 빈 '출처' 줄 제거 (2026-07-17 사용자 피드백: 출처를 안 쓰면
+    발행본 인용구 안에 빈 줄로 남음). anchor_text가 포함된 인용구의 cite만 정밀 타겟.
+    ※Ctrl+A는 전체 문서를 선택할 위험이 있어 절대 쓰지 않는다 — 빈 cite는 Backspace만으로 제거."""
+    target = await _get_editor_frame(page)
+    try:
+        quote = target.locator(
+            f"[class*='se-quotation']:has-text({anchor_text[:20]!r})").last
+        if not await quote.count():
+            return
+        cite = quote.locator("[class*='se-cite']").first
+        if not await cite.count():
+            return
+        await cite.click(timeout=1500)
+        await _delay(150, 300)
+        await page.keyboard.press("Backspace")  # 빈 출처 블록 제거
+        await _delay(150, 300)
+        await page.keyboard.press("Escape")
+        await _delay(150, 300)
+        logger.info("인용구 빈 출처 줄 제거 완료")
+    except Exception as e:
+        logger.info(f"인용구 출처 줄 제거 실패(무시): {e.__class__.__name__}")
+
+
 async def _apply_quotation(page: Page, quote_type: str = "") -> bool:
     """현재 선택 영역 또는 위치에 인용구(Quotation) 적용"""
     target = await _get_editor_frame(page)
@@ -2855,6 +2882,9 @@ async def _insert_summary_block(page: Page, summary_text: str, anchor_text: str,
             await _delay(300, 500)
             await page.keyboard.press("Escape")
             await _delay(200, 350)
+            # 빈 '출처' 줄 제거 — 요약 인용구도 동일 문제(2026-07-17 사용자 피드백)
+            if lines_:
+                await _remove_empty_cite(page, f"✓ {lines_[0]}")
             await page.keyboard.press("Control+End")
             logger.info(
                 f"요약 블록 삽입 성공 (앵커: {anchor_text[:25] if anchor_text else '없음'}, "
