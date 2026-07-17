@@ -132,6 +132,29 @@ def run():
         post, category=CATEGORY, base_url=f"{WP_URL.rstrip('/')}/{slug}/",
         slug_override=slug, related_posts=[], site_url=WP_URL, category_slug=CATEGORY_SLUG,
     )
+
+    # 실계좌 인증 캡처 (2026-07-17 사용자 지시: 인증이 신뢰의 핵심) —
+    # data/toss_captures/ 에 이미지를 넣어두면 첫 h2 섹션 끝에 '실계좌 화면' 블록으로 삽입.
+    # ★계좌번호 없는 화면(내투자 요약·보유목록)만 넣는 것이 규칙. 폴더는 gitignore(공개 레포).
+    try:
+        import glob as _glob
+        import re as _re
+        caps = sorted(_glob.glob(os.path.join(DATA_DIR, "toss_captures", "*.[pjPJ]*[gG]")))[:3]
+        if caps:
+            figs = ""
+            for i, cp in enumerate(caps, 1):
+                info = upload_media_info(cp, f"{slug}-proof-{i}.png", alt_text=f"실계좌 화면 {i}")
+                if info:
+                    figs += (f'<figure class="wp-block-image size-large hj-proof">'
+                             f'<img src="{info["source_url"]}" alt="실계좌 화면" loading="lazy"/>'
+                             f"<figcaption>실제 계좌 화면 ({now.strftime('%Y.%m.%d')} 캡처)</figcaption></figure>\n")
+            if figs:
+                h2s = list(_re.finditer(r'<h2 id="sec-\d+">[^<]+</h2>', r["content_html"]))
+                pos = h2s[1].start() if len(h2s) > 1 else len(r["content_html"])
+                r["content_html"] = r["content_html"][:pos] + figs + r["content_html"][pos:]
+                logger.info(f"실계좌 인증 캡처 {len(caps)}장 삽입(첫 섹션 끝)")
+    except Exception as e:
+        logger.warning(f"인증 캡처 삽입 실패(무시): {e}")
     res = publish_wordpress(r, title=post["title"], status=status, category=CATEGORY)
     if not res:
         sys.exit(1)

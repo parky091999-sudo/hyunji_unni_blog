@@ -48,6 +48,8 @@ _TRUSTED_NEWS_DOMAINS = (
     "inews24.com", "itchosun.com", "betanews.net", "aitimes.com", "aitimes.kr",
     "thelec.kr", "kbench.com", "itworld.co.kr", "ciokorea.com", "boannews.com",
     "dongascience.com", "hellot.net",
+    # 확대분(2026-07-17 — 실사진 확보율 개선, 검증된 IT·종합 매체만)
+    "digitaltoday.co.kr", "techm.kr", "byline.network", "nocutnews.co.kr", "mtn.co.kr",
 )
 # og:image URL 자체가 이 호스트면 차단(SNS·개인블로그 이미지 CDN — 화이트리스트 통과 기사라도 방어)
 _BLOCKED_IMG_HOSTS = (
@@ -227,10 +229,43 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
     return None
 
 
+def _naver_shopping_photos(query: str, want: int = 2) -> list[dict]:
+    """네이버쇼핑 상품 실사진 — 판매 제품의 정확·적법한 실사(전략 문서의 원안, 2026-07-17 연결).
+    뉴스 og가 부족할 때의 2순위. NAVER_CLIENT_ID/SECRET 필요(없으면 빈 리스트)."""
+    import json as _json
+    cid = os.environ.get("NAVER_CLIENT_ID", "").strip()
+    sec = os.environ.get("NAVER_CLIENT_SECRET", "").strip()
+    if not (cid and sec) or not query.strip():
+        return []
+    out: list[dict] = []
+    try:
+        url = ("https://openapi.naver.com/v1/search/shop.json?query="
+               + urllib.parse.quote(query) + "&display=10&sort=sim")
+        req = urllib.request.Request(url, headers={
+            "X-Naver-Client-Id": cid, "X-Naver-Client-Secret": sec, "User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            items = _json.loads(resp.read().decode("utf-8")).get("items", [])
+        for it in items:
+            if len(out) >= want:
+                break
+            img = (it.get("image") or "").strip()
+            if not img.startswith("http"):
+                continue
+            path = _download(img, min_bytes=8000)
+            if not path:
+                continue
+            out.append({"local_path": path, "label": "출처 네이버쇼핑", "source": "shop"})
+        logger.info(f"쇼핑 실사진 확보: {len(out)}장 (쿼리 {query!r})")
+    except Exception as e:
+        logger.info(f"쇼핑 실사진 실패(무시): {str(e)[:60]}")
+    return out
+
+
 def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[dict]:
     """대표+섹션용 실사진을 여러 장 확보(테크티노처럼 섹션마다 사진).
-    신뢰 언론사 og:image만 사용, 최대 want장. Pexels 보충은 제거(2026-07-16 사용자
-    피드백: 주제 무관 스톡이 섞임 — 무관 사진보다 무사진이 낫다).
+    1순위 신뢰 언론사 og → 2순위 네이버쇼핑 상품 실사(판매 제품 시드일 때).
+    Pexels·AI 일러스트는 사용 안 함(2026-07-16/17 사용자 피드백: 무관 스톡도, AI 티 나는
+    이미지도 테크 톤을 깎음 — 실사진 없으면 무사진이 낫다).
     반환: [{"local_path", "label", "source"}, ...] (0~want장)."""
     photos: list[dict] = []
     used_domains: set[str] = set()
@@ -250,5 +285,15 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
                 continue
             used_domains.add(d)
             photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
-    logger.info(f"섹션 실사진 확보: {len(photos)}장 (전부 신뢰 언론사 og, 인물컷 제외)")
+
+    # 2순위: 네이버쇼핑 실사 — 판매 제품 시드만(서비스성 시드는 무관 상품이 잡혀 오히려 해로움)
+    if len(photos) < want:
+        try:
+            from generator.tech_content import SEED_CATEGORY
+            seed = topic.get("seed", "")
+            if seed and SEED_CATEGORY.get(seed, "") != "AI·IT":
+                photos += _naver_shopping_photos(seed, want=want - len(photos))
+        except Exception:
+            pass
+    logger.info(f"실사진 확보 합계: {len(photos)}장 (og+쇼핑, 인물컷 제외)")
     return photos

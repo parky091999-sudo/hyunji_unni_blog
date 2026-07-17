@@ -214,13 +214,12 @@ def run():
         logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
         return
 
-    # ── 3. 이미지: 대표(헤더) + 섹션 이미지 — 실사진 우선, 부족분은 AI 일러스트 (07-17 개편) ──
-    # 07-17 사용자 피드백: ①검색바형 인포그래픽 폴백(현지언니 레이아웃) 폐기,
-    # ②본문이 '글만'이면 재미없음 → 실사진이 없어도 헤더=일러스트 배경 카드,
-    # 섹션마다 이미지(실사진→AI 일러스트 순)를 반드시 넣는다.
+    # ── 3. 이미지: 실사진 전용 (07-17 저녁 사용자 피드백: 파스텔 AI 일러스트가 테크 톤과
+    # 안 맞음 — 'AI 생성 티' 나는 이미지 금지) ──
+    # 소스: 신뢰 언론사 og → 네이버쇼핑 상품 실사(tech_image 캐스케이드). 실사진이 없으면
+    # 헤더는 다크 텍스트 카드, 섹션 이미지는 생략(무관·AI풍 이미지보다 무사진이 낫다).
     images: list[dict] = []
     from config import PEXELS_API_KEY
-    from poster.illustration import generate_editorial_illustration
 
     def _ensure_local(p: dict):
         lp = p.get("local_path")
@@ -239,14 +238,10 @@ def run():
     except Exception as e:
         logger.warning(f"실사진 확보 실패: {e}")
 
-    # 대표(헤더): 실사진 → AI 일러스트 배경의 '사진+훅텍스트' 카드 → 테크 텍스트 카드 순.
+    # 대표(헤더): 실사진 훅카드 → (실사진 없으면) 다크 텍스트 카드. AI 일러스트 금지(07-17).
     lead_local = _ensure_local(photos[0]) if photos else None
     lead_label = photos[0].get("label", "") if photos else ""
     lead_kind = "실사진"
-    if not lead_local:
-        lead_local = generate_editorial_illustration(
-            f"{topic['seed']} {topic['headline'][:40]}", "tech", GOOGLE_API_KEY)
-        lead_label, lead_kind = "", "AI 일러스트"  # 일러스트는 출처 캡션 불필요
     if lead_local:
         header_local = None
         try:
@@ -275,7 +270,7 @@ def run():
             logger.warning(f"테크 텍스트 카드 실패 — 대표 이미지 없음: {e}")
 
     # 섹션 이미지 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 아래 [사진N] 주입.
-    # 소스 풀: 실사진 잔여분 우선, 부족분은 '섹션 주제' AI 일러스트로 채움(최대 2곳).
+    # 소스 풀: 실사진(og+쇼핑) 잔여분만 — AI 일러스트 채움 제거(07-17 사용자 피드백).
     if images:
         # 모델이 소제목 문구를 변형('핵심 요약'/'목차 정리' 등)해도 걸리도록 부분일치로 스킵(2026-07-16)
         _skip_kw = ("핵심 요약", "핵심만", "목차", "총평", "자주 묻는 질문", "요약")
