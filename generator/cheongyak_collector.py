@@ -106,15 +106,25 @@ _PLAN_KW = "평면도"
 _PLAN_MAX_TEXT = 900
 
 
+_BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/pdf,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+}
+
+
 def fetch_notice_pdf(detail: dict) -> bytes | None:
-    """공고 상세페이지(PBLANC_URL)에서 모집공고문 PDF 바이트 확보. 실패 시 None."""
+    """공고 상세페이지(PBLANC_URL)에서 모집공고문 PDF 바이트 확보. 실패 시 None.
+    세션 유지+브라우저 헤더 — GitHub Actions(해외 IP)에서 차단되는 경우 대비(2026-07-17 실측)."""
     page_url = (detail.get("PBLANC_URL") or "").strip()
     if not page_url:
         return None
     try:
         import html as _html
-        html = requests.get(page_url, timeout=_TIMEOUT,
-                            headers={"User-Agent": "Mozilla/5.0"}).text
+        sess = requests.Session()
+        sess.headers.update(_BROWSER_HEADERS)
+        html = sess.get(page_url, timeout=_TIMEOUT).text
         # 1순위: '모집공고문 보기' 앵커 href — 실측 패턴(2026-07-17 월계 중흥S-클래스):
         #   https://static.applyhome.co.kr/ai/aia/getAtchmnfl.do?houseManageNo=…&atchmnflSn=…
         pdf_url = ""
@@ -132,11 +142,12 @@ def fetch_notice_pdf(detail: dict) -> bytes | None:
             return None
         if not pdf_url.startswith("http"):
             pdf_url = f"https://www.applyhome.co.kr{pdf_url}"
-        pdf_bytes = requests.get(pdf_url, timeout=60,
-                                 headers={"User-Agent": "Mozilla/5.0",
-                                          "Referer": page_url}).content
+        r = sess.get(pdf_url, timeout=60, headers={"Referer": page_url})
+        pdf_bytes = r.content
         if pdf_bytes[:4] != b"%PDF":
-            logger.info("공고문 응답이 PDF 아님 — 사용 안 함")
+            # 진단용: 차단/오류 페이지 앞부분 기록 (CI 해외 IP 차단 여부 판별)
+            head = pdf_bytes[:150].decode("utf-8", errors="replace").replace("\n", " ")
+            logger.info(f"공고문 응답이 PDF 아님(HTTP {r.status_code}) — 사용 안 함: {head}")
             return None
         logger.info(f"공고문 PDF 확보: {len(pdf_bytes) // 1024}KB")
         return pdf_bytes
