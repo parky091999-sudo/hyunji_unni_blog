@@ -109,18 +109,26 @@ def fetch_notice_pdf(detail: dict) -> bytes | None:
     if not page_url:
         return None
     try:
+        import html as _html
         html = requests.get(page_url, timeout=_TIMEOUT,
                             headers={"User-Agent": "Mozilla/5.0"}).text
-        # 청약홈 상세페이지의 파일 다운로드 링크(.pdf 직링크 or fileDownload 경로) 탐색
-        cands = re.findall(r"""["']([^"']+(?:\.pdf|fileDown[^"']*|FileDown[^"']*))["']""", html)
+        # 1순위: '모집공고문 보기' 앵커 href — 실측 패턴(2026-07-17 월계 중흥S-클래스):
+        #   https://static.applyhome.co.kr/ai/aia/getAtchmnfl.do?houseManageNo=…&atchmnflSn=…
         pdf_url = ""
-        for c in cands:
-            if c.lower().endswith(".pdf") or "filedown" in c.lower():
-                pdf_url = c if c.startswith("http") else f"https://www.applyhome.co.kr{c}"
-                break
+        m = re.search(r"""<a[^>]+href=["']([^"']+)["'][^>]*>[^<]*모집공고문[^<]*</a>""", html)
+        if m:
+            pdf_url = _html.unescape(m.group(1))
+        if not pdf_url:
+            # 2순위: 첨부파일/PDF 계열 링크 패턴
+            cands = re.findall(
+                r"""["']([^"']+(?:getAtchmnfl\.do[^"']*|\.pdf[^"']*|[Ff]ile[Dd]own[^"']*))["']""", html)
+            if cands:
+                pdf_url = _html.unescape(cands[0])
         if not pdf_url:
             logger.info("공고문 PDF 링크 미발견 — API 팩트만 사용")
             return None
+        if not pdf_url.startswith("http"):
+            pdf_url = f"https://www.applyhome.co.kr{pdf_url}"
         pdf_bytes = requests.get(pdf_url, timeout=60,
                                  headers={"User-Agent": "Mozilla/5.0",
                                           "Referer": page_url}).content
