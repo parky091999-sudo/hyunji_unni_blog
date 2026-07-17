@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-17",
+    "timestamp": "2026-07-17T21:28:16.791103+09:00",
+    "run_slot": "21",
+    "fmt": "breaking",
+    "seed": "제미나이",
+    "headline": "구글, ‘제미나이 3.5 프로’ 출시 또 연기…코딩 성능에 발목",
+    "category": "AI·IT",
+    "title": "제미나이 3.5 프로, 대체 언제 나오나요? 출시 연기 속사정 파헤치기",
+    "tags": [
+      "제미나이",
+      "구글",
+      "AI",
+      "인공지능",
+      "출시연기",
+      "알파벳"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224349707336",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-17",
     "timestamp": "2026-07-17T17:34:09.916054+09:00",
     "run_slot": "17",
     "fmt": "compare",
