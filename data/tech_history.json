@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-17",
+    "timestamp": "2026-07-17T17:34:09.916054+09:00",
+    "run_slot": "17",
+    "fmt": "compare",
+    "seed": "전기차 신차 출시",
+    "headline": "스텔란티스 프리미엄 브랜드 알파로메오 \"내년까지 중형 SUV 출시\"",
+    "category": "자동차·모빌리티",
+    "title": "알파로메오 중형 SUV, 과연 '전기차 피아트 500'의 전철을 밟을까?",
+    "tags": [
+      "알파로메오",
+      "스텔란티스",
+      "전기차",
+      "중형SUV",
+      "피아트500",
+      "신차"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224349557456",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-17",
     "timestamp": "2026-07-17T15:31:49.276354+09:00",
     "run_slot": "15",
     "fmt": "pick",
