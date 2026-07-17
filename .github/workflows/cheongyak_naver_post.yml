@@ -1,0 +1,75 @@
+name: 청약 공고 건별 분석글 (네이버)
+
+on:
+  schedule:
+    # 매일 12:30 KST — WP(11:30)와 같은 공고를 네이버 부동산·주거에도 발행 (2026-07-17)
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      notice:
+        description: "특정 공고 강제 (HOUSE_MANAGE_NO, 비우면 자동)"
+        required: false
+        default: ""
+      draft:
+        description: "임시저장 검증 모드 (true/false)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: naver-cheongyak-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 한글 폰트 설치
+        run: sudo apt-get update && sudo apt-get install -y fonts-nanum && sudo fc-cache -f
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: Playwright 브라우저 설치
+        run: playwright install chromium --with-deps
+
+      - name: 포스팅 실행
+        env:
+          NAVER_ID:       ${{ secrets.NAVER_ID }}
+          NAVER_PW:       ${{ secrets.NAVER_PW }}
+          NAVER_BLOG_ID:  ${{ secrets.NAVER_BLOG_ID }}
+          NAVER_COOKIES:  ${{ secrets.NAVER_COOKIES }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PUBLIC_DATA_KEY: ${{ secrets.PUBLIC_DATA_KEY }}
+          CHEONGYAK_NOTICE: ${{ github.event.inputs.notice || '' }}
+          DRAFT:          ${{ github.event.inputs.draft || 'false' }}
+        run: python -m scripts.cheongyak_naver_post
+
+      - name: 스크린샷 아티팩트 업로드 (디버그)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cheongyak-naver-${{ github.run_id }}
+          path: data/screenshots/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: 발행 이력 커밋
+        if: always() && github.event.inputs.draft != 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/cheongyak_naver_history.json || true
+          git diff --staged --quiet || git commit -m "chore: 청약 네이버 발행 이력 $(date +'%Y-%m-%d')"
+          git pull --rebase --autostash origin main
+          git push

@@ -1,0 +1,191 @@
+"""청약 공고 건별 분석 — 네이버(현지언니 부동산·주거) 발행 (2026-07-17).
+
+WP(cheongyak_post)와 같은 수집·팩트(공고 API+공고문 PDF+실거래)를 재사용, 네이버 SE ONE
+형식으로 발행: 헤더카드 [사진1] + 요약 인용구 + 소제목 회색바 + 표 + FAQ 인용구 +
+공고문 금액표·평면도 캡처를 관련 소제목 위치에 사진으로 삽입.
+
+WP 트랙과 독립 이력(data/cheongyak_naver_history.json) — 같은 공고를 양쪽에 각각 발행.
+사용: python -m scripts.cheongyak_naver_post  (CHEONGYAK_NOTICE / DRAFT / DRY_RUN 지원)
+"""
+import json
+import logging
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        pass
+
+ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, ROOT)
+
+from config import (DATA_DIR, GOOGLE_API_KEY,
+                    NAVER_ID, NAVER_PW, NAVER_BLOG_ID, NAVER_COOKIES)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+                    handlers=[logging.StreamHandler(sys.stdout)])
+logger = logging.getLogger("cheongyak_naver_post")
+
+KST = timezone(timedelta(hours=9))
+HISTORY_PATH = os.path.join(DATA_DIR, "cheongyak_naver_history.json")
+BLOG_CATEGORY = "부동산·주거"
+
+
+def _load_history() -> dict:
+    if os.path.exists(HISTORY_PATH):
+        with open(HISTORY_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_history(h: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(h, f, ensure_ascii=False, indent=2)
+
+
+def _next_sub_after(subs: list[str], *kws) -> str:
+    """kws가 들어간 소제목의 '다음' 소제목 — 캡처를 그 앞(=해당 섹션 끝)에 삽입하기 위함."""
+    for i, s in enumerate(subs):
+        if any(k in s for k in kws):
+            return subs[i + 1] if i + 1 < len(subs) else s
+    return ""
+
+
+def run():
+    from generator.cheongyak_collector import (
+        fetch_new_apt_notices, fetch_new_remainder_notices, fetch_house_types,
+        fetch_notice_pdf, pdf_excerpt, pdf_capture_key_pages,
+        build_facts, notice_key,
+    )
+
+    draft = os.environ.get("DRAFT", "false").lower() == "true"
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+    forced = os.environ.get("CHEONGYAK_NOTICE", "").strip()
+
+    history = _load_history()
+    notices = fetch_new_apt_notices() + fetch_new_remainder_notices()
+    if forced:
+        notices = [n for n in notices if forced in (n.get("HOUSE_MANAGE_NO", ""), notice_key(n))]
+    else:
+        notices = [n for n in notices if notice_key(n) not in history]
+    if not notices:
+        logger.info("발행할 신규 청약 공고 없음(네이버 트랙) — 종료")
+        return
+
+    notices.sort(key=lambda n: n.get("RCRIT_PBLANC_DE", ""), reverse=True)
+    detail = notices[0]
+    key = notice_key(detail)
+    name = detail.get("HOUSE_NM", "").strip()
+    logger.info(f"[네이버] 대상 공고: [{key}] {name} ({detail.get('SUBSCRPT_AREA_CODE_NM')})")
+
+    types = fetch_house_types(detail.get("HOUSE_MANAGE_NO", ""),
+                              remainder=bool(detail.get("_remainder")))
+    pdf = fetch_notice_pdf(detail)
+    excerpt = pdf_excerpt(pdf) if pdf else ""
+    captures = pdf_capture_key_pages(pdf) if pdf else []
+
+    facts = build_facts(detail, types, excerpt)
+    try:
+        from generator.rt_price import build_trade_facts
+        rt = build_trade_facts(detail.get("HSSPLY_ADRES", ""), types)
+        if rt:
+            facts["주변 아파트 실거래 시세(국토교통부, 최근 6개월)"] = rt
+    except Exception as e:
+        logger.warning(f"실거래 시세 수집 실패(무시): {e}")
+
+    topic = {"keyword": f"{name} 청약", "facts": facts}
+
+    if not GOOGLE_API_KEY:
+        logger.error("GOOGLE_API_KEY 없음")
+        sys.exit(1)
+    from generator.cheongyak_naver_content import generate_cheongyak_naver_post
+    post = generate_cheongyak_naver_post(topic, GOOGLE_API_KEY)
+    if not post:
+        sys.exit(1)
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] 생성만 완료: {post['title']!r} — 발행 생략")
+        print(post.get("body", "")[:800])
+        return
+
+    # ── 이미지: [사진1] 헤더카드 + 공고문 캡처(관련 소제목 앞 삽입) ──
+    images: list[dict] = []
+    subs = post.get("subheadings", [])
+    try:
+        from generator.content import extract_summary_bullets
+        from poster.infographic_html import create_infographic_via_html
+        bullets = extract_summary_bullets(post.get("summary_text", "")) or None
+        header = create_infographic_via_html(
+            title=post["title"], keyword=name, category="부동산주거", bullets=bullets)
+        if header:
+            images.append({"local_path": header, "url": "",
+                           "alt_text": f"{name} 청약", "label": ""})
+    except Exception as e:
+        logger.warning(f"헤더카드 실패(사진 없이 진행): {e}")
+
+    money_anchor = _next_sub_after(subs, "현금", "분양가", "필요")
+    plan_anchor = _next_sub_after(subs, "타입", "유리")
+    for c in captures:
+        anchor = plan_anchor if "평면" in c["label"] else money_anchor
+        img = {
+            "local_path": c["path"], "url": "",
+            "alt_text": f"{name} {c['label']}",
+            "label": f"{name} {c['label']} — 입주자모집공고문 p.{c.get('page', '')} (출처: 청약홈)",
+        }
+        if anchor:
+            img["insert_before"] = anchor
+        images.append(img)
+    logger.info(f"이미지 구성: 헤더 {1 if images and not images[0].get('insert_before') else 0}장 "
+                f"+ 공고문 캡처 {len(captures)}장 (금액표→'{money_anchor[:12]}' 앞)")
+
+    # ── 발행 ──
+    from poster.naver_blog import post_to_naver_blog
+    try:
+        result = post_to_naver_blog(
+            naver_id=NAVER_ID,
+            naver_pw=NAVER_PW,
+            blog_id=NAVER_BLOG_ID or NAVER_ID,
+            title=post["title"],
+            body=post["body"],
+            tags=post["tags"],
+            naver_cookies=NAVER_COOKIES,
+            images=images if images else None,
+            draft=draft,
+            allow_pw_login=os.environ.get("ALLOW_PW_LOGIN", "false").lower() == "true",
+            table_str=post.get("table_str", ""),
+            table_strs=post.get("table_strs", []),
+            subheadings=subs,
+            faq_questions=post.get("faq_questions", []),
+            category=BLOG_CATEGORY,
+            faq_pairs=post.get("faq_pairs", []),
+            summary_text=post.get("summary_text", ""),
+        )
+    except Exception as e:
+        logger.error(f"포스팅 중 예외: {e}")
+        sys.exit(1)
+
+    if draft:
+        logger.info(f"[DRAFT] 임시저장 결과: {result}")
+        return
+
+    post_url = (result or {}).get("post_url", "")
+    if not post_url or "Redirect=Write" in post_url:
+        logger.error(f"발행 실패 — URL: {post_url}")
+        sys.exit(1)
+    history[key] = {
+        "date": datetime.now(KST).strftime("%Y-%m-%d"),
+        "house_nm": name,
+        "region": detail.get("SUBSCRPT_AREA_CODE_NM", ""),
+        "post_url": post_url,
+        "remainder": bool(detail.get("_remainder")),
+    }
+    _save_history(history)
+    logger.info(f"[네이버] 청약 분석글 발행 완료: {post_url}")
+
+
+if __name__ == "__main__":
+    run()
