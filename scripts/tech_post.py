@@ -113,6 +113,16 @@ def _extract_summary_for_postit(post: dict):
     body = post.get("body", "")
     m = re.search(r"\[구분선\]\n([^\n]*(?:요약|핵심만)[^\n]*)\n((?:·[^\n]+\n?)+)", body)
     if not m:
+        # 폴백(07-17 draft 실측): 모델이 요약 소제목에 제품명을 넣어 '요약' 단어가 빠지는 경우 —
+        # '첫 번째 섹션이 불릿 2~4줄로만 구성'이면 구조상 핵심 요약(_BENCH_OPEN 고정 위치)으로 간주.
+        cand = re.search(r"\[구분선\]\n([^\n]+)\n((?:·[^\n]+\n?)+)", body)
+        if cand:
+            n_bullets = len([l for l in cand.group(2).splitlines() if l.strip()])
+            nxt = body[cand.end():].lstrip("\n")
+            if (cand.start() == body.find("[구분선]") and 2 <= n_bullets <= 4
+                    and (not nxt or nxt.startswith(("[구분선]", "[사진", "[표", "[FAQ")))):
+                m = cand
+    if not m:
         logger.info("핵심 요약 섹션 미검출 — 포스트잇 인용구 생략(본문 그대로)")
         return
     post["summary_text"] = m.group(2).strip()
