@@ -1,0 +1,206 @@
+"""토스증권 Open API 수집기 — 실계좌 투자 기록 시리즈용 (2026-07-17 뼈대 구축).
+
+상태: 토스 Open API 사전신청 대기 중(키 미발급). 공식 openapi.json(v1.2.4,
+docs/toss_openapi.json)과 스펙 내 예시 응답을 기준으로 선구축 — 키 발급 시
+TOSS_CLIENT_ID/TOSS_CLIENT_SECRET만 .env·시크릿에 넣으면 실데이터로 전환된다.
+
+인증(2겹): OAuth2 Client Credentials → Bearer 토큰 + 계좌 API는 X-Tossinvest-Account
+헤더(accountSeq — /accounts에서 1회 조회 후 캐싱: ACCOUNT 그룹 rate limit 초당 1회).
+MOCK 모드: 키 없음 또는 TOSS_MOCK=true → data/toss_mock_examples.json(스펙 공식 예시).
+"""
+import json
+import logging
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config import DATA_DIR  # noqa: E402  (dotenv 로드 부수효과 포함)
+
+logger = logging.getLogger("toss_collector")
+
+KST = timezone(timedelta(hours=9))
+BASE = "https://openapi.tossinvest.com"
+_TIMEOUT = 20
+_CACHE_PATH = os.path.join(DATA_DIR, "toss_account_cache.json")
+_MOCK_PATH = os.path.join(DATA_DIR, "toss_mock_examples.json")
+
+_token_cache = {"token": "", "exp": 0.0}
+
+
+def _creds() -> tuple[str, str]:
+    return os.getenv("TOSS_CLIENT_ID", "").strip(), os.getenv("TOSS_CLIENT_SECRET", "").strip()
+
+
+def is_mock() -> bool:
+    cid, sec = _creds()
+    return os.getenv("TOSS_MOCK", "").lower() == "true" or not (cid and sec)
+
+
+def _mock(path: str):
+    d = json.load(open(_MOCK_PATH, encoding="utf-8"))
+    return d[path]["result"]
+
+
+def _token() -> str:
+    if _token_cache["token"] and time.time() < _token_cache["exp"] - 60:
+        return _token_cache["token"]
+    cid, sec = _creds()
+    r = requests.post(f"{BASE}/oauth2/token", data={
+        "grant_type": "client_credentials", "client_id": cid, "client_secret": sec,
+    }, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=_TIMEOUT)
+    r.raise_for_status()
+    d = r.json()
+    _token_cache["token"] = d["access_token"]
+    _token_cache["exp"] = time.time() + float(d.get("expires_in", 3600))
+    return _token_cache["token"]
+
+
+def _get(path: str, params: dict | None = None, account: bool = False) -> dict:
+    headers = {"Authorization": f"Bearer {_token()}"}
+    if account:
+        headers["X-Tossinvest-Account"] = str(_account_seq())
+    r = requests.get(f"{BASE}{path}", params=params or {}, headers=headers, timeout=_TIMEOUT)
+    if r.status_code == 429:
+        time.sleep(1.2)  # rate limit — 1회 재시도(배치라 여유)
+        r = requests.get(f"{BASE}{path}", params=params or {}, headers=headers, timeout=_TIMEOUT)
+    r.raise_for_status()
+    return r.json().get("result", {})
+
+
+def _account_seq() -> int:
+    try:
+        c = json.load(open(_CACHE_PATH, encoding="utf-8"))
+        if c.get("accountSeq") is not None:
+            return c["accountSeq"]
+    except Exception:
+        pass
+    accounts = _get("/api/v1/accounts") if not is_mock() else _mock("/api/v1/accounts")
+    rows = accounts if isinstance(accounts, list) else accounts.get("accounts", [])
+    seq = rows[0]["accountSeq"]
+    os.makedirs(DATA_DIR, exist_ok=True)
+    json.dump({"accountSeq": seq, "cached_at": datetime.now(KST).isoformat()},
+              open(_CACHE_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+    logger.info(f"토스 accountSeq 캐싱: {seq}")
+    return seq
+
+
+def fetch_holdings() -> dict:
+    """보유 현황 — 총매입/평가/손익(수수료·세금 차감 후 포함)/일간손익 + 종목 리스트."""
+    if is_mock():
+        logger.info("토스 MOCK 모드 — 스펙 예시 응답 사용(키 발급 전)")
+        return _mock("/api/v1/holdings")
+    return _get("/api/v1/holdings", account=True)
+
+
+def fetch_recent_orders(days: int = 8) -> list[dict]:
+    """최근 N일 주문 — 체결분(FILLED/PARTIAL_FILLED) 위주. 페이지네이션은 v1 단순 처리."""
+    if is_mock():
+        orders = _mock("/api/v1/orders").get("orders", [])
+    else:
+        res = _get("/api/v1/orders", account=True)
+        orders = res.get("orders", [])
+    cutoff = (datetime.now(KST) - timedelta(days=days)).isoformat()
+    out = []
+    for o in orders:
+        if (o.get("orderedAt") or "") < cutoff:
+            continue
+        if o.get("status") in ("FILLED", "PARTIAL_FILLED"):
+            out.append(o)
+    return out
+
+
+def fetch_exchange_rate() -> str:
+    try:
+        if is_mock():
+            return ""
+        res = _get("/api/v1/exchange-rate")
+        return str(res.get("rate") or res.get("exchangeRate") or "")
+    except Exception:
+        return ""
+
+
+# ── 리포트 팩트 빌드 ─────────────────────────────────────────────────────────
+
+def _num(v) -> float:
+    try:
+        return float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fmt_krw(v) -> str:
+    n = _num(v)
+    return f"{n:,.0f}원"
+
+
+def _pct(v) -> str:
+    return f"{_num(v) * 100:.2f}%"
+
+
+def build_invest_facts(period_label: str) -> dict:
+    """holdings+orders → deep_content facts. 계좌번호 등 식별정보는 수집 자체를 안 한다."""
+    h = fetch_holdings()
+    orders = fetch_recent_orders()
+    fx = fetch_exchange_rate()
+
+    items = h.get("items", [])
+    rows = []
+    for it in items:
+        pl = it.get("profitLoss", {})
+        mv = it.get("marketValue", {})
+        rows.append({
+            "종목": it.get("name") or it.get("symbol", ""),
+            "시장": it.get("marketCountry", ""),
+            "수량": it.get("quantity", ""),
+            "평단가": it.get("averagePurchasePrice", ""),
+            "현재가": it.get("lastPrice", ""),
+            "평가액": mv.get("amount", ""),
+            "수익률(비용차감후)": _pct(pl.get("rateAfterCost") or pl.get("rate")),
+            "통화": it.get("currency", ""),
+        })
+
+    trades = []
+    for o in orders:
+        ex = o.get("execution", {})
+        trades.append({
+            "일시": (o.get("orderedAt") or "")[:10],
+            "구분": "매수" if o.get("side") == "BUY" else "매도",
+            "종목": o.get("symbol", ""),
+            "체결수량": ex.get("filledQuantity", ""),
+            "체결단가": ex.get("averageFilledPrice", ""),
+            "체결금액": ex.get("filledAmount", ""),
+            "통화": o.get("currency", ""),
+        })
+
+    pl = h.get("profitLoss", {})
+    dpl = h.get("dailyProfitLoss", {})
+    facts = {
+        "기준": f"{period_label} (토스증권 Open API 실계좌 데이터, 작성 시점 기준)",
+        "계좌 요약": {
+            "총 매입금액": {"원화": _fmt_krw(h.get("totalPurchaseAmount", {}).get("krw")),
+                       "달러": h.get("totalPurchaseAmount", {}).get("usd", "")},
+            "평가금액": {"원화": _fmt_krw(h.get("marketValue", {}).get("amount", {}).get("krw")),
+                     "달러": h.get("marketValue", {}).get("amount", {}).get("usd", "")},
+            "누적 손익(비용차감후)": {"원화": _fmt_krw(pl.get("amountAfterCost", {}).get("krw")),
+                             "수익률": _pct(pl.get("rateAfterCost") or pl.get("rate"))},
+            "이번 기간 손익": {"원화": _fmt_krw(dpl.get("amount", {}).get("krw")),
+                         "수익률": _pct(dpl.get("rate"))},
+        },
+        "보유 종목": rows,
+        "이번 기간 체결 내역": trades or "매매 없음(관망)",
+    }
+    if fx:
+        facts["참고 환율(USD/KRW)"] = fx
+    if is_mock():
+        facts["⚠데이터 출처"] = "MOCK(스펙 예시) — 키 발급 전 검증용. 실발행 금지"
+    return facts
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    import pprint
+    pprint.pprint(build_invest_facts("주간 기록 테스트"))
