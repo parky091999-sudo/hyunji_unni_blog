@@ -40,11 +40,13 @@ def _scene_for(keyword: str, category: str, api_key: str) -> str:
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-        cat = _CAT_LABEL.get(category, "생활정보")
+        # 미등록 카테고리는 한글 라벨 그대로 통과(WP 허브명 '연금·절세' 등, 2026-07-17)
+        cat = _CAT_LABEL.get(category, category or "생활정보")
         prompt = (
             f"한국 생활정보 블로그 글의 삽화 장면을 짓는다. 주제: '{keyword}' (카테고리: {cat}).\n"
             "이 주제를 상징하는 '플랫 벡터 일러스트' 장면을 영어 한 문장으로 묘사하라.\n"
-            "규칙: 친근한 사람 1~2명 + 주제를 상징하는 간단한 사물. "
+            "규칙: 친근한 사람 1~2명 + 주제를 '직접' 상징하는 간단한 사물만. "
+            "주제와 무관한 소품·배경·직업·장소는 절대 넣지 말 것(주제 어긋남 금지). "
             "글자·문서·차트·표·간판은 절대 넣지 말 것. 밝고 안전한 분위기.\n"
             "'Scene:'으로 시작하는 영어 한 문장만 출력(설명 금지)."
         )

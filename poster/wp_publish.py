@@ -138,8 +138,8 @@ def publish_wordpress(rendered: dict, title: str, *, status: str = "draft",
     return None
 
 
-def upload_media(file_path: str, filename: str, alt_text: str = "") -> int | None:
-    """이미지 파일 → WP 미디어 업로드 → media id."""
+def upload_media_info(file_path: str, filename: str, alt_text: str = "") -> dict | None:
+    """이미지 파일 → WP 미디어 업로드 → {id, source_url} (본문 <img> 삽입용, 2026-07-17)."""
     if not _configured():
         return None
     try:
@@ -150,16 +150,23 @@ def upload_media(file_path: str, filename: str, alt_text: str = "") -> int | Non
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         r = requests.post(_api("media"), data=data, headers=headers, timeout=60)
         if r.status_code in (200, 201):
-            mid = int(r.json()["id"])
+            d = r.json()
+            mid = int(d["id"])
             if alt_text:
                 requests.post(_api(f"media/{mid}"), json={"alt_text": alt_text},
                               headers=_headers(), timeout=_TIMEOUT)
             logger.info(f"미디어 업로드 완료 id={mid} ({filename})")
-            return mid
+            return {"id": mid, "source_url": d.get("source_url", "")}
         logger.error(f"미디어 업로드 실패 {r.status_code}: {r.text[:200]}")
     except Exception as e:
         logger.error(f"미디어 업로드 예외: {e}")
     return None
+
+
+def upload_media(file_path: str, filename: str, alt_text: str = "") -> int | None:
+    """이미지 파일 → WP 미디어 업로드 → media id."""
+    info = upload_media_info(file_path, filename, alt_text)
+    return info["id"] if info else None
 
 
 def set_featured_image(post_id: int, media_id: int) -> bool:

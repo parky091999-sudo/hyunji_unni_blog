@@ -234,6 +234,18 @@ def run():
     )
     logger.info(f"제목: {post['title']} · slug: {r['slug']} · html {len(r['content_html'])}자")
 
+    # 본문 일러스트 1~2곳 삽입 (2026-07-17 사용자 지시: 주제 맞춤 일러스트만 — 스톡사진 금지).
+    # 끄기: WP_BODY_ILLUST=false. 실패해도 발행은 그대로 진행.
+    if os.environ.get("WP_BODY_ILLUST", "true").lower() != "false":
+        try:
+            from generator.wp_body_images import add_body_illustrations
+            r["content_html"] = add_body_illustrations(
+                r["content_html"], topic.get("keyword", topic_id), topic["category"],
+                GOOGLE_API_KEY, slug=slug,
+            )
+        except Exception as e:
+            logger.warning(f"본문 일러스트 삽입 실패(무시): {e}")
+
     res = publish_wordpress(r, title=post["title"], status=status, category=topic["category"])
     if not res:
         logger.error("발행 실패")
