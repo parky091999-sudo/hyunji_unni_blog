@@ -48,7 +48,9 @@ _EXTRA_INSTRUCTIONS = """\
      수준인지 계산, 최근 실거래 사례 1~2건 인용). 검색 정보는 보조로만, '~로 알려져 있다' 톤,
      확인 안 되면 단정 금지
   ⑦ 마지막 소제목은 '현지언니의 판단' — [해볼 만하다 / 조건부 추천 / 보류] 셋 중 하나를 첫 문장에서
-     명확히 고르고, 근거 3가지 + '이런 분께 맞다/이런 분은 보류' 를 불릿으로
+     명확히 고르고, 근거 3가지 + '이런 분께 맞다/이런 분은 보류' 를 불릿으로.
+     ★'이런 분께 맞아요:' 같은 상위 라벨 줄에는 글머리(·)를 붙이지 말고 라벨만 한 줄로 쓰고,
+     그 아래 해당 항목들만 · 불릿으로(상위·하위가 같은 글머리면 안 됨)
 - 판단은 투자 권유 단정이 아니라 조건 중심으로. 글 끝에 '청약 자격·자금 사정은 사람마다 달라
   최종 판단 전 입주자모집공고문 원문을 꼭 확인하라'는 면책 1줄.
 - 검색(그라운딩) 정보와 공고 팩트를 섞지 마라 — 수치는 팩트 데이터·공고문 발췌가 우선."""
@@ -83,26 +85,59 @@ def _related_housing_posts(limit: int = 3) -> list[dict]:
         return []
 
 
-def _notice_block_html(name: str, captures: list[dict], upload) -> str:
-    """공고문 캡처(금액표·평면도) → 본문 삽입용 figure 블록. 출처 표기 필수."""
-    figs = ""
-    for c in captures:
-        info = upload(c["path"], alt_suffix=c["label"], page=c.get("page", 0))
-        if not info:
-            continue
-        cap = f"{name} {c['label']} (출처: 입주자모집공고문·청약홈)"
-        figs += (
-            f'<figure class="wp-block-image size-large hj-notice-capture">'
-            f'<img src="{info["source_url"]}" alt="{name} {c["label"]}" loading="lazy"/>'
-            f"<figcaption>{cap}</figcaption></figure>\n"
-        )
-    if not figs:
+def _fig_html(name: str, c: dict, upload) -> str:
+    info = upload(c["path"], alt_suffix=c["label"], page=c.get("page", 0))
+    if not info:
         return ""
+    cap = f"{name} {c['label']} — 입주자모집공고문 p.{c.get('page', '')} (출처: 청약홈)"
     return (
-        '<h2 id="sec-notice">모집공고문 원문 자료</h2>\n'
-        "<p>계약 조건·금액의 최종 기준은 아래 공고문 원문입니다. 표가 잘 안 보이면 눌러서 확대해 보세요.</p>\n"
-        + figs
+        f'<figure class="wp-block-image size-large hj-notice-capture">'
+        f'<img src="{info["source_url"]}" alt="{name} {c["label"]}" loading="lazy"/>'
+        f"<figcaption>{cap}</figcaption></figure>\n"
     )
+
+
+def _insert_captures_inline(content_html: str, name: str, captures: list[dict], upload):
+    """공고문 캡처를 '관련 내용을 설명하는 섹션 안'에 삽입 (2026-07-17 사용자 피드백 —
+    맨 끝 원문자료 섹션 대신). 금액표→현금/분양가 섹션 끝, 평면도→타입 섹션 끝.
+    매칭할 섹션이 없으면 그 캡처만 말미 '원문 자료' 폴백. 반환: (html, 삽입여부)."""
+    import re as _re
+    figs = {"price": [], "plan": []}
+    for c in captures:
+        h = _fig_html(name, c, upload)
+        if h:
+            figs["plan" if "평면" in c["label"] else "price"].append(h)
+    if not (figs["price"] or figs["plan"]):
+        return content_html, False
+
+    h2s = list(_re.finditer(r'<h2 id="sec-\d+">([^<]+)</h2>', content_html))
+
+    def _sec_idx(*kws):
+        for i, m in enumerate(h2s):
+            if any(k in m.group(1) for k in kws):
+                return i
+        return None
+
+    def _sec_end(i):
+        return h2s[i + 1].start() if i + 1 < len(h2s) else len(content_html)
+
+    inserts, leftovers = [], []
+    pi = _sec_idx("현금", "필요", "분양가", "금액")
+    if pi is not None and figs["price"]:
+        inserts.append((_sec_end(pi), "\n" + "".join(figs["price"])))
+    else:
+        leftovers += figs["price"]
+    ti = _sec_idx("타입", "유리")
+    if ti is not None and figs["plan"]:
+        inserts.append((_sec_end(ti), "\n" + "".join(figs["plan"])))
+    else:
+        leftovers += figs["plan"]
+    for pos, html_ in sorted(inserts, reverse=True):
+        content_html = content_html[:pos] + html_ + content_html[pos:]
+    if leftovers:
+        content_html += ('\n<h2 id="sec-notice">모집공고문 원문 자료</h2>\n'
+                         + "".join(leftovers))
+    return content_html, True
 
 
 def run():
@@ -193,19 +228,15 @@ def run():
         related_posts=_related_housing_posts(), site_url=WP_URL, category_slug=HUB_ID,
     )
 
-    # 공고문 캡처(금액표·평면도) 섹션 — 출처·확대 안내 포함, 관련글/출처 앞에 삽입
+    # 공고문 캡처(금액표·평면도) — 관련 섹션 '안'에 삽입 (2026-07-17 사용자 피드백)
     def _upload(path, alt_suffix="", page=0):
         return upload_media_info(path, f"{slug}-notice-p{page}.png",
                                  alt_text=f"{name} {alt_suffix}")
 
-    block = _notice_block_html(name, captures, _upload)
-    if block:
-        anchor = r.get("sources_html") or ""
-        if anchor and anchor in r["content_html"]:
-            r["content_html"] = r["content_html"].replace(anchor, block + anchor, 1)
-        else:
-            r["content_html"] += "\n" + block
-        logger.info("공고문 원문 자료 섹션 삽입 완료")
+    new_html, inserted = _insert_captures_inline(r["content_html"], name, captures, _upload)
+    if inserted:
+        r["content_html"] = new_html
+        logger.info("공고문 캡처 섹션 내 삽입 완료")
     else:
         # 캡처가 없으면 본문 일러스트로 시각 요소 보강 (금액표 있으면 원문이 우선)
         try:

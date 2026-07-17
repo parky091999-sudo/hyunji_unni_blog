@@ -356,7 +356,10 @@ def _merge_stray_list_items(pieces: list[str]) -> list[str]:
         ):
             inner = p[3:-4].strip()
             plain = re.sub(r"<[^>]+>", "", inner)
-            if 0 < len(plain) <= 90 and not re.search(r"(요|다|죠)[.!?]?\s*$", plain):
+            # ':'로 끝나는 볼드 라벨('이런 분께 맞아요:')은 의도된 리스트 구분 문단 — 병합 금지
+            # (2026-07-17 청약글: 병합이 라벨을 <li>로 되접어 계층이 무너지던 문제)
+            is_label = plain.rstrip().endswith((":", "："))
+            if 0 < len(plain) <= 90 and not is_label and not re.search(r"(요|다|죠)[.!?]?\s*$", plain):
                 out2[-1] = out2[-1][:-5] + f"<li>{inner}</li>" + pieces[i + 1][4:]
                 i += 2
                 continue
@@ -402,10 +405,22 @@ def render_wordpress_post(post: dict, category: str = "", base_url: str = "",
             out.append(f"<ol{start_attr}>{lis}</ol>")
             list_start = None
         else:
-            lis = "".join(
-                f"<li>{_label_strong_html(parts[0])}</li>" for parts in list_items if parts
-            )
-            out.append(f"<ul>{lis}</ul>")
+            # ':'로 끝나는 라벨-온리 항목('이런 분께 맞아요:')은 리스트를 끊고 볼드 라벨 문단으로 —
+            # 상위 라벨과 하위 항목이 같은 글머리로 눌리던 문제(2026-07-17 청약글 사용자 피드백)
+            buf = ""
+            for parts in list_items:
+                if not parts:
+                    continue
+                t = _clean_inline(parts[0]).strip()
+                if t.endswith((":", "：")):
+                    if buf:
+                        out.append(f"<ul>{buf}</ul>")
+                        buf = ""
+                    out.append(f"<p><strong>{escape(t)}</strong></p>")
+                else:
+                    buf += f"<li>{_label_strong_html(parts[0])}</li>"
+            if buf:
+                out.append(f"<ul>{buf}</ul>")
         list_items = []
         list_type = None
 

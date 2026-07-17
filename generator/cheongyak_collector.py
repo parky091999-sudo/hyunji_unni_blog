@@ -100,7 +100,10 @@ def notice_key(d: dict) -> str:
 _PDF_KEYWORDS = ("계약금", "중도금", "잔금", "공급금액", "납부", "대출", "발코니", "옵션")
 # 이미지 캡처 대상 페이지 분류 (2026-07-17 사용자 지시: 금액표·평면도 캡처를 본문에)
 _PRICE_PAGE_KWS = ("공급금액", "납부일정", "납부조건")
-_PLAN_PAGE_KWS = ("평면도", "단위세대")
+# 평면도 = '평면도' 키워드 + 도면형 페이지(텍스트 희박). '단위세대'는 유의사항 문단에도
+# 흔해 오탐(월계 공고 p42/54 실측) — 제외. 도면 없는 공고(월계 등)에선 캡처 안 됨이 정답.
+_PLAN_KW = "평면도"
+_PLAN_MAX_TEXT = 900
 
 
 def fetch_notice_pdf(detail: dict) -> bytes | None:
@@ -179,10 +182,10 @@ def pdf_capture_key_pages(pdf_bytes: bytes, max_price: int = 2, max_plan: int = 
         return []
     out: list[dict] = []
     try:
-        texts = _page_texts(pdf_bytes)
+        texts = _page_texts(pdf_bytes, max_pages=60)
         price_idx = [i for i, t in enumerate(texts) if any(k in t for k in _PRICE_PAGE_KWS)]
         plan_idx = [i for i, t in enumerate(texts)
-                    if any(k in t for k in _PLAN_PAGE_KWS) and i not in price_idx]
+                    if _PLAN_KW in t and len(t) < _PLAN_MAX_TEXT and i not in price_idx]
         targets = ([(i, "공급금액·납부조건") for i in price_idx[:max_price]]
                    + [(i, "타입별 평면도") for i in plan_idx[:max_plan]])
         if not targets:

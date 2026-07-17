@@ -121,7 +121,7 @@ def _lawd_cd(sido: str, sgg: str) -> str:
             "pageNo": 1, "numOfRows": 50, "locatadd_nm": ck, "flag": "Y",
         }, timeout=_TIMEOUT)
         rows = []
-        if r.ok and r.headers.get("Content-Type", "").startswith("application/json") or r.text.lstrip().startswith("{"):
+        if r.ok and r.text.lstrip().startswith("{"):
             data = r.json()
             for sect in data.get("StanReginCd", []):
                 if isinstance(sect, dict) and "row" in sect:
