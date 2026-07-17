@@ -178,18 +178,25 @@ def run():
 
     # 최근 발행 헤드라인은 후보에서 원천 제외 — 같은 뉴스가 연일 상위여도 재발행 안 함(2026-07-16)
     recent_heads = _recent_headlines(history)
-    topic, _post_category = None, ""
+    # 당일 이슈 우선(2026-07-17 벤치마킹): 잔여 카테고리를 전부 탐색해 '지금 가장 뜨거운'
+    # 헤드라인의 카테고리부터 발행 — 검색 피크(이슈 당일)를 로테이션 순서 때문에 놓치지 않는다.
+    # 카테고리별 하루 1편 원칙은 그대로(순서만 이슈 온도로 재정렬).
+    probes = []
     for cat in cats_to_try:
         cat_seeds = [s for s, c in SEED_CATEGORY.items() if c == cat]
-        topic = pick_tech_topic(exclude_headlines=recent_heads, seeds=cat_seeds)
-        if topic:
-            _post_category = cat
-            break
-        logger.info(f"카테고리 '{cat}' 최신 소비자 뉴스 없음 — 다음 카테고리 시도")
-    if topic is None:
+        t = pick_tech_topic(exclude_headlines=recent_heads, seeds=cat_seeds)
+        if t:
+            probes.append((t.get("score", 0), cat, t))
+        else:
+            logger.info(f"카테고리 '{cat}' 최신 소비자 뉴스 없음")
+    if not probes:
         # 뉴스 없음 또는 소비자 주제 점수 미달 — 억지 발행 대신 정상 스킵(2026-07-16)
         logger.warning("발행할 소비자 주제 없음(잔여 카테고리 전부 뉴스 부족/B2B성) — 이번 슬롯 스킵")
         sys.exit(0)
+    probes.sort(key=lambda p: (-p[0], CATEGORY_ORDER.index(p[1])))
+    _, _post_category, topic = probes[0]
+    if len(probes) > 1:
+        logger.info("카테고리 온도: " + " | ".join(f"{c}={s}" for s, c, _ in probes))
 
     logger.info(f"형식={fmt} | 카테고리={_post_category} | 시드={topic['seed']} | 주제={topic['headline'][:40]}")
 
@@ -206,6 +213,20 @@ def run():
 
     # 핵심 요약 섹션 → 포스트잇 인용구로 분리 (2026-07-17 사용자 지시)
     _extract_summary_for_postit(post)
+
+    # {{음영}} 마커는 본문 전용 — 별도 타이핑 경로(제목/요약/표/FAQ)에 섞이면 리터럴로
+    # 노출되므로 방어적 평문화(포스터의 본문 추출은 body만 처리, 2026-07-17)
+    _unbrace = lambda s: re.sub(r"\{\{(.+?)\}\}", r"\1", s or "")
+    post["title"] = _unbrace(post.get("title", ""))
+    post["summary_text"] = _unbrace(post.get("summary_text", ""))
+    if post.get("table_str"):
+        post["table_str"] = _unbrace(post["table_str"])
+    if post.get("table_strs"):
+        post["table_strs"] = [_unbrace(t) for t in post["table_strs"]]
+    if post.get("faq_questions"):
+        post["faq_questions"] = [_unbrace(q) for q in post["faq_questions"]]
+    if post.get("faq_pairs"):
+        post["faq_pairs"] = [[_unbrace(q), _unbrace(a)] for q, a in post["faq_pairs"]]
 
     logger.info(f"제목: {post['title']}")
     logger.info("===== 본문 =====\n" + post.get("body", "")[:600] + "...\n===== 끝 =====")
@@ -333,6 +354,7 @@ def run():
             summary_text=post.get("summary_text", ""),
             summary_quote_style="포스트잇",  # 핵심 요약=포스트잇 인용구 (2026-07-17 사용자 지시)
             set_representative=True,  # 헤더카드를 홈판 대표 썸네일로(tech 전용 opt-in)
+            style_line_markers=True,  # {{음영}} 형광펜 + [[단독줄]] 미니소제목 (2026-07-17 벤치마킹)
         )
     except Exception as e:
         logger.error(f"포스팅 중 예외: {e}")

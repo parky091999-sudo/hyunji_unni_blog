@@ -105,9 +105,18 @@ _COMMON_RULES = """\
 9-1. ★소제목 중 최소 2개에는 주제의 제품·기술명을 그대로 넣어라 — 소제목만 훑어도 무슨 글인지
    보여야 한다("쉽게 말하면 이런 겁니다"처럼 주제 없는 소제목만 나열 금지, 2026-07-16 사용자 피드백).
 10. ★표 규칙: 각 셀은 짧게(20자 이내). 한 셀 안에 여러 줄·여러 불릿(·) 절대 금지 — 항목이 많으면 셀에 몰아넣지 말고 행을 나눠라. (예: 칩셋/RAM/배터리/가격을 각각 다른 행으로. 한 셀에 스펙 5개 나열 금지)
+11. ★음영 강조: 콘텐츠 소제목 섹션마다 독자가 꼭 기억해야 할 핵심 문장 1개를 골라, 그 문장을
+   별도 줄로 분리한 뒤 문장 전체를 {{...}}로 감싸 '단독줄'로 써라(글 전체 3~5곳). 발행 시
+   형광펜 음영으로 변환된다. 반드시 줄 전체가 {{로 시작해 }}로 끝나야 한다 — 문장 중간 일부만
+   감싸면 효과 없다. 여러 줄을 하나의 {{}}로 묶지 마라. ★일반 본문 문단에만 사용 —
+   표·FAQ·'핵심 요약 3줄'·총평·불릿(·) 줄 안에는 절대 금지.
+12. ★소제목은 목차식 요약이 아니라 '다음 문단을 안 읽고는 못 배기게' 만드는 문장형 카피로.
+   (예: "스펙·일정 정리" ✗ → "발표 하나로 판이 바뀐 이유" ✓ / "장단점 분석" ✗ → "3개월 써보면
+   보이는 진짜 단점" ✓). 단, 규칙 9-1(제품·기술명 포함 최소 2개)은 유지하고,
+   근거 없는 단정·공포("끝났다", "사면 망한다")는 금지.
 
 [출력 형식 — 반드시 정확히]
-TITLE: {후킹 제목 35자 이내 — 궁금증/결론약속/수치 중 하나. 과장·낚시 금지}
+TITLE: {후킹 제목 35자 이내 — '결과+진짜 이유'형("~된 진짜 이유"), 손해회피형("모르면 손해"), 수치 약속형 중 하나. 뉴스 팩트가 받쳐주는 선에서 최대한 세게 — 단 근거 없는 단정 예언·공포 조장·거짓 과장 금지}
 TAGS: {태그1},{태그2},{태그3},{태그4},{태그5},{태그6}
 IMAGE_KEYWORDS: tech header
 IMAGE_LABELS: {키워드 한글}
@@ -132,6 +141,13 @@ _BENCH_OPEN = """[사진1]
 """
 # ※목차 섹션은 제거(2026-07-16 사용자 피드백: 소제목 3~4개짜리 글에 목차는 군더더기)
 _BENCH_CLOSE = """
+[소제목] 알고 보면 더 재밌는 뒷이야기
+(이 주제에 얽힌 흥미로운 맥락 1가지 — 이전 세대의 흑역사, 업계 경쟁 구도의 아이러니, 개발 비화,
+소비자들 사이의 밈 등. 3~5줄, 가볍고 대화체로. ★[최신 뉴스]나 검색으로 확인되는 사실만 —
+확인 안 되는 일화를 지어내지 마라. 마땅한 비화가 없으면 '이전 세대·경쟁 제품과 얽힌 역사'로
+대체하라. 소제목 문구는 상황에 맞게 바꿔도 된다(예: "○○의 흑역사, 기억하시나요"). 체류시간을
+만드는 섹션이다 — 여기서 재미없으면 독자가 나간다.)
+
 [소제목] 총평
 (전체를 아우르는 정리 2~3줄. 핵심을 다시 짚되 '그래서 독자는 어떻게 하면 되는지' 개인 인사이트 한 스푼. 앞 내용 단순 반복 금지.)
 
@@ -268,6 +284,21 @@ def _score_headline(title: str) -> int:
     return score
 
 
+def _recency_bonus(date_str: str) -> int:
+    """당일 이슈 가점(2026-07-17 벤치마킹): 검색 피크는 이슈 당일이 가장 크다.
+    24h 이내 +6, 48h 이내 +3. 랭킹 전용 — 소비자 신호 없는 글의 스킵 판정은 kw 점수로만."""
+    try:
+        dt = parsedate_to_datetime(date_str).astimezone(KST)
+        age_h = (datetime.now(KST) - dt).total_seconds() / 3600
+        if age_h <= 24:
+            return 6
+        if age_h <= 48:
+            return 3
+    except Exception:
+        pass
+    return 0
+
+
 def pick_tech_topic(days: int = 7, exclude: set | None = None,
                     exclude_headlines: set | None = None,
                     seeds: list | None = None) -> dict | None:
@@ -281,28 +312,30 @@ def pick_tech_topic(days: int = 7, exclude: set | None = None,
     exclude_headlines = exclude_headlines or set()
     seeds = [s for s in (seeds or TECH_SEEDS) if s not in exclude]
     random.shuffle(seeds)
-    candidates = []  # (score, seed, news_item, news_list)
+    # (총점=kw+최신가점, kw점수, seed, news_item, news_list) — 스킵 판정은 kw로, 랭킹은 총점으로
+    candidates = []
     for seed in seeds[:10]:
         news = _recent_tech_news(seed, days=days)
         for n in news:
             if n["title"] in exclude_headlines:
                 continue
-            candidates.append((_score_headline(n["title"]), seed, n, news))
+            kw = _score_headline(n["title"])
+            candidates.append((kw + _recency_bonus(n.get("date", "")), kw, seed, n, news))
+    # 소비자 신호 없는 헤드라인은 최신 가점만으로 뽑히지 않게 원천 배제(B2B 억지글 방지)
+    candidates = [c for c in candidates if c[1] > 0]
     if not candidates:
+        logger.warning("소비자 관심 주제 없음 — 오늘 발행 스킵")
         return None
     candidates.sort(key=lambda c: c[0], reverse=True)
-    best_score, seed, item, news = candidates[0]
-    if best_score <= 0:
-        # 2026-07-16 사용자 피드백: 소비자 실익 없는 B2B성 주제로 억지 글을 쓰느니 스킵
-        logger.warning(f"소비자 관심 주제 없음(최고점 {best_score}: {item['title'][:30]}) — 오늘 발행 스킵")
-        return None
-    logger.info(f"주제 선정: [{seed}] {item['title'][:40]} (점수 {best_score})")
+    total_score, kw_score, seed, item, news = candidates[0]
+    logger.info(f"주제 선정: [{seed}] {item['title'][:40]} (kw {kw_score} + 최신가점 = {total_score})")
     # 선정 헤드라인과 같은 시드의 뉴스만 맥락으로 전달(초점 유지).
     # 선정 기사를 news 맨 앞으로 → 대표 실사진(og:image)이 '헤드라인 기사'에서 우선 추출되어
     # 본문 주제와 무관한 다른 기사 사진이 대표로 붙던 문제 방지(2026-07-16: 태양광카메라 글에
     # 폰가격 배너가 붙던 실측).
     news_ordered = [item] + [n for n in news if n is not item]
-    return {"seed": seed, "headline": item["title"], "news": news_ordered}
+    # score: 카테고리 간 '오늘 가장 뜨거운 이슈' 비교용(tech_post가 사용, 2026-07-17)
+    return {"seed": seed, "headline": item["title"], "news": news_ordered, "score": total_score}
 
 
 def _build_news_block(topic: dict) -> str:
