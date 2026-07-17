@@ -127,20 +127,34 @@ def run():
     except Exception as e:
         logger.warning(f"헤더카드 실패(사진 없이 진행): {e}")
 
+    # 캡처는 [사진N] 마커를 본문에 직접 주입해야 삽입된다 — 포스터는 마커 수만큼만 이미지를
+    # 넣고 insert_before는 위치 보정용(2026-07-17 CI 실측: 마커 없인 캡처가 통째로 유실).
+    # 마커는 대상 섹션 '끝'(다음 소제목의 [구분선] 바로 앞) + 캡션 실패 대비 출처 줄을 본문에 동봉.
     money_anchor = _next_sub_after(subs, "현금", "분양가", "필요")
     plan_anchor = _next_sub_after(subs, "타입", "유리")
+    body = post.get("body", "")
+    marker_n = 2
     for c in captures:
         anchor = plan_anchor if "평면" in c["label"] else money_anchor
+        src_line = f"(위 자료: {name} 입주자모집공고문 p.{c.get('page', '')} — 출처: 청약홈)"
+        block = f"[사진{marker_n}]\n{src_line}\n"
+        pat = f"[구분선]\n{anchor}\n" if anchor else ""
+        if pat and pat in body:
+            body = body.replace(pat, block + pat, 1)
+        else:
+            body += "\n" + block
         img = {
             "local_path": c["path"], "url": "",
             "alt_text": f"{name} {c['label']}",
-            "label": f"{name} {c['label']} — 입주자모집공고문 p.{c.get('page', '')} (출처: 청약홈)",
+            "label": f"{name} {c['label']} — 입주자모집공고문 (출처: 청약홈)",
         }
         if anchor:
             img["insert_before"] = anchor
         images.append(img)
-    logger.info(f"이미지 구성: 헤더 {1 if images and not images[0].get('insert_before') else 0}장 "
-                f"+ 공고문 캡처 {len(captures)}장 (금액표→'{money_anchor[:12]}' 앞)")
+        marker_n += 1
+    post["body"] = body
+    logger.info(f"이미지 구성: 헤더 1장 + 공고문 캡처 {len(captures)}장 "
+                f"(마커 [사진2]~, 금액표→'{money_anchor[:14]}' 앞)")
 
     # ── 발행 ──
     from poster.naver_blog import post_to_naver_blog
