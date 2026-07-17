@@ -849,3 +849,85 @@ def create_photo_header_card(photo_path: str, title: str, keyword: str = "",
     tmp.close()
     logger.info(f"사진 헤더카드 생성: {display!r} → {tmp.name}")
     return tmp.name
+
+
+# ─────────────────────────────────────────────────────────────
+# 형수의테크공장 전용 텍스트 헤더카드 — 실사진·일러스트 모두 실패 시 최후 폴백.
+# 현지언니 검색바형 인포그래픽 레이아웃과 완전히 구분되는 좌정렬 '테크 뉴스' 카드
+# (2026-07-17 사용자 피드백: 검색바형 카드가 tech에 폴백으로 쓰이던 것 폐기).
+# ─────────────────────────────────────────────────────────────
+
+def create_tech_header_card(title: str, keyword: str = "") -> str | None:
+    """검색바 없는 다크 '테크 뉴스' 헤더카드(1080×1080). 실패 시 None."""
+    import re as _re
+
+    style = _STYLES["tech"]
+    accent = style["accent"]
+    label = style.get("label", "IT·테크")
+    brand = style.get("brand", "형수의테크공장")
+
+    display = _hook_phrase(title, keyword, "tech")
+    if not display:
+        display = _re.sub(r"^\s*\d{4}년\s*\d{0,2}월?\s*", "", title).split("|")[0].strip()
+        display = _re.sub(r"\([^)]*\)", "", display).strip(" ,·|-")
+        if len(display) > 20:
+            words = display.split()
+            while len(words) > 1 and len(" ".join(words)) > 20:
+                words.pop()
+            display = " ".join(words).rstrip(" ,·")
+    lines, tf = _layout_title(display)
+    tf = max(64, min(int(tf * 0.95), 132))
+    title_html = "<br>".join(escape(ln) for ln in lines)
+
+    CW = 1080
+    html = f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;800;900&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;}}
+.cardwrap{{position:relative;width:{CW}px;height:{CW}px;overflow:hidden;
+  font-family:'Noto Sans KR','Malgun Gothic',sans-serif;background:#0B0F16;}}
+/* 배경: 은은한 회로 그리드 + 코너 네온 글로우 — 검색바형 카드와 다른 정체성 */
+.grid{{position:absolute;inset:0;opacity:.55;background:
+  repeating-linear-gradient(0deg, rgba(38,230,195,.05) 0 1px, transparent 1px 90px),
+  repeating-linear-gradient(90deg, rgba(38,230,195,.05) 0 1px, transparent 1px 90px);}}
+.glow{{position:absolute;right:-260px;top:-260px;width:720px;height:720px;border-radius:50%;
+  background:radial-gradient(closest-side, rgba(38,230,195,.22), transparent 70%);}}
+.toprow{{position:absolute;left:64px;right:64px;top:64px;
+  display:flex;align-items:center;justify-content:space-between;}}
+.brand{{color:#FFFFFF;font-size:36px;font-weight:800;letter-spacing:-.5px;}}
+.brand i{{display:inline-block;width:16px;height:16px;border-radius:50%;
+  background:{accent};margin-right:14px;}}
+.chip{{border:2px solid {accent};color:{accent};font-size:28px;font-weight:800;
+  padding:8px 26px;border-radius:999px;letter-spacing:.5px;}}
+.content{{position:absolute;left:64px;right:64px;top:50%;transform:translateY(-52%);
+  display:flex;flex-direction:column;align-items:flex-start;gap:34px;}}
+.title{{color:#FFFFFF;font-size:{tf}px;font-weight:900;line-height:1.16;
+  letter-spacing:-2px;text-align:left;word-break:keep-all;}}
+.accentbar{{width:120px;height:10px;border-radius:5px;background:{accent};}}
+.caption{{position:absolute;left:64px;bottom:70px;color:#8B98A8;
+  font-size:30px;font-weight:500;letter-spacing:.5px;}}
+.edge{{position:absolute;left:0;right:0;bottom:0;height:14px;background:{accent};}}
+</style></head><body>
+<div class="cardwrap">
+  <div class="grid"></div><div class="glow"></div>
+  <div class="toprow">
+    <span class="brand"><i></i>{escape(brand)}</span>
+    <span class="chip">{escape(label)}</span>
+  </div>
+  <div class="content">
+    <div class="accentbar"></div>
+    <div class="title">{title_html}</div>
+  </div>
+  <div class="caption">오늘의 테크 소식, 쉽게 풀어드립니다</div>
+  <div class="edge"></div>
+</div></body></html>"""
+
+    try:
+        png = asyncio.run(_pw_screenshot_element(html, width=CW))
+    except Exception as e:
+        logger.warning(f"테크 헤더카드 스크린샷 실패: {e}")
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp.write(png)
+    tmp.close()
+    logger.info(f"테크 헤더카드 생성: {display!r} → {tmp.name}")
+    return tmp.name

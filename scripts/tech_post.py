@@ -214,11 +214,13 @@ def run():
         logger.info("[DRY_RUN] 포스팅 생략 — 원고 생성만 완료")
         return
 
-    # ── 3. 실사진: 대표(헤더) + 섹션 사진 여러 장(테크티노식) ──
-    # 홈판 대표 썸네일=[사진1] 최상단 실사진. 추가로 콘텐츠 소제목마다 관련 실사진을 [사진2][사진3]로
-    # 주입해 섹션마다 사진이 오게 한다. 실사진 전무 시에만 인포그래픽 카드 폴백.
+    # ── 3. 이미지: 대표(헤더) + 섹션 이미지 — 실사진 우선, 부족분은 AI 일러스트 (07-17 개편) ──
+    # 07-17 사용자 피드백: ①검색바형 인포그래픽 폴백(현지언니 레이아웃) 폐기,
+    # ②본문이 '글만'이면 재미없음 → 실사진이 없어도 헤더=일러스트 배경 카드,
+    # 섹션마다 이미지(실사진→AI 일러스트 순)를 반드시 넣는다.
     images: list[dict] = []
     from config import PEXELS_API_KEY
+    from poster.illustration import generate_editorial_illustration
 
     def _ensure_local(p: dict):
         lp = p.get("local_path")
@@ -237,36 +239,62 @@ def run():
     except Exception as e:
         logger.warning(f"실사진 확보 실패: {e}")
 
-    # 대표(헤더) = 첫 장을 배경으로 '사진+훅텍스트' 헤더카드(테크티노 스타일). 실패 시 원본 사진.
-    if photos:
-        lead_local = _ensure_local(photos[0])
-        if lead_local:
-            header_local = None
-            try:
-                from poster.infographic_html import create_photo_header_card
-                header_local = create_photo_header_card(
-                    lead_local, post["title"], keyword=post.get("seed", "테크"), category="tech"
-                )
-            except Exception as e:
-                logger.warning(f"사진 헤더카드 실패 — 원본 사진 사용: {e}")
-            images.append({
-                "local_path": header_local or lead_local, "url": "",
-                "alt_text": post.get("seed", "테크"),
-                # 카드는 사진이 이미 박혀 있어 '출처' 캡션 불필요, 원본사진 폴백 시에만 캡션.
-                "label": "" if header_local else photos[0].get("label", ""),
-            })
-            logger.info(f"대표 헤더{'카드' if header_local else '(원본사진)'} 확보: {photos[0].get('source')}")
+    # 대표(헤더): 실사진 → AI 일러스트 배경의 '사진+훅텍스트' 카드 → 테크 텍스트 카드 순.
+    lead_local = _ensure_local(photos[0]) if photos else None
+    lead_label = photos[0].get("label", "") if photos else ""
+    lead_kind = "실사진"
+    if not lead_local:
+        lead_local = generate_editorial_illustration(
+            f"{topic['seed']} {topic['headline'][:40]}", "tech", GOOGLE_API_KEY)
+        lead_label, lead_kind = "", "AI 일러스트"  # 일러스트는 출처 캡션 불필요
+    if lead_local:
+        header_local = None
+        try:
+            from poster.infographic_html import create_photo_header_card
+            header_local = create_photo_header_card(
+                lead_local, post["title"], keyword=post.get("seed", "테크"), category="tech"
+            )
+        except Exception as e:
+            logger.warning(f"헤더카드 실패 — 원본 이미지 사용: {e}")
+        images.append({
+            "local_path": header_local or lead_local, "url": "",
+            "alt_text": post.get("seed", "테크"),
+            # 카드는 이미지가 이미 박혀 있어 '출처' 캡션 불필요, 원본 폴백 시에만 캡션.
+            "label": "" if header_local else lead_label,
+        })
+        logger.info(f"대표 헤더 확보: {lead_kind}{'+훅카드' if header_local else '(원본)'}")
+    else:
+        try:
+            from poster.infographic_html import create_tech_header_card
+            tc = create_tech_header_card(post["title"], keyword=post.get("seed", "테크"))
+            if tc:
+                images.append({"local_path": tc, "url": "",
+                               "alt_text": post.get("seed", "테크"), "label": ""})
+                logger.info("대표 헤더: 테크 텍스트 카드(최후 폴백)")
+        except Exception as e:
+            logger.warning(f"테크 텍스트 카드 실패 — 대표 이미지 없음: {e}")
 
-    # 섹션 사진 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 위에 [사진N] 주입 + insert_before
-    if images and len(photos) > 1:
+    # 섹션 이미지 — 콘텐츠 소제목(핵심요약/목차/총평/FAQ 제외) 아래 [사진N] 주입.
+    # 소스 풀: 실사진 잔여분 우선, 부족분은 '섹션 주제' AI 일러스트로 채움(최대 2곳).
+    if images:
         # 모델이 소제목 문구를 변형('핵심 요약'/'목차 정리' 등)해도 걸리도록 부분일치로 스킵(2026-07-16)
         _skip_kw = ("핵심 요약", "핵심만", "목차", "총평", "자주 묻는 질문", "요약")
         content_subs = [s for s in post.get("subheadings", [])
                         if not any(k in s.strip() for k in _skip_kw)]
         targets = content_subs[1:] or content_subs  # 첫 콘텐츠 섹션은 헤더와 가까워 두 번째부터
+        pool: list[dict] = []
+        for ph in photos[1:]:
+            local = _ensure_local(ph)
+            if local:
+                pool.append({"local_path": local, "label": ph.get("label", ""), "kind": "실사진"})
+        want = min(len(targets), 2)
+        for sub in targets[len(pool):want]:
+            il = generate_editorial_illustration(f"{topic['seed']} {sub}", "tech", GOOGLE_API_KEY)
+            if il:
+                pool.append({"local_path": il, "label": "", "kind": "AI 일러스트"})
         body = post.get("body", "")
         marker_n = 2
-        for i, ph in enumerate(photos[1:]):
+        for i, im in enumerate(pool):
             if i >= len(targets):
                 break
             sub = targets[i]
@@ -277,37 +305,18 @@ def run():
             # following-anchor가 비어 소제목 텍스트 폴백(목차 충돌 위험)을 타는 경로 차단(2026-07-16)
             after = body.split(pat, 1)[1].lstrip("\n")
             if after.startswith(("[표삽입]", "[요약삽입]", "[FAQ삽입]", "[표시작]")):
-                logger.info(f"섹션 실사진 스킵: '{sub[:15]}' 다음이 플레이스홀더({after[:8]}…)")
-                continue
-            local = _ensure_local(ph)
-            if not local:
+                logger.info(f"섹션 이미지 스킵: '{sub[:15]}' 다음이 플레이스홀더({after[:8]}…)")
                 continue
             # ★소제목 '다음 줄'에 [사진N] 주입 → 마커 다음의 '고유한 본문 첫 줄'이 앵커가 되어 그 앞에 삽입.
             #   insert_before(소제목 텍스트)는 목차에도 같은 텍스트가 있어 목차 항목에 먼저 걸리므로 쓰지 않는다.
             body = body.replace(pat, f"{pat}[사진{marker_n}]\n", 1)
             images.append({
-                "local_path": local, "url": "",
-                "alt_text": post.get("seed", "테크"), "label": ph.get("label", ""),
+                "local_path": im["local_path"], "url": "",
+                "alt_text": post.get("seed", "테크"), "label": im["label"],
             })
-            logger.info(f"섹션 실사진 예약: [사진{marker_n}] → '{sub[:15]}' 섹션 ({ph.get('source')})")
+            logger.info(f"섹션 이미지 예약: [사진{marker_n}] → '{sub[:15]}' 섹션 ({im['kind']})")
             marker_n += 1
         post["body"] = body
-
-    if not images:
-        # 실사진 전무 → 썸네일 없는 글 방지용 최후 폴백(인포그래픽 카드)
-        logger.warning("실사진 미확보 — 인포그래픽 카드 폴백(대표이미지 공백 방지)")
-        from generator.content import extract_summary_bullets
-        bullets = extract_summary_bullets(post.get("summary_text", "")) or None
-        header_path = None
-        try:
-            from poster.infographic_html import create_infographic_via_html
-            header_path = create_infographic_via_html(
-                title=post["title"], keyword=post.get("seed", "테크"), category="tech", bullets=bullets
-            )
-        except Exception as e:
-            logger.warning(f"HTML 인포그래픽 폴백 실패: {e}")
-        if header_path:
-            images.append({"local_path": header_path, "url": "", "alt_text": post.get("seed", "테크"), "label": post.get("seed", "테크")})
 
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog
