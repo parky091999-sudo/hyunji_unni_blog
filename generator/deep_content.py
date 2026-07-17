@@ -255,13 +255,17 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
         "위 팩트만 근거로 심층분석 글을 작성해라. 계산 예시는 이 수치로만. "
         "데이터에 없는 수치는 '공식 자료로 확인'으로 처리하라."
     )
+    # 건별 특수 구조 지시(청약 공고 분석 등, 2026-07-17) — 기본 구조 위에 덧붙는 추가 요구
+    if topic.get("extra_instructions"):
+        user_msg += "\n\n[이 글의 추가 요구사항 — 반드시 반영]\n" + topic["extra_instructions"]
 
     # 2026-07-16: 07-15 크론이 5회 전부 '본문 짧음(2,261~2,988자)'으로 실패 → 2회 증설
     waits = [10, 30, 60, 90, 60, 60]
     feedback = ""
     for attempt in range(1, len(waits) + 2):
         try:
-            raw = _gen_text(api_key, user_msg + feedback, system, 8192, 0.2)
+            raw = _gen_text(api_key, user_msg + feedback, system, 8192, 0.2,
+                            use_search=bool(topic.get("use_search")))
             if not raw:
                 logger.warning(f"빈 응답 (시도 {attempt})")
                 continue
