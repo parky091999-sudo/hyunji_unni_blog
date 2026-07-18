@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-07-18",
+    "timestamp": "2026-07-18T19:05:51.109726+09:00",
+    "run_slot": "18",
+    "fmt": "breaking",
+    "seed": "AI 노트북",
+    "headline": "‘300만원 폰’ 나오나…갤럭시 Z폴드8 역대급 가격표 예고",
+    "category": "AI·IT",
+    "title": "갤럭시 Z폴드8, 진짜 300만원 넘을까? 역대급 가격표의 속사정",
+    "tags": [
+      "갤럭시Z폴드8",
+      "폴더블폰",
+      "스마트폰",
+      "AI폰",
+      "가격인상",
+      "삼성전자",
+      "모바일"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224350412142",
+    "images_inserted": 2
+  },
+  {
+    "date": "2026-07-18",
     "timestamp": "2026-07-18T15:36:07.616018+09:00",
     "run_slot": "15",
     "fmt": "compare",
