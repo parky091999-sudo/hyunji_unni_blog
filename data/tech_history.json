@@ -1,6 +1,26 @@
 [
   {
     "date": "2026-07-18",
+    "timestamp": "2026-07-18T23:07:23.144501+09:00",
+    "run_slot": "23",
+    "fmt": "explain",
+    "seed": "게이밍 모니터",
+    "headline": "[뉴템] 벤큐 조위, 최초 QHD 게이밍 모니터 XQ2566X 출시",
+    "category": "PC·노트북",
+    "title": "\"QHD 게이밍 모니터? 벤큐 조위 XQ2566X, 진짜 살 만할까?\"",
+    "tags": [
+      "게이밍모니터",
+      "벤큐조위",
+      "QHD",
+      "XQ2566X",
+      "배틀로얄"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224350563920",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-18",
     "timestamp": "2026-07-18T19:05:51.109726+09:00",
     "run_slot": "18",
     "fmt": "breaking",
