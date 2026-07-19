@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-07-19",
+    "timestamp": "2026-07-19T14:44:55.823220+09:00",
+    "run_slot": "14",
+    "fmt": "compare",
+    "seed": "맥북",
+    "headline": "냉장고까지 번진 ‘AI 통행세’…가전 할인 줄고 가격 오르나",
+    "category": "PC·노트북",
+    "title": "갑자기 맥북 가격이 20만원 뛰었다고? AI 통행세의 진실",
+    "tags": [
+      "맥북",
+      "아이패드",
+      "애플",
+      "AI통행세",
+      "가격인상",
+      "메모리대란",
+      "OLED맥북"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351000656",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-19",
     "timestamp": "2026-07-19T13:21:35.011221+09:00",
     "run_slot": "13",
     "fmt": "pick",
