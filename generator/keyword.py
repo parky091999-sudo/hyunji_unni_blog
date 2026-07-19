@@ -703,7 +703,9 @@ def pick_keyword_for_blog_category(blog_category: str, exclude: set | None = Non
     if chosen_cat_id in _DATALAB_CATS and len(fresh) > 1:
         try:
             from generator.datalab_trend import pick_trending_keyword
-            keyword = pick_trending_keyword(fresh[:20], top_n=3)
+            # 2026-07-19: [:20] 고정 절단 → 풀 전체(캡 40) — 리스트 뒤쪽 키워드가 검색량
+            # 평가조차 못 받던 사각 제거(12h 캐시라 쿼터 부담 미미)
+            keyword = pick_trending_keyword(fresh[:40], top_n=3)
         except Exception as e:
             logger.warning(f"DataLab 트렌딩 조회 실패 — 랜덤 선택: {e}")
 
