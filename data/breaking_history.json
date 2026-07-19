@@ -6,5 +6,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "ai반도체-kimi-k3": {
+  "date": "2026-07-19",
+  "at": "2026-07-19T20:33:17.156646+09:00",
+  "issue": "AI 반도체 수요 급증 및 중국 AI 모델 Kimi K3의 부상",
+  "track": "tech",
+  "urgency": 4,
+  "dispatched": true
  }
 }
