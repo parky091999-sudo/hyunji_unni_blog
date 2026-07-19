@@ -21,6 +21,9 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: write
+
 concurrency:
   # 같은 hyungsutech 계정 — 뉴스 트랙(naver-tech-post)과 동시 로그인 방지 위해 그룹 공유
   group: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') && format('naver-tech-guide-dry-{0}', github.run_id) || 'naver-tech-post' }}
