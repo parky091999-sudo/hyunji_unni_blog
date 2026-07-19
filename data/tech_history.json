@@ -1,5 +1,26 @@
 [
   {
+    "date": "2026-07-20",
+    "timestamp": "2026-07-20T00:25:54.400162+09:00",
+    "run_slot": "00",
+    "fmt": "breaking",
+    "seed": "갤럭시 AI",
+    "headline": "이번 주 갤럭시 Z8 시리즈 공개…삼성 모바일 반등 계기 주목",
+    "category": "스마트폰·모바일",
+    "title": "갤럭시 Z8, AI 글래스까지! 삼성 언팩, 이번엔 진짜 다를까?",
+    "tags": [
+      "갤럭시Z8",
+      "갤럭시언팩",
+      "갤럭시AI",
+      "폴더블폰",
+      "갤럭시글래스",
+      "삼성스마트폰"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351432791",
+    "images_inserted": 2
+  },
+  {
     "date": "2026-07-19",
     "timestamp": "2026-07-19T23:18:56.081028+09:00",
     "run_slot": "23",
