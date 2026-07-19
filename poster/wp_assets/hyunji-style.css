@@ -246,3 +246,8 @@ header .wp-block-site-title a::before{
 @media(max-width:640px){
   .hj-stats{grid-template-columns:1fr 1fr}
 }
+
+/* ── 사이드바 스크롤 고정 — 광고 상시 노출 (2026-07-19 사용자 요청) ── */
+@media(min-width:1025px){
+  #secondary .sidebar-inner-wrap{position:sticky;top:40px}
+}
