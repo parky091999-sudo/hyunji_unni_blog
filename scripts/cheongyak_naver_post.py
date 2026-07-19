@@ -148,7 +148,10 @@ def run():
     card_anchor = {
         "overview": subs[0] if subs else "",
         "schedule": _next_sub_after(subs, "일정"),
-        "price": money_anchor,
+        "payment": money_anchor,                       # 현금 섹션 끝(금액표 캡처 위)
+        "price": plan_anchor,                          # 타입 비교 섹션 끝
+        "eligibility": _next_sub_after(subs, "체크", "자격", "신청"),
+        "checklist": "",                               # 글 말미(FAQ 뒤, 자료 출처 앞)
     }
     for c in cards:
         anchor = card_anchor.get(c.get("anchor_hint", ""), "")

@@ -259,6 +259,123 @@ def create_price_card(facts: dict) -> str | None:
     return path
 
 
+# ── 카드 4: 규제·자격 체크 ───────────────────────────────────────────────────
+
+def create_eligibility_card(facts: dict) -> str | None:
+    reg = facts.get("규제", {})
+    rows = ""
+    n = 0
+    label_map = [
+        ("투기과열지구", "투기과열지구"),
+        ("조정대상지역", "조정대상지역"),
+        ("분양가상한제", "분양가상한제"),
+        ("정비사업", "정비사업 규제"),
+        ("공공주택지구", "공공주택지구"),
+        ("생애최초 공급", "생애최초 공급"),
+    ]
+    for key, label in label_map:
+        v = str(reg.get(key, "")).strip().upper()
+        if v not in ("Y", "N"):
+            continue
+        n += 1
+        ok = v == "N" if key != "생애최초 공급" else v == "Y"
+        icon = "✓" if ok else "!"
+        cls = "ok" if ok else "warn"
+        desc = ("해당 없음" if v == "N" else "적용") if key != "생애최초 공급" \
+            else ("있음" if v == "Y" else "없음")
+        rows += (f'<div class="row"><div class="ic {cls}">{icon}</div>'
+                 f'<div class="k">{escape(label)}</div><div class="v">{escape(desc)}</div></div>')
+    if n < 3:
+        return None
+    region = str(facts.get("공급지역", "")).strip()
+    strip = (f'<div class="strip">규제와 별개로 <b>청약통장 요건·{escape(region) or "해당"}지역 '
+             f'거주 우선</b>은 공고문 기준이에요 — 접수 전 꼭 확인!</div>')
+    inner = f"""<style>
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
+.row{{display:flex;align-items:center;gap:16px;background:{_C['tile']};
+  border:2px solid {_C['line']};border-radius:14px;padding:18px 22px;}}
+.ic{{flex:none;width:44px;height:44px;border-radius:50%;color:#fff;font-size:26px;
+  font-weight:900;display:flex;align-items:center;justify-content:center;}}
+.ic.ok{{background:#4CAF87;}}
+.ic.warn{{background:{_C['red']};}}
+.k{{flex:1;font-size:25px;font-weight:800;color:{_C['navy']};}}
+.v{{font-size:24px;font-weight:900;color:{_C['text']};}}
+.strip{{margin-top:14px;background:#FFF3C4;border:2px solid {_C['yellow']};border-radius:12px;
+  padding:16px 22px;font-size:23px;font-weight:600;color:{_C['navy']};line-height:1.45;}}
+.strip b{{color:{_C['red']};}}
+</style><div class="grid2">{rows}</div>{strip}"""
+    path = _shot(_wrap(inner, "규제 적용 여부, 여기만 보면 됩니다", "자격 체크"))
+    if path:
+        logger.info(f"청약 자격 카드 생성 → {path} ({n}항목)")
+    return path
+
+
+# ── 카드 5: 필요 현금 시뮬레이션 ─────────────────────────────────────────────
+
+def create_payment_card(facts: dict) -> str | None:
+    cash = facts.get("필요현금 참고(최고분양가 기준)", {})
+    top = cash.get("최고분양가", "")
+    d10 = cash.get("계약금 10% 가정", "")
+    d20 = cash.get("계약금 20% 가정", "")
+    if not (top and d10):
+        return None
+    rows = ""
+    for label, val, hot in (("최고 분양가", top, False),
+                            ("계약금 10% 가정", d10, True),
+                            ("계약금 20% 가정", d20, False)):
+        if not val:
+            continue
+        cls = "row hot" if hot else "row"
+        rows += (f'<div class="{cls}"><div class="k">{escape(label)}</div>'
+                 f'<div class="v">{escape(str(val))}</div></div>')
+    inner = f"""<style>
+.row{{display:flex;align-items:center;justify-content:space-between;background:{_C['tile']};
+  border:2px solid {_C['line']};border-radius:14px;padding:20px 28px;margin-bottom:12px;}}
+.row.hot{{background:#FFF3C4;border-color:{_C['yellow']};}}
+.k{{font-size:27px;font-weight:800;color:{_C['navy']};}}
+.v{{font-size:34px;font-weight:900;color:{_C['text']};letter-spacing:-1px;}}
+.row.hot .v{{color:{_C['red']};}}
+.strip{{margin-top:6px;background:{_C['tile']};border:2px dashed {_C['line']};border-radius:12px;
+  padding:15px 22px;font-size:21px;color:{_C['muted']};line-height:1.45;}}
+</style>{rows}<div class="strip">실제 계약금 비율·중도금 대출 조건은 입주자모집공고문이
+기준이에요. 여기 금액은 최고 분양가 기준 가정치입니다.</div>"""
+    path = _shot(_wrap(inner, "현금, 얼마나 준비해야 할까", "자금 계획"))
+    if path:
+        logger.info(f"청약 자금 카드 생성 → {path}")
+    return path
+
+
+# ── 카드 6: 청약 전 체크리스트 ───────────────────────────────────────────────
+
+def create_checklist_card(facts: dict) -> str | None:
+    sched = facts.get("일정", {})
+    rcpt = _first_date(sched.get("1순위 접수") or sched.get("접수", ""))
+    cash = facts.get("필요현금 참고(최고분양가 기준)", {})
+    d10 = cash.get("계약금 10% 가정", "")
+    items = [
+        "입주자모집공고문 원문 정독 (청약홈)",
+        "청약통장 가입기간·예치금 충족 확인",
+        f"계약금 현금 준비 ({d10} 안팎, 10% 가정)" if d10 else "계약금 현금 준비 계획",
+        "중도금 대출 조건·이자 부담 확인",
+        f"접수일 캘린더 등록 — {rcpt}" if rcpt != "-" else "접수일 캘린더 등록",
+    ]
+    rows = ""
+    for it in items:
+        rows += (f'<div class="row"><div class="box">✓</div>'
+                 f'<div class="t">{escape(it)}</div></div>')
+    inner = f"""<style>
+.row{{display:flex;align-items:center;gap:20px;background:{_C['tile']};
+  border:2px solid {_C['line']};border-radius:14px;padding:18px 26px;margin-bottom:12px;}}
+.box{{flex:none;width:44px;height:44px;border-radius:10px;background:{_C['navy']};color:{_C['yellow']};
+  font-size:28px;font-weight:900;display:flex;align-items:center;justify-content:center;}}
+.t{{font-size:26px;font-weight:700;color:{_C['text']};letter-spacing:-0.5px;}}
+</style>{rows}"""
+    path = _shot(_wrap(inner, "접수 전, 이 5가지만 점검하세요", "체크리스트"))
+    if path:
+        logger.info(f"청약 체크리스트 카드 생성 → {path}")
+    return path
+
+
 def create_cheongyak_cards(facts: dict) -> list[dict]:
     """3종 카드 일괄 생성 — [{local_path, label, anchor_hint}] (실패 카드는 제외)."""
     out = []
@@ -266,7 +383,10 @@ def create_cheongyak_cards(facts: dict) -> list[dict]:
     for fn, label, hint in (
         (create_overview_card, "청약 핵심 요약", "overview"),
         (create_schedule_card, "청약 일정", "schedule"),
+        (create_payment_card, "필요 현금", "payment"),
         (create_price_card, "타입별 분양가", "price"),
+        (create_eligibility_card, "규제·자격 체크", "eligibility"),
+        (create_checklist_card, "청약 전 체크리스트", "checklist"),
     ):
         try:
             p = fn(facts)
