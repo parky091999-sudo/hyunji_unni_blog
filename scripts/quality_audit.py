@@ -163,6 +163,14 @@ def _make_issue(results: list[dict]) -> str:
     if gates:
         lines += ["", "## 게이트 개선 제안"]
         lines += [f"- {g}" for g in dict.fromkeys(gates)]
+    try:
+        from generator.official_facts import overdue_reviews
+        due = overdue_reviews()
+        if due:
+            lines += ["", "## ⏰ 고시값 DB 재검토 기한 경과 — 공식 소스 대조 후 갱신 필요"]
+            lines += [f"- {d}" for d in due]
+    except Exception:
+        pass
     lines += ["", "처리 루틴: 이 이슈를 확인 후 \"품질 감사 이슈 검토해줘\"."]
     return f"[품질 감사] {today}\n" + "\n".join(lines)
 

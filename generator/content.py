@@ -1135,6 +1135,16 @@ def generate_gov_post(
         fact_block = ("[검증된 공식 수치 — 금액·기준은 반드시 아래 값만 사용, 그 외 수치 창작 절대 금지]\n"
                       + forced_facts + "\n\n") + fact_block
 
+    # 법정 고시값 상시 주입(2026-07-19, 오류 원천 차단) — gov 글은 중위소득·급여 기준 오류가
+    # 반복된 최다 발생 지점이라 검증 DB 값을 항상 팩트 최상단에 둔다.
+    try:
+        from generator.official_facts import lookup_block
+        _official = lookup_block(keyword, "정부지원 " + (gov_category or ""))
+        if _official:
+            fact_block = _official + fact_block
+    except Exception as e:
+        logger.warning(f"고시값 DB 스킵: {e}")
+
     user_msg = fact_block + (
         f"정부지원·혜택 키워드: {keyword}"
         + (f"\n카테고리 힌트: {gov_category}" if gov_category else "")

@@ -318,6 +318,15 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
         fact_block = ("[검증된 공식 수치 — 금액·배점·세율은 반드시 아래 값만 문자 그대로 사용, "
                       "그 외 수치 창작 절대 금지]\n" + forced_facts + "\n\n") + fact_block
 
+    # 법정 고시값 상시 주입(2026-07-19, 오류 원천 차단) — 관련 키워드면 검증 DB 값이 항상 최상단
+    try:
+        from generator.official_facts import lookup_block
+        official = lookup_block(keyword, cfg["name"] + " " + info_cat_id)
+        if official:
+            fact_block = official + fact_block
+    except Exception as e:
+        logger.warning(f"고시값 DB 스킵: {e}")
+
     system = _build_info_system(cfg)
     base_user_msg = (
         f"'{cfg['name']}' 키워드: {keyword}"
