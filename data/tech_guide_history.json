@@ -9,5 +9,15 @@
     "post_url": "https://blog.naver.com/hyungsutech/224351046442",
     "status": "posted",
     "note": "첫 가이드 — 이력커밋 403 유실분 수동 복구"
+  },
+  {
+    "id": "chatgpt-start",
+    "date": "2026-07-20",
+    "timestamp": "2026-07-20T06:11:34+09:00",
+    "keyword": "챗GPT 제대로 쓰는 법",
+    "category": "AI 활용·자동화",
+    "title": "챗GPT 제대로 쓰는 법: 프롬프트 원리부터 실전까지",
+    "post_url": "https://blog.naver.com/hyungsutech/224351604161",
+    "status": "posted"
   }
 ]
