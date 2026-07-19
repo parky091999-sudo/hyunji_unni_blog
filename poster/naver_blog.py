@@ -3021,7 +3021,9 @@ def _category_tail(text: str) -> str:
 
 
 def _norm_category_label(text: str) -> str:
-    return re.sub(r"\s+", "", _category_tail(text))
+    # 2026-07-19: 구분자(·,, )는 표기 차이일 뿐 같은 카테고리 — "부동산·주거" vs "부동산, 주거"
+    # 불일치로 매칭 실패→직전 카테고리 오분류 실사고(청약 글이 공모주로).
+    return re.sub(r"[\s·,]+", "", _category_tail(text))
 
 
 def _pick_category_label(available: list[str], category_name: str) -> str | None:

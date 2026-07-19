@@ -31,7 +31,9 @@ logger = logging.getLogger("cheongyak_naver_post")
 
 KST = timezone(timedelta(hours=9))
 HISTORY_PATH = os.path.join(DATA_DIR, "cheongyak_naver_history.json")
-BLOG_CATEGORY = "부동산·주거"
+# 2026-07-19 수정: 실제 블로그 카테고리명은 "부동산, 주거"(쉼표) — 가운뎃점(·) 표기가
+# 매칭에 실패해 발행 패널 기본(직전) 카테고리로 나가던 버그(공모주 오분류 실사고).
+BLOG_CATEGORY = "부동산, 주거"
 
 
 def _load_history() -> dict:
@@ -187,7 +189,9 @@ def run():
             category=BLOG_CATEGORY,
             faq_pairs=post.get("faq_pairs", []),
             summary_text=post.get("summary_text", ""),
-            center_align=True,        # 전체 가운데 정렬 (2026-07-17 사용자 피드백)
+            # 2026-07-19 사용자 지시로 가운데 정렬 철회(전부 좌측) — 07-17 옵션이 설명 문단까지
+            # 전부 가운데로 만들어 가독성 저하. 되돌리려면 True.
+            center_align=False,
             style_line_markers=True,  # [[미니 소제목]]·{{음영 강조}} 줄 마커 스타일링
         )
     except Exception as e:
