@@ -236,10 +236,22 @@ def _seed_relevant(path: str, seed: str) -> bool:
         return True
 
 
+def _photo_subject(topic: dict) -> str:
+    """사진-주제 게이트의 판정 기준 문자열 — 시드만 쓰면 시드-헤드라인 미스매치 시
+    (2026-07-19 실측: 시드 '테슬라 모델'+갤럭시 폴드8 기사) 진짜 주제 사진을 역차단하고
+    무관 사진을 통과시킴 → 실제 글 주제인 헤드라인을 함께 사용."""
+    seed = topic.get("seed", "")
+    headline = topic.get("headline", "")
+    if seed and headline:
+        return f"{headline} ({seed})"
+    return headline or seed
+
+
 def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
     """캐스케이드로 본문 실사진 1장 확보.
     반환: {"local_path"|"url", "label"(캡션), "source"} 또는 None.
     """
+    subject = _photo_subject(topic)
     # 1순위: 최신 뉴스 기사들의 og:image (위에서부터 성공하는 첫 장)
     for n in topic.get("news", [])[:5]:
         link = n.get("link") or ""
@@ -250,7 +262,7 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
             path, dom = got
             if _person_dominant(path):
                 continue
-            if not _seed_relevant(path, topic.get("seed", "")):
+            if not _seed_relevant(path, subject):
                 continue
             logger.info(f"본문 실사진: 뉴스 대표사진 확보 (출처 {dom})")
             # 캡션에 콜론(:)을 넣지 않음 — 스크린샷 파일명(alt_text 사용)에 콜론이 섞여
@@ -303,6 +315,7 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
     반환: [{"local_path", "label", "source"}, ...] (0~want장)."""
     photos: list[dict] = []
     used_domains: set[str] = set()
+    subject = _photo_subject(topic)
     for n in topic.get("news", [])[:8]:
         if len(photos) >= want:
             break
@@ -317,18 +330,23 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
             path, d = got
             if _person_dominant(path):  # 연예인·모델 홍보컷 초상 리스크 차단
                 continue
-            if not _seed_relevant(path, topic.get("seed", "")):  # 경쟁브랜드·무관물건 컷 차단
+            if not _seed_relevant(path, subject):  # 경쟁브랜드·무관물건 컷 차단
                 continue
             used_domains.add(d)
             photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
 
     # 2순위: 네이버쇼핑 실사 — 판매 제품 시드만(서비스성 시드는 무관 상품이 잡혀 오히려 해로움)
+    # ★쇼핑 사진도 비전 게이트 필수: 판매자들이 인기 키워드를 제목에 도배해 무관 상품이 잡힘
+    #   (2026-07-19 실측: 갤럭시 폴드8 글에 테슬라 모형차 3장 라이브 발행 사고)
     if len(photos) < want:
         try:
             from generator.tech_content import SEED_CATEGORY
             seed = topic.get("seed", "")
             if seed and SEED_CATEGORY.get(seed, "") != "AI·IT":
-                photos += _naver_shopping_photos(seed, want=want - len(photos))
+                for ph in _naver_shopping_photos(seed, want=want - len(photos)):
+                    if not _seed_relevant(ph["local_path"], subject):
+                        continue
+                    photos.append(ph)
         except Exception:
             pass
     logger.info(f"실사진 확보 합계: {len(photos)}장 (og+쇼핑, 인물컷 제외)")

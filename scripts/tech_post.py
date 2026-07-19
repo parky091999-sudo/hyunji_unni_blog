@@ -331,6 +331,19 @@ def run():
             marker_n += 1
         post["body"] = body
 
+    # 함께 보면 좋은 글 — 같은 카테고리 과거 발행글 1~2개 링크(체류시간·내부 순환,
+    # 현지언니 daily_post._append_internal_links 이식, 2026-07-19 사용자 요청)
+    related = [h for h in history
+               if h.get("status") == "posted" and h.get("post_url") and h.get("title")
+               and h.get("category") == _post_category][:2]
+    if related:
+        links_text = "\n\n함께 보면 좋은 글\n"
+        for r in related:
+            links_text += f"\n[가운데] {r['post_url']}"
+        post["body"] += links_text + "\n"
+        post["subheadings"] = post.get("subheadings", []) + ["함께 보면 좋은 글"]
+        logger.info(f"내부링크 추가: 같은 카테고리({_post_category}) 과거 글 {len(related)}개")
+
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog
     try:

@@ -304,6 +304,26 @@ def _recency_bonus(date_str: str) -> int:
     return 0
 
 
+def _realign_seed(seed: str, headline: str) -> str:
+    """선정 헤드라인에 시드가 실제로 등장하는지 검증, 무관하면 헤드라인과 맞는 시드로 교체.
+
+    네이버 뉴스 검색이 본문 매칭으로 시드와 딴 주제 기사를 반환할 수 있는데(2026-07-19 실측:
+    시드 '테슬라 모델'에 갤럭시Z 폴드8 기사 선정), 시드는 카테고리 분류·쇼핑 사진 쿼리·
+    사진-주제 게이트의 기준이라 어긋나면 갤럭시 글에 테슬라 모형차 사진이 붙는 사고가 남."""
+    norm = re.sub(r"\s+", "", headline).lower()
+
+    def hits(s: str) -> int:
+        return sum(1 for t in re.split(r"\s+", s.lower()) if t and t in norm)
+
+    if hits(seed) > 0:
+        return seed
+    best = max(TECH_SEEDS, key=hits)
+    if hits(best) > 0:
+        logger.info(f"시드 재정렬: [{seed}] → [{best}] (헤드라인에 원 시드 미등장)")
+        return best
+    return seed
+
+
 def pick_tech_topic(days: int = 7, exclude: set | None = None,
                     exclude_headlines: set | None = None,
                     seeds: list | None = None) -> dict | None:
@@ -333,6 +353,7 @@ def pick_tech_topic(days: int = 7, exclude: set | None = None,
         return None
     candidates.sort(key=lambda c: c[0], reverse=True)
     total_score, kw_score, seed, item, news = candidates[0]
+    seed = _realign_seed(seed, item["title"])
     logger.info(f"주제 선정: [{seed}] {item['title'][:40]} (kw {kw_score} + 최신가점 = {total_score})")
     # 선정 헤드라인과 같은 시드의 뉴스만 맥락으로 전달(초점 유지).
     # 선정 기사를 news 맨 앞으로 → 대표 실사진(og:image)이 '헤드라인 기사'에서 우선 추출되어
