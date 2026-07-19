@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-19",
+    "timestamp": "2026-07-19T19:21:53.044539+09:00",
+    "run_slot": "19",
+    "fmt": "explain",
+    "seed": "AI 노트북",
+    "headline": "[기고] 대체불가 디스플레이 강국을 향한 담대한 도전",
+    "category": "AI·IT",
+    "title": "8.6세대 OLED, 노트북 시장의 새로운 게임 체인저가 될까요?",
+    "tags": [
+      "8.6세대 OLED",
+      "AI 노트북",
+      "차세대 디스플레이",
+      "IT 시장",
+      "생산 기술",
+      "디스플레이 강국"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351195771",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-19",
     "timestamp": "2026-07-19T16:09:41.755961+09:00",
     "run_slot": "16",
     "fmt": "breaking",
