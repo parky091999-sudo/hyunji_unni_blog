@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-19",
+    "timestamp": "2026-07-19T16:09:41.755961+09:00",
+    "run_slot": "16",
+    "fmt": "breaking",
+    "seed": "테슬라 모델",
+    "headline": "공개 앞둔 갤럭시Z 시리즈…삼성 ‘비메모리’ 역량 시험대",
+    "category": "자동차·모빌리티",
+    "title": "갤럭시Z 폴드8, 플립8 출시 D-3! 놓치면 후회할 핵심은?",
+    "tags": [
+      "갤럭시Z폴드8",
+      "갤럭시Z플립8",
+      "엑시노스2600",
+      "삼성파운드리",
+      "와이드폴드",
+      "갤럭시언팩"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351062007",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-19",
     "timestamp": "2026-07-19T14:44:55.823220+09:00",
     "run_slot": "14",
     "fmt": "compare",
