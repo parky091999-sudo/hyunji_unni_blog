@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-19",
+    "timestamp": "2026-07-19T23:18:56.081028+09:00",
+    "run_slot": "23",
+    "fmt": "explain",
+    "seed": "무선청소기",
+    "headline": "19일 청소기 캐시워크 돈버는퀴즈 정답 공개",
+    "category": "가전·디지털",
+    "title": "픽스 무선 에어건 청소기, 캐시워크 퀴즈로 뜬 진짜 이유",
+    "tags": [
+      "픽스무선청소기",
+      "에어건청소기",
+      "캐시워크",
+      "돈버는퀴즈",
+      "휴대용청소기",
+      "2in1"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351376665",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-19",
     "timestamp": "2026-07-19T20:41:00.654001+09:00",
     "run_slot": "20",
     "fmt": "breaking",
