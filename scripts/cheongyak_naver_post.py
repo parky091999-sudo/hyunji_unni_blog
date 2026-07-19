@@ -136,6 +136,38 @@ def run():
     plan_anchor = _next_sub_after(subs, "타입", "유리")
     body = post.get("body", "")
     marker_n = 2
+
+    # 데이터 인포카드 3종(2026-07-19 벤치마킹: 섹션마다 카드) — 팩트만 렌더라 수치 오류 불가.
+    # 요약 카드=요약 직후(첫 소제목 앞), 일정 카드=일정 섹션 끝, 분양가 카드=현금 섹션 끝(캡처 위).
+    try:
+        from poster.cheongyak_cards import create_cheongyak_cards
+        cards = create_cheongyak_cards(facts)
+    except Exception as e:
+        cards = []
+        logger.warning(f"청약 인포카드 실패(캡처만으로 진행): {e}")
+    card_anchor = {
+        "overview": subs[0] if subs else "",
+        "schedule": _next_sub_after(subs, "일정"),
+        "price": money_anchor,
+    }
+    for c in cards:
+        anchor = card_anchor.get(c.get("anchor_hint", ""), "")
+        block = f"[사진{marker_n}]\n"
+        pat = f"[구분선]\n{anchor}\n" if anchor else ""
+        if pat and pat in body:
+            body = body.replace(pat, block + pat, 1)
+        else:
+            body += "\n" + block
+        img = {"local_path": c["local_path"], "url": "",
+               "alt_text": c.get("label", ""), "label": ""}
+        if anchor:
+            img["insert_before"] = anchor
+        images.append(img)
+        marker_n += 1
+    if cards:
+        logger.info(f"청약 인포카드 {len(cards)}장 삽입: "
+                    + ", ".join(c.get("anchor_hint", "?") for c in cards))
+
     for c in captures:
         anchor = plan_anchor if "평면" in c["label"] else money_anchor
         # 출처는 본문에 안 적고 말미 '자료 출처' 섹션에 몰아서(2026-07-17 사용자 피드백)
