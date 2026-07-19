@@ -30,7 +30,7 @@ WP_URL = os.environ.get("TECH_WP_URL", "https://tech.hyunjiunni.com").rstrip("/"
 WP_USER = os.environ.get("TECH_WP_APP_USER", "hyungsu_admin")
 WP_PW = os.environ.get("TECH_WP_APP_PW", "")
 
-WP_CATEGORY_MAP = {"PC 오류해결·설정": "PC 오류해결", "AI 활용·자동화": "AI 활용"}
+WP_CATEGORY_MAP = {"PC 오류해결·설정": "PC 오류해결", "AI 활용·자동화": "AI 활용", "오피스·툴 활용": "오피스·툴 활용"}
 BODY_MIN = 4500  # HTML 기준 하한(태그 포함) — "길고 상세" 지시
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
