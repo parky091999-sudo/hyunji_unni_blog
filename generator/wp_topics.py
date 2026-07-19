@@ -671,3 +671,39 @@ TOPICS: dict[str, dict] = {
         ["ISA", "연금계좌 전환", "만기"],
     ),
 }
+
+
+# ── 자동 갱신 풀 병합 (2026-07-19, 사용자 지시: 매일 1건 전환 + 풀 주기 갱신) ──
+# scripts/wp_topic_refresh.py(주간)가 data/wp_topic_pool_extra.json에 추가한 주제를
+# TOPICS에 병합한다. 검증: slug·hub 유효성, 기존 id/slug와 중복 금지.
+def _merge_extra_topics() -> None:
+    import json as _json
+    import logging as _logging
+    import os as _os
+    p = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                      "data", "wp_topic_pool_extra.json")
+    try:
+        extra = _json.load(open(p, encoding="utf-8"))
+    except Exception:
+        return
+    hubs = set(HUB_BY_WEEKDAY.values())
+    slugs = {t["slug"] for t in TOPICS.values()}
+    added = 0
+    for tid, t in (extra or {}).items():
+        if tid in TOPICS or not isinstance(t, dict):
+            continue
+        if t.get("hub_id") not in hubs or not t.get("keyword") or not t.get("slug"):
+            continue
+        if t["slug"] in slugs:
+            continue
+        TOPICS[tid] = _t(t["keyword"], t["slug"], t["hub_id"], t.get("facts", {}),
+                         [tuple(x) for x in t.get("key_stats", [])],
+                         [tuple(x) for x in t.get("sources", [])],
+                         t.get("naver_overlap"))
+        slugs.add(t["slug"])
+        added += 1
+    if added:
+        _logging.getLogger("wp_topics").info(f"자동 갱신 풀 병합: +{added}개 (총 {len(TOPICS)})")
+
+
+_merge_extra_topics()
