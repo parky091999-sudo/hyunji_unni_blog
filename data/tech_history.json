@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-19",
+    "timestamp": "2026-07-19T20:41:00.654001+09:00",
+    "run_slot": "20",
+    "fmt": "breaking",
+    "seed": "갤럭시 AI",
+    "headline": "새 폴더블 라인업 삼성, 영국서 공개",
+    "category": "스마트폰·모바일",
+    "title": "갤럭시 AI 글래스 드디어 베일 벗나? 삼성 언팩, 이번엔 다르다",
+    "tags": [
+      "갤럭시AI",
+      "갤럭시글래스",
+      "폴더블폰",
+      "삼성언팩",
+      "스마트글래스",
+      "웨어러블"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224351248463",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-19",
     "timestamp": "2026-07-19T19:21:53.044539+09:00",
     "run_slot": "19",
     "fmt": "explain",
