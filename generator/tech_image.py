@@ -204,6 +204,38 @@ def _pexels_query(seed: str) -> str:
     return "technology gadget device"
 
 
+def _seed_relevant(path: str, seed: str) -> bool:
+    """Gemini 비전으로 사진-주제 관련성 검증 (2026-07-19 폴드8 실사고: 삼성 글 본문에
+    아이폰 og 이미지, 헤더 배경에 스피커 사진). 언론사 og도 기사 대표컷이 generic 그래픽·
+    경쟁 브랜드인 경우가 있어 도메인 신뢰만으론 부족. API 실패 시 True(기존 동작 유지)."""
+    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")).strip()
+    if not api_key or not seed:
+        return True
+    try:
+        import mimetypes
+        from google import genai
+        from google.genai import types
+        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+        client = genai.Client(api_key=api_key)
+        img = types.Part.from_bytes(data=open(path, "rb").read(), mime_type=mime)
+        r = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=[img,
+                      f"이 사진이 '{seed}' 주제의 테크 블로그 글에 어울리는가? "
+                      "판정 기준: ①경쟁 브랜드 제품이 주인공이면 NO(예: 삼성 갤럭시 글에 아이폰이 "
+                      "메인으로 보이는 사진) ②주제와 무관한 물건이 주인공이면 NO(예: 스마트폰 글에 "
+                      "스피커·조명·주방용품) ③주제 제품 자체, 같은 카테고리의 일반 제품컷, 관련 현장·"
+                      "행사 사진이면 YES. 대답은 YES 또는 NO 한 단어만."])
+        ans = (getattr(r, "text", "") or "").strip().upper()
+        if ans.startswith("NO"):
+            logger.info(f"사진-주제 불일치로 제외 (seed={seed!r})")
+            return False
+        return True
+    except Exception as e:
+        logger.info(f"사진 관련성 검증 스킵({str(e)[:50]}) — 통과 처리")
+        return True
+
+
 def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
     """캐스케이드로 본문 실사진 1장 확보.
     반환: {"local_path"|"url", "label"(캡션), "source"} 또는 None.
@@ -217,6 +249,8 @@ def get_tech_body_image(topic: dict, pexels_key: str = "") -> dict | None:
         if got:
             path, dom = got
             if _person_dominant(path):
+                continue
+            if not _seed_relevant(path, topic.get("seed", "")):
                 continue
             logger.info(f"본문 실사진: 뉴스 대표사진 확보 (출처 {dom})")
             # 캡션에 콜론(:)을 넣지 않음 — 스크린샷 파일명(alt_text 사용)에 콜론이 섞여
@@ -282,6 +316,8 @@ def get_tech_photos(topic: dict, pexels_key: str = "", want: int = 3) -> list[di
         if got:
             path, d = got
             if _person_dominant(path):  # 연예인·모델 홍보컷 초상 리스크 차단
+                continue
+            if not _seed_relevant(path, topic.get("seed", "")):  # 경쟁브랜드·무관물건 컷 차단
                 continue
             used_domains.add(d)
             photos.append({"local_path": path, "label": f"출처 {d}" if d else "출처 뉴스", "source": "og"})
