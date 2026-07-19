@@ -207,6 +207,12 @@ def _build_info_system(cfg: dict) -> str:
         "근거 없으면 '유형·지역에 따라 다름(모집공고 기준)'으로 처리하고 확인 경로를 제시. "
         "불확실한 수치는 '(2025년 기준, 2026년 변경 가능)'처럼 연도 출처를 밝히되, "
         "막연한 '확인하세요'/'상담하세요' 식 책임회피 표현은 금지(구체적 확인 도구·경로 제시는 권장)\n"
+        "3-3. ★고시값·배점표·세율구간은 '비슷하게'가 없다(2026-07-19 실사고 3건 반영): 기준 중위소득, "
+        "청약 가점 배점, 종합소득세 세율 구간, 기본공제액처럼 법령·고시로 딱 정해진 수치는 오답이 "
+        "치명적이다 — [팩트]·검색 근거에 정확값이 없으면 그 숫자를 아예 쓰지 말고 항목 이름과 확인 "
+        "경로만 제시하라. '(예상치)'·'약'을 붙여 추정값을 쓰는 것도 금지(그럴싸한 오답이 더 위험하다). "
+        "예시 계산에 세율·배점을 쓸 땐 반드시 해당 구간·항목의 실제 값과 일치시켜라"
+        "(연소득 7천만원이면 24% 구간인데 '35% 가정' 같은 임의 가정 금지).\n"
         "3-1. ★제도 구분(혼용 금지): 청약(당첨으로 '살 자격'을 얻는 제도)·대출(별도 요건 심사)·세금 감면은 "
         "서로 다른 제도다. 한 제도의 조건·혜택을 다른 제도 것처럼 쓰지 마라. "
         "'당첨되면 대출받을 수 있다' 식 인과 비약 금지 — 대출은 소득·주택가 등 별도 요건이며, "
@@ -264,6 +270,28 @@ _INFO_REFINE_SYSTEM = (
 )
 
 
+# 주제 유형 감지 — 고정 소제목("가입 자격"/"신청 방법")이 주제와 충돌하는 것 방지 (2026-07-19 점검:
+# 배당 글에 "신청 방법: 주식 매수", 보험해지 글 본문이 소제목을 스스로 부정하던 실사고)
+_INVEST_KW_RE = re.compile(r"(주식|배당|ETF|etf|펀드|투자|채권|리츠|공모주|코인|비트코인)")
+_ACTION_KW_RE = re.compile(r"(해지|환급금|청구|수령|인출|갈아타기|전환|리모델링|정산)")
+
+
+def _adapt_cfg_to_topic(cfg: dict, keyword: str) -> dict:
+    """키워드 유형(투자·개념형/행위형)에 맞게 소제목·요약 라벨을 교체한 cfg 사본을 반환."""
+    c = dict(cfg)
+    if _INVEST_KW_RE.search(keyword):
+        c["sec2"] = "시작 조건 — 뭐가 필요하나?"
+        c["sec4"] = "시작 방법 — 어디서 어떻게"
+        c["summary"] = ["✔ 핵심 수익·조건: (한 줄)", "✔ 시작 조건: (계좌·금액)", "✔ 시작 방법: (경로 한 줄)"]
+        logger.info(f"소제목 세트: 투자·개념형 적용 ({keyword!r})")
+    elif _ACTION_KW_RE.search(keyword):
+        c["sec2"] = "대상 확인 — 내 경우는?"
+        c["sec4"] = "처리 방법 — 어디서 어떻게"
+        c["summary"] = ["✔ 핵심 내용: (한 줄)", "✔ 대상·조건: (한 줄)", "✔ 확인 방법: (경로 한 줄)"]
+        logger.info(f"소제목 세트: 행위형 적용 ({keyword!r})")
+    return c
+
+
 def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | None:
     """고CPC 정보성 포스트 생성 (금융재테크·세금절세·보험·부동산주거).
     팩트 수집(Naver 뉴스·공공API) → Gemini Search Grounding → 글 생성."""
@@ -271,6 +299,7 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
     if not cfg:
         logger.error(f"알 수 없는 정보 카테고리: {info_cat_id}")
         return None
+    cfg = _adapt_cfg_to_topic(cfg, keyword)
 
     # 팩트 블록 수집 (Naver 뉴스 + 공공데이터포털)
     try:
@@ -279,6 +308,15 @@ def generate_info_post(keyword: str, api_key: str, info_cat_id: str) -> dict | N
     except Exception as e:
         logger.warning(f"팩트 수집 스킵: {e}")
         fact_block = ""
+
+    # 검증 수치 주입(2026-07-19, gov FORCE_FACTS와 동일 패턴): 오류 글 재발행 시 관리자가
+    # 공식 확인한 고시값·배점표를 최우선 팩트로 — 모델의 학습 기억 창작 차단.
+    import os as _os
+    forced_facts = _os.environ.get("FORCE_FACTS", "").strip()
+    if forced_facts:
+        logger.info(f"검증 수치 주입(FORCE_FACTS {len(forced_facts)}자)")
+        fact_block = ("[검증된 공식 수치 — 금액·배점·세율은 반드시 아래 값만 문자 그대로 사용, "
+                      "그 외 수치 창작 절대 금지]\n" + forced_facts + "\n\n") + fact_block
 
     system = _build_info_system(cfg)
     base_user_msg = (

@@ -505,6 +505,9 @@ def _parse_response(raw: str) -> dict | None:
                 r"^((?:\s*\[사진\d+\]\s*)*)\s*안녕하세요[^.!?~\n]*[.!?~]?\s*",
                 r"\1", body, flags=re.IGNORECASE,
             ).lstrip()
+            # 폐지된 용어 교정(2026-07-19 점검: 보험·청약 글 반복 발생) — 2020년 폐지된
+            # '공인인증서'를 현행 '공동인증서'로. '(구 공인인증서)' 같은 역사적 언급만 보존.
+            body = re.sub(r"(?<!구 )공인인증서", "공동인증서", body)
             result["body"] = _split_long_paragraphs(body.strip())
 
         if "title" not in result or "body" not in result:
