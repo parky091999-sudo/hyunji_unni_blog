@@ -738,5 +738,15 @@
     "images_inserted": 1,
     "has_table": false,
     "has_faq": false
+  },
+  {
+    "date": "2026-07-19",
+    "timestamp": "2026-07-19T13:10:00+09:00",
+    "run_slot": "dispatch",
+    "keyword": "주거급여 신청 자격 방법",
+    "gov_category": "정부지원&혜택",
+    "post_url": "https://blog.naver.com/hyunji_unni/224350939120",
+    "status": "posted",
+    "note": "수치 오류 재발행(FORCE_FACTS) — 이력커밋 충돌로 수동 보정"
   }
 ]
