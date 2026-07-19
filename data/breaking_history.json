@@ -14,5 +14,13 @@
   "track": "tech",
   "urgency": 4,
   "dispatched": true
+ },
+ "ai반도체-키미k3-삼전닉스": {
+  "date": "2026-07-20",
+  "at": "2026-07-20T00:18:16.143696+09:00",
+  "issue": "AI 반도체 수요 급증 및 중국 AI 모델의 한국 반도체 시장 영향",
+  "track": "tech",
+  "urgency": 4,
+  "dispatched": true
  }
 }
