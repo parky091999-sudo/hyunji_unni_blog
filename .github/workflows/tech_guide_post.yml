@@ -1,0 +1,68 @@
+name: 형수테크 심층 가이드 (PC 유입 특화)
+
+on:
+  schedule:
+    # 하루 1건. PC 검색 오전 피크(08~10시 KST) 도착 목표 — GH 지연(3~4h) 감안 이중 슬롯,
+    # 스크립트의 '오늘 1건' 게이트가 중복을 막는다.
+    - cron: "11 20 * * *"   # KST 05:11 (지연 시 08~09시 도착)
+    - cron: "11 23 * * *"   # KST 08:11 (백업)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "원고만 생성 (true/false)"
+        required: false
+        default: "false"
+      draft:
+        description: "임시저장 검증 (true/false)"
+        required: false
+        default: "false"
+      topic_id:
+        description: "주제 강제 지정 (tech_guide_pool.json의 id)"
+        required: false
+        default: ""
+
+concurrency:
+  # 같은 hyungsutech 계정 — 뉴스 트랙(naver-tech-post)과 동시 로그인 방지 위해 그룹 공유
+  group: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') && format('naver-tech-guide-dry-{0}', github.run_id) || 'naver-tech-post' }}
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: |
+          pip install -q -r requirements.txt
+          python -m playwright install chromium --with-deps > /dev/null
+
+      - name: 폰트 설치 (헤더카드 한글)
+        run: sudo apt-get install -y -qq fonts-nanum > /dev/null
+
+      - name: 가이드 발행
+        env:
+          TECH_NAVER_ID:      ${{ secrets.TECH_NAVER_ID }}
+          TECH_NAVER_PW:      ${{ secrets.TECH_NAVER_PW }}
+          TECH_NAVER_BLOG_ID: ${{ secrets.TECH_NAVER_BLOG_ID }}
+          TECH_NAVER_COOKIES: ${{ secrets.TECH_NAVER_COOKIES }}
+          GOOGLE_API_KEY:     ${{ secrets.GOOGLE_API_KEY }}
+          DRY_RUN:            ${{ github.event.inputs.dry_run || 'false' }}
+          DRAFT:              ${{ github.event.inputs.draft || 'false' }}
+          FORCE_TOPIC_ID:     ${{ github.event.inputs.topic_id || '' }}
+        run: python -m scripts.tech_guide_post
+
+      - name: 이력 커밋
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tech_guide_history.json || true
+          git diff --staged --quiet || git commit -m "chore: 심층 가이드 이력 $(date -u +%Y-%m-%d)"
+          git pull --rebase --autostash -q origin main || { git rebase --abort 2>/dev/null; git pull --no-rebase -q origin main; }
+          git push -q || (git pull --rebase --autostash -q origin main && git push -q)
