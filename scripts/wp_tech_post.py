@@ -122,6 +122,76 @@ def _auth():
     return (WP_USER, WP_PW)
 
 
+_CAT_ACCENT = {"PC 오류해결·설정": (59, 130, 246), "AI 활용·자동화": (168, 85, 247),
+               "오피스·툴 활용": (16, 185, 129)}
+
+_FONT_CANDS = ["/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+               "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+               "C:/Windows/Fonts/malgunbd.ttf", "C:/Windows/Fonts/malgun.ttf"]
+
+
+def _make_featured(title: str, category: str) -> str | None:
+    """대표 이미지(1200×630, og 규격) PIL 생성 — 다크 그라디언트+카테고리 액센트+제목.
+    2026-07-19 사용자 피드백(이미지 0장): 목록·공유 썸네일 공백 해소. Playwright 없이 경량."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import tempfile
+        W, H = 1200, 630
+        img = Image.new("RGB", (W, H), (17, 24, 39))
+        dr = ImageDraw.Draw(img)
+        for y in range(H):  # 상→하 미묘한 그라디언트
+            t = y / H
+            dr.line([(0, y), (W, y)], fill=(int(17 + 10 * t), int(24 + 12 * t), int(39 + 22 * t)))
+        ac = _CAT_ACCENT.get(category, (59, 130, 246))
+        dr.rectangle([0, 0, 14, H], fill=ac)
+        font_path = next((f for f in _FONT_CANDS if os.path.exists(f)), None)
+        if not font_path:
+            logger.warning("한글 폰트 없음 — 대표 이미지 생략")
+            return None
+        f_label = ImageFont.truetype(font_path, 34)
+        f_title = ImageFont.truetype(font_path, 64)
+        f_brand = ImageFont.truetype(font_path, 30)
+        dr.rounded_rectangle([70, 70, 70 + f_label.getlength(category) + 44, 128],
+                             radius=14, fill=(31, 41, 59), outline=ac, width=2)
+        dr.text((92, 82), category, font=f_label, fill=(229, 231, 235))
+        # 제목 워드랩(공백 우선)
+        words, lines, cur = title.split(), [], ""
+        for w in words:
+            trial = (cur + " " + w).strip()
+            if f_title.getlength(trial) > W - 160 and cur:
+                lines.append(cur)
+                cur = w
+            else:
+                cur = trial
+        lines.append(cur)
+        y = 210
+        for ln in lines[:4]:
+            dr.text((74, y), ln, font=f_title, fill=(249, 250, 251))
+            y += 84
+        dr.text((74, H - 78), "형수의 테크공장  ·  tech.hyunjiunni.com", font=f_brand, fill=(148, 163, 184))
+        out = os.path.join(tempfile.gettempdir(), "wp_tech_featured.png")
+        img.save(out, "PNG")
+        return out
+    except Exception as ex:
+        logger.warning(f"대표 이미지 생성 실패(이미지 없이 진행): {ex}")
+        return None
+
+
+def _upload_featured(path: str, slug: str) -> int | None:
+    try:
+        with open(path, "rb") as fh:
+            r = requests.post(f"{WP_URL}/wp-json/wp/v2/media", auth=_auth(), timeout=60,
+                              headers={"Content-Disposition": f'attachment; filename="{slug}.png"',
+                                       "Content-Type": "image/png"},
+                              data=fh.read())
+        if r.status_code in (200, 201):
+            return r.json().get("id")
+        logger.warning(f"미디어 업로드 실패: {r.status_code}")
+    except Exception as ex:
+        logger.warning(f"미디어 업로드 예외: {ex}")
+    return None
+
+
 def _ensure_category(name: str) -> int | None:
     try:
         r = requests.get(f"{WP_URL}/wp-json/wp/v2/categories", params={"search": name, "per_page": 20},
@@ -166,6 +236,12 @@ def main():
                "excerpt": post["excerpt"], "status": os.environ.get("WP_STATUS", "publish")}
     if cat_id:
         payload["categories"] = [cat_id]
+    card = _make_featured(post["title"], topic["category"])
+    if card:
+        media_id = _upload_featured(card, post["slug"])
+        if media_id:
+            payload["featured_media"] = media_id
+            logger.info(f"대표 이미지 첨부(media {media_id})")
     r = requests.post(f"{WP_URL}/wp-json/wp/v2/posts", json=payload, auth=_auth(), timeout=60)
     ok = r.status_code in (200, 201)
     link = r.json().get("link", "") if ok else ""
