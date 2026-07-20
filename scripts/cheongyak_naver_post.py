@@ -57,6 +57,31 @@ def _next_sub_after(subs: list[str], *kws) -> str:
     return ""
 
 
+def _own_sub(subs: list[str], *kws) -> str:
+    """kws가 들어간 '그' 소제목 자체 — 인포카드를 이 소제목 바로 아래(리드인)에 넣기 위함."""
+    for s in subs:
+        if any(k in s for k in kws):
+            return s
+    return ""
+
+
+def _first_prose_after(body: str, heading: str) -> str:
+    """[구분선]\\n{heading}\\n 뒤의 첫 산문 단락 텍스트. 플레이스홀더([사진N] 등)·빈 줄은 건너뜀.
+    이 단락 '앞(offset 0)'에 이미지를 넣으면 소제목 바로 아래 리드인 위치가 된다. 없으면 ''."""
+    if not heading:
+        return ""
+    key = f"[구분선]\n{heading}\n"
+    i = body.find(key)
+    if i < 0:
+        return ""
+    for line in body[i + len(key):].split("\n"):
+        t = line.strip()
+        if not t or (t.startswith("[") and t.endswith("]")):
+            continue
+        return t
+    return ""
+
+
 def run():
     from generator.cheongyak_collector import (
         fetch_new_apt_notices, fetch_new_remainder_notices, fetch_house_types,
@@ -145,31 +170,42 @@ def run():
     except Exception as e:
         cards = []
         logger.warning(f"청약 인포카드 실패(캡처만으로 진행): {e}")
-    card_anchor = {
-        "overview": subs[0] if subs else "",
-        "schedule": _next_sub_after(subs, "일정"),
-        "payment": money_anchor,                       # 현금 섹션 끝(금액표 캡처 위)
-        "price": plan_anchor,                          # 타입 비교 섹션 끝
-        "eligibility": _next_sub_after(subs, "체크", "자격", "신청"),
+    # 2026-07-20 사용자 피드백(이천 휴먼빌 라이브): 현금 카드가 '다음 소제목(타입)' 위=섹션
+    # 끝에 붙어 엉뚱한 소제목에 딸린 것처럼 보였다. 인포카드는 '자기 소제목 바로 아래(리드인)'로
+    # — 소제목 직후 첫 산문 단락 앞(offset 0 삽입이라 문장 안 쪼갬)에 마커를 둔다. 이전 '다음
+    # 소제목 위' 앵커링은 섹션마다 다음 소제목이 겹쳐 카드 유실(엘리지빌리티·체크리스트)도 있었다.
+    card_own = {
+        "overview": subs[0] if subs else "",           # 첫 소제목 아래(글 리드인)
+        "schedule": _own_sub(subs, "일정"),
+        "payment": _own_sub(subs, "현금", "필요", "분양가"),
+        "price": _own_sub(subs, "타입", "유리"),
+        "eligibility": _own_sub(subs, "규제", "자격", "체크", "신청"),
         "checklist": "",                               # 글 말미(FAQ 뒤, 자료 출처 앞)
     }
+    placed = []
     for c in cards:
-        anchor = card_anchor.get(c.get("anchor_hint", ""), "")
+        own = card_own.get(c.get("anchor_hint", ""), "")
+        head_pat = f"[구분선]\n{own}\n" if own else ""
+        prose = _first_prose_after(body, own)
         block = f"[사진{marker_n}]\n"
-        pat = f"[구분선]\n{anchor}\n" if anchor else ""
-        if pat and pat in body:
-            body = body.replace(pat, block + pat, 1)
+        insert_ref = ""
+        if head_pat and head_pat in body and prose:
+            body = body.replace(head_pat, head_pat + block, 1)   # 소제목 바로 아래
+            insert_ref = prose
+        elif head_pat and head_pat in body:
+            body = body.replace(head_pat, block + head_pat, 1)   # 산문 없음 → 소제목 위 폴백
+            insert_ref = own
         else:
-            body += "\n" + block
+            body += "\n" + block                                 # 소제목 못 찾음 → 말미
         img = {"local_path": c["local_path"], "url": "",
                "alt_text": c.get("label", ""), "label": ""}
-        if anchor:
-            img["insert_before"] = anchor
+        if insert_ref:
+            img["insert_before"] = insert_ref
         images.append(img)
+        placed.append(f"{c.get('anchor_hint', '?')}→{(own or '말미')[:10]}")
         marker_n += 1
     if cards:
-        logger.info(f"청약 인포카드 {len(cards)}장 삽입: "
-                    + ", ".join(c.get("anchor_hint", "?") for c in cards))
+        logger.info(f"청약 인포카드 {len(cards)}장 삽입(소제목 직하): " + ", ".join(placed))
 
     for c in captures:
         anchor = plan_anchor if "평면" in c["label"] else money_anchor
