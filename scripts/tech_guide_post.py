@@ -23,6 +23,10 @@ from config import GOOGLE_API_KEY  # noqa: E402
 KST = timezone(timedelta(hours=9))
 POOL_PATH = os.path.join(ROOT, "data", "tech_guide_pool.json")
 HIST_PATH = os.path.join(ROOT, "data", "tech_guide_history.json")
+# 같은 풀을 쓰는 WP 트랙(wp_tech_post)과 동일 주제가 같은 시기에 양 채널 발행되는 것 방지
+# (07-19 윈도우11·07-20 챗GPT 2일 연속 동일일 충돌 — §7 0-m)
+CROSS_HIST_PATH = os.path.join(ROOT, "data", "wp_tech_history.json")
+CROSS_EXCLUDE_DAYS = 14
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 logger = logging.getLogger("tech_guide_post")
@@ -44,7 +48,11 @@ def _pick_topic() -> dict | None:
     if any(h.get("date") == today and h.get("status") == "posted" for h in hist):
         logger.info("오늘 가이드 1건 이미 발행 — 스킵")
         return None
-    fresh = [t for t in pool if t.get("id") not in done]
+    cutoff = (datetime.now(KST) - timedelta(days=CROSS_EXCLUDE_DAYS)).strftime("%Y-%m-%d")
+    cross = {h.get("id") for h in _load(CROSS_HIST_PATH, []) if h.get("date", "") >= cutoff}
+    fresh = [t for t in pool if t.get("id") not in done and t.get("id") not in cross]
+    if cross:
+        logger.info(f"교차 배제: WP 트랙 최근 {CROSS_EXCLUDE_DAYS}일 주제 {len(cross)}건 제외")
     if not fresh:
         logger.warning("가이드 주제 풀 소진 — 보충 필요")
         return None
