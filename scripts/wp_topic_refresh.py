@@ -23,8 +23,12 @@ from generator.wp_topics import TOPICS, HUB_BY_WEEKDAY, hub_display
 
 EXTRA_PATH = os.path.join(ROOT, "data", "wp_topic_pool_extra.json")
 HIST_PATH = os.path.join(ROOT, "data", "wp_post_history.json")
-MIN_UNPOSTED = 21   # 3주 버퍼
-MAX_NEW = 8         # 회당 상한
+# 2026-07-20 사용자 지시(발행량 확대 준비): 총량 게이트(구 MIN_UNPOSTED=21)에서 '허브별 목표
+# 버퍼'로 전환 — 카테고리마다 미발행 재고를 TARGET_PER_HUB까지 채우되 회당 허브별 상한
+# MAX_NEW_PER_HUB(주 5~10종). 발행량을 늘리려면 풀부터 커야 한다(REPUBLISH 365일 제약).
+TARGET_PER_HUB = int(os.environ.get("WP_TARGET_PER_HUB", "30"))    # 허브별 미발행 버퍼 목표
+MAX_NEW_PER_HUB = int(os.environ.get("WP_MAX_NEW_PER_HUB", "8"))   # 회당 허브별 상한
+MAX_NEW_TOTAL = int(os.environ.get("WP_MAX_NEW_TOTAL", "42"))      # 회당 총 상한(API·시간 보호)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("wp_topic_refresh")
@@ -89,22 +93,32 @@ def run():
         return
     posted = set(_load(HIST_PATH, {}).keys())
     extra = _load(EXTRA_PATH, {})
-    unposted = [tid for tid in TOPICS if tid not in posted]
-    need = min(MAX_NEW, max(0, MIN_UNPOSTED - len(unposted)))
-    logger.info(f"주제 풀: 총 {len(TOPICS)} / 미발행 {len(unposted)} / 보충 필요 {need}")
-    if need == 0:
+    # TOPICS는 import 시 extra 풀이 이미 병합돼 있어(base+extra) 허브별 미발행 잔여를 정확히 센다.
+    hubs = list(HUB_BY_WEEKDAY.values())
+    unposted_by_hub = {h: sum(1 for tid, m in TOPICS.items()
+                              if m["hub_id"] == h and tid not in posted) for h in hubs}
+    # 허브별 부족분 = (목표 버퍼 - 잔여), 회당 허브 상한으로 클램프
+    deficit = {h: min(MAX_NEW_PER_HUB, max(0, TARGET_PER_HUB - unposted_by_hub[h])) for h in hubs}
+    total_need = min(MAX_NEW_TOTAL, sum(deficit.values()))
+    logger.info(f"주제 풀 총 {len(TOPICS)} | 허브별 미발행 "
+                + ", ".join(f"{hub_display(h)[:6]}={unposted_by_hub[h]}(+{deficit[h]})" for h in hubs)
+                + f" | 이번 회 보충 목표 {total_need}")
+    if total_need == 0:
+        logger.info("전 허브 목표 버퍼 충족 — 보충 없음")
         return
-    # 잔여가 적은 허브부터 보충
-    hub_remaining = {h: sum(1 for tid in unposted if TOPICS[tid]["hub_id"] == h)
-                     for h in HUB_BY_WEEKDAY.values()}
-    order = sorted(hub_remaining, key=lambda h: hub_remaining[h])
     existing_kw = [t["keyword"] for t in TOPICS.values()]
     existing_slugs = {t["slug"] for t in TOPICS.values()}
+    added_by_hub = {h: 0 for h in hubs}
     added = 0
-    i = 0
-    while added < need and i < need * 3:
-        hub = order[i % len(order)]
-        i += 1
+    attempts = 0
+    max_attempts = total_need * 3 + 6
+    while added < total_need and attempts < max_attempts:
+        # 아직 부족분이 남은 허브 중 '잔여(기존+이번 추가)가 가장 적은' 허브부터
+        cand = [h for h in hubs if added_by_hub[h] < deficit[h]]
+        if not cand:
+            break
+        hub = min(cand, key=lambda h: unposted_by_hub[h] + added_by_hub[h])
+        attempts += 1
         t = _gen_topic(hub, existing_kw, api_key)
         if not t or t["slug"] in existing_slugs or t["keyword"] in existing_kw:
             continue
@@ -115,11 +129,18 @@ def run():
         extra[tid] = t
         existing_kw.append(t["keyword"])
         existing_slugs.add(t["slug"])
+        added_by_hub[hub] += 1
         added += 1
-        logger.info(f"신규 주제 +[{hub_display(hub)}] {t['keyword']} ({t['slug']})")
+        logger.info(f"신규 주제 +[{hub_display(hub)}] {t['keyword']} ({t['slug']}) "
+                    f"[{added}/{total_need}]")
+        # 중간 저장(장시간 실행 중 크래시·타임아웃 대비 진행분 보존)
+        json.dump(extra, open(EXTRA_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if added:
         json.dump(extra, open(EXTRA_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        logger.info(f"저장: +{added}개 → {EXTRA_PATH}")
+        by_hub = ", ".join(f"{hub_display(h)[:6]}+{added_by_hub[h]}" for h in hubs if added_by_hub[h])
+        logger.info(f"저장: +{added}개 ({by_hub}) → {EXTRA_PATH}")
+    else:
+        logger.warning(f"보충 목표 {total_need}이나 유효 신규 0개 (중복·검증 탈락) — 다음 회 재시도")
 
 
 if __name__ == "__main__":

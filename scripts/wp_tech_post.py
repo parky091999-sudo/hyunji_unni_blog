@@ -29,6 +29,8 @@ HIST_PATH = os.path.join(ROOT, "data", "wp_tech_history.json")
 # 발행되는 것 방지 (07-19 윈도우11·07-20 챗GPT 2일 연속 동일일 충돌 — §7 0-m)
 CROSS_HIST_PATH = os.path.join(ROOT, "data", "tech_guide_history.json")
 CROSS_EXCLUDE_DAYS = 14
+# 하루 발행 상한(2026-07-20 발행량 확대). EC2 .env에서 2로 상향 + 크론 2슬롯.
+TECH_WP_DAILY_MAX = int(os.environ.get("TECH_WP_DAILY_MAX", "1"))
 
 WP_URL = os.environ.get("TECH_WP_URL", "https://tech.hyunjiunni.com").rstrip("/")
 WP_USER = os.environ.get("TECH_WP_APP_USER", "hyungsu_admin")
@@ -89,8 +91,11 @@ def _pick_topic() -> dict | None:
     hist = _load(HIST_PATH, [])
     done = {h.get("id") for h in hist}
     today = datetime.now(KST).strftime("%Y-%m-%d")
-    if any(h.get("date") == today and h.get("status") == "posted" for h in hist):
-        logger.info("오늘 WP 가이드 1건 이미 발행 — 스킵")
+    # 하루 상한 가드 (2026-07-20: 발행량 확대 — 크론 2슬롯 운영. 슬롯이 겹쳐도 상한까지만 발행.
+    # 기본 1건, TECH_WP_DAILY_MAX로 상향. 각 슬롯은 직전 발행분을 이력에서 보고 다른 주제·카테고리를 뽑음.)
+    today_cnt = sum(1 for h in hist if h.get("date") == today and h.get("status") == "posted")
+    if today_cnt >= TECH_WP_DAILY_MAX:
+        logger.info(f"오늘 WP 가이드 {today_cnt}건 발행 — 하루 상한({TECH_WP_DAILY_MAX}) 도달, 스킵")
         return None
     cutoff = (datetime.now(KST) - timedelta(days=CROSS_EXCLUDE_DAYS)).strftime("%Y-%m-%d")
     cross = {h.get("id") for h in _load(CROSS_HIST_PATH, []) if h.get("date", "") >= cutoff}
