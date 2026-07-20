@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-20",
+    "timestamp": "2026-07-20T15:00:00.560180+09:00",
+    "run_slot": "14",
+    "fmt": "pick",
+    "seed": "제습기",
+    "headline": "코웨이, 인버터 제습기 라인업 확대… 20L 신제품 출시",
+    "category": "가전·디지털",
+    "title": "코웨이 20L 제습기 신제품! 사야 할까, 말아야 할까?",
+    "tags": [
+      "코웨이",
+      "제습기",
+      "AD-2026C",
+      "인버터제습기",
+      "여름가전",
+      "장마철필수템"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224352069442",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-20",
     "timestamp": "2026-07-20T13:24:43.258364+09:00",
     "run_slot": "13",
     "fmt": "explain",
