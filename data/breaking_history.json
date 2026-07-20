@@ -22,5 +22,13 @@
   "track": "tech",
   "urgency": 4,
   "dispatched": true
+ },
+ "코스피급락-매도사이드카-중국ai쇼크": {
+  "date": "2026-07-20",
+  "at": "2026-07-20T13:08:58.470859+09:00",
+  "issue": "코스피 4% 급락 및 매도 사이드카 발동, 중국 AI 쇼크 영향",
+  "track": "finance",
+  "urgency": 4,
+  "dispatched": true
  }
 }
