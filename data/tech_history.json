@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-20",
+    "timestamp": "2026-07-20T16:39:42.703853+09:00",
+    "run_slot": "16",
+    "fmt": "compare",
+    "seed": "아이폰 18",
+    "headline": "[창간기획(23)]\"갤럭시 이어 아이폰까지 뚫었다\"…삼성디스플레이, 30조...",
+    "category": "PC·노트북",
+    "title": "아이폰 18, 삼성 디스플레이 탑재? 진짜 의미는 따로 있습니다",
+    "tags": [
+      "아이폰18",
+      "삼성디스플레이",
+      "OLED",
+      "IT용OLED",
+      "게이밍노트북",
+      "AI PC"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224352192111",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-20",
     "timestamp": "2026-07-20T15:00:00.560180+09:00",
     "run_slot": "14",
     "fmt": "pick",
