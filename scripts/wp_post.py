@@ -169,7 +169,9 @@ def _related_for(topic_id: str, category: str, hist: dict) -> list[dict]:
 
 def run():
     topic_id = os.environ.get("WP_TOPIC", "").strip().lower()
-    status = os.environ.get("WP_STATUS", "draft").strip().lower()
+    # 기본 publish (2026-07-20): EC2 run_wp.sh가 WP_STATUS 미지정으로 draft 발행된 사고 —
+    # 형제 스크립트(cheongyak·toss·tech)와 동일 기본값. 테스트는 WP_STATUS=draft 명시.
+    status = os.environ.get("WP_STATUS", "publish").strip().lower()
     hist = _load_history()
 
     # 하루 1건 가드 (2026-07-12, 2026-07-13 개선): 크론 지연분·수동 실행이 겹쳐 같은 날
