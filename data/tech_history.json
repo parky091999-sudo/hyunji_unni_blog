@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-20",
+    "timestamp": "2026-07-20T20:21:43.150500+09:00",
+    "run_slot": "20",
+    "fmt": "breaking",
+    "seed": "전기차 신차 출시",
+    "headline": "옴니사, 윈도우 서버 관리 기능 탑재한 UEM 플랫폼 출시",
+    "category": "AI·IT",
+    "title": "윈도우 서버까지 품었다? 옴니사 UEM, 진짜 속내는?",
+    "tags": [
+      "옴니사",
+      "UEM",
+      "윈도우서버",
+      "엔드포인트관리",
+      "워크스페이스원",
+      "기업IT"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224352400672",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-20",
     "timestamp": "2026-07-20T16:39:42.703853+09:00",
     "run_slot": "16",
     "fmt": "compare",
