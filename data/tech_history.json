@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-21",
+    "timestamp": "2026-07-21T14:50:17.429408+09:00",
+    "run_slot": "14",
+    "fmt": "pick",
+    "seed": "삼성 TV 신제품",
+    "headline": "\"스마트TV 쓰려면 손님에게 녹음 가능성 직접 알려야?\" LG전자 '스마트T...",
+    "category": "PC·노트북",
+    "title": "LG 스마트TV, 손님 목소리까지 녹음? 이거 모르면 큰일 납니다!",
+    "tags": [
+      "LG스마트TV",
+      "개인정보",
+      "음성인식",
+      "프라이버시",
+      "테크논란",
+      "게이밍모니터"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224353223407",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-21",
     "timestamp": "2026-07-21T13:00:01.868280+09:00",
     "run_slot": "12",
     "fmt": "explain",
