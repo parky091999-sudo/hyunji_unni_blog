@@ -1,6 +1,29 @@
 [
   {
     "date": "2026-07-21",
+    "timestamp": "2026-07-21T15:58:16.804933+09:00",
+    "run_slot": "15",
+    "fmt": "compare",
+    "seed": "삼성 TV 신제품",
+    "headline": "SKT 최대 46만원, KT·LGU+ 15만원…갤럭시 신제품 사전혜택 경쟁",
+    "category": "가전·디지털",
+    "title": "갤럭시 신제품, 통신사별 혜택 최대 46만원 차이? 놓치면 후회할 사전예약 꿀팁",
+    "tags": [
+      "갤럭시신제품",
+      "사전예약",
+      "SKT",
+      "KT",
+      "LGU+",
+      "통신사혜택",
+      "삼성TV",
+      "갤럭시Z8"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224353307864",
+    "images_inserted": 2
+  },
+  {
+    "date": "2026-07-21",
     "timestamp": "2026-07-21T14:50:17.429408+09:00",
     "run_slot": "14",
     "fmt": "pick",
