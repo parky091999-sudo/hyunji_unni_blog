@@ -30,5 +30,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "코스피-급등-반도체": {
+  "date": "2026-07-21",
+  "at": "2026-07-21T15:43:48.971935+09:00",
+  "issue": "코스피 4% 급등에 매수 사이드카 발동, 삼전·닉스 5~7%↑",
+  "track": "finance",
+  "urgency": 4,
+  "dispatched": true
  }
 }
