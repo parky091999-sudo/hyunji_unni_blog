@@ -38,5 +38,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "삼성전자-팹-투자": {
+  "date": "2026-07-21",
+  "at": "2026-07-21T19:35:11.801633+09:00",
+  "issue": "삼성전자, 2030년까지 신규 팹 4곳 구축 및 용인·평택·호남 전방위 투자 발표",
+  "track": "tech",
+  "urgency": 4,
+  "dispatched": true
  }
 }
