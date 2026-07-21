@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-21",
+    "timestamp": "2026-07-21T19:54:04.213357+09:00",
+    "run_slot": "19",
+    "fmt": "breaking",
+    "seed": "AI 스마트폰",
+    "headline": "딥시크는 예고편…성능 비슷한데 요금 반토막 낸 ‘키미 K3’ 쇼크 [더테...",
+    "category": "AI·IT",
+    "title": "AI폰 요금 '반토막' 키미 K3, 진짜 놀라운 이유",
+    "tags": [
+      "키미K3",
+      "AI스마트폰",
+      "문샷AI",
+      "딥시크",
+      "AI요금제",
+      "가성비AI"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224353540163",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-21",
     "timestamp": "2026-07-21T15:58:16.804933+09:00",
     "run_slot": "15",
     "fmt": "compare",
