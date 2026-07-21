@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(ROOT, ".env"))
 
 from generator.content import _gen_text  # noqa: E402
+from generator.wp_html import normalize_residual_md  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
 POOL_PATH = os.path.join(ROOT, "data", "tech_guide_pool.json")
@@ -127,6 +128,9 @@ def _generate(topic: dict, api_key: str) -> dict | None:
         body = raw.split("---", 1)[1].strip() if "---" in raw else ""
         body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", body, flags=re.S | re.I)
         body = re.sub(r"```html|```", "", body).strip()
+        # LLM이 <h2>/<h3>는 HTML로 내지만 강조·목록을 마크다운(**, '* ')으로 내는 경우가
+        # 있어(2026-07-21 hipass/chatgpt 리터럴 노출 버그) 잔여 마크다운을 HTML로 변환. 멱등.
+        body = normalize_residual_md(body)
         if not (m and s and body):
             extra = "\n\n[재작성] 출력 형식(TITLE/SLUG/EXCERPT/---/HTML)을 정확히 지켜라."
             continue
