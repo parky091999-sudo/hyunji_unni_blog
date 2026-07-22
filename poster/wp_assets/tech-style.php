@@ -52,6 +52,11 @@ add_action('wp_head', function () {
     .hj-ad-slot,.ad-slot,.adsbygoogle{display:block;margin:24px auto;min-height:100px;text-align:center;clear:both;}
     /* 홈 상단 '홈' 페이지타이틀 배너 숨김(사용자 요청 2026-07-22) */
     body.home .entry-hero,body.home .page-hero-section{display:none;}
+    /* 형광펜 음영 강조 — {{...}} → mark.hj-hl (2026-07-22 변환 구현) */
+    .entry-content mark.hj-hl,.entry-content .hj-hl{
+      background:linear-gradient(180deg,transparent 55%,#fff0a6 55%);
+      color:inherit;font-weight:600;padding:0 2px;border-radius:2px;
+    }
     </style>
     <?php
 });

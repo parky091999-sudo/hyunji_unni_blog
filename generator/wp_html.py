@@ -26,6 +26,8 @@ def normalize_residual_md(html: str) -> str:
         return html
     # 1) 볼드: **text** → <strong>text</strong> (개행/별표 미포함, 비탐욕)
     html = _BOLD.sub(r"<strong>\1</strong>", html)
+    # 1-1) 음영 강조: {{문장}} → 형광펜 <mark> (프롬프트만 있고 변환 미구현이던 버그 수정, 2026-07-22)
+    html = re.sub(r"\{\{\s*(.+?)\s*\}\}", r'<mark class="hj-hl">\1</mark>', html, flags=re.DOTALL)
     # 2) 줄머리 불릿('* ', '- ', '*   ') 연속행 → <ul><li> 그룹
     out: list[str] = []
     buf: list[str] = []
