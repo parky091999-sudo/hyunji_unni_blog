@@ -293,6 +293,9 @@ def run():
     post["subheadings"] = post.get("subheadings", []) + extra_subs
 
     # ── 4. 포스팅 ──
+    # E-E-A-T 신뢰 시그널: 요약블록 끝에 '기준시점 · 최종 업데이트' 한 줄을 발행일 기준 자동 삽입.
+    # ★반드시 여기서(헤더카드 bullets·개념카드 concept_lines가 원문 summary_text를 이미 소비한 뒤)만 붙인다.
+    from generator.source_refs import append_eeat_line
     from poster.naver_blog import post_to_naver_blog
     try:
         result = post_to_naver_blog(
@@ -312,7 +315,7 @@ def run():
             faq_questions=post.get("faq_questions", []),
             category=BLOG_CATEGORY,
             faq_pairs=post.get("faq_pairs", []),
-            summary_text=post.get("summary_text", ""),
+            summary_text=append_eeat_line(post.get("summary_text", "")),
         )
     except Exception as e:
         logger.error(f"포스팅 중 예외: {e}")
