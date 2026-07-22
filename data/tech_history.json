@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-07-22",
+    "timestamp": "2026-07-22T19:46:08.555317+09:00",
+    "run_slot": "19",
+    "fmt": "breaking",
+    "seed": "전기차 신차 출시",
+    "headline": "볼보 전기 세단 ES90 한국 출시…“800V 배터리 탑재, 효율 높여”",
+    "category": "자동차·모빌리티",
+    "title": "볼보 ES90, 7천만원대 파격가에 '800V 초고속 충전'까지? 이거 진짜야?",
+    "tags": [
+      "볼보 ES90",
+      "전기차",
+      "800V 시스템",
+      "초고속 충전",
+      "SPA2 플랫폼",
+      "소프트웨어 정의 차량",
+      "휴긴 코어"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224354662178",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-22",
     "timestamp": "2026-07-22T16:01:04.035480+09:00",
     "run_slot": "15",
     "fmt": "compare",
