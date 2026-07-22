@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-22",
+    "timestamp": "2026-07-22T16:01:04.035480+09:00",
+    "run_slot": "15",
+    "fmt": "compare",
+    "seed": "삼성 TV 신제품",
+    "headline": "삼성디스플레이, ‘K-디스플레이 2026’서 OLED 신기술 공개",
+    "category": "AI·IT",
+    "title": "\"OLED, 스마트폰 넘어 휴머노이드? 삼성디스플레이 신기술, 진짜 핵심은?\"",
+    "tags": [
+      "삼성디스플레이",
+      "K-디스플레이2026",
+      "OLED",
+      "QD-OLED",
+      "차세대디스플레이",
+      "IT디스플레이"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224354444106",
+    "images_inserted": 2
+  },
+  {
+    "date": "2026-07-22",
     "timestamp": "2026-07-22T14:53:36.727305+09:00",
     "run_slot": "14",
     "fmt": "pick",
