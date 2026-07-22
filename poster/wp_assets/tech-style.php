@@ -50,6 +50,8 @@ add_action('wp_head', function () {
     #secondary .widget_recent_comments{display:none!important;}
     /* 광고 슬롯 자리 — 인아티클/사이드바 공통 */
     .hj-ad-slot,.ad-slot,.adsbygoogle{display:block;margin:24px auto;min-height:100px;text-align:center;clear:both;}
+    /* 홈 상단 '홈' 페이지타이틀 배너 숨김(사용자 요청 2026-07-22) */
+    body.home .entry-hero,body.home .page-hero-section{display:none;}
     </style>
     <?php
 });

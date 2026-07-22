@@ -251,3 +251,19 @@ header .wp-block-site-title a::before{
 @media(min-width:1025px){
   #secondary .sidebar-inner-wrap{position:sticky;top:40px}
 }
+
+/* ── 사이드바 폰트 축소 + 최신댓글 숨김 (2026-07-22 사용자 요청) ── */
+#secondary{font-size:.9rem;line-height:1.55}
+#secondary .widget-title,#secondary .widget h2,#secondary h2.widget-title{font-size:1rem;margin-bottom:.6rem}
+#secondary .widget{margin-bottom:1.6rem}
+#secondary li{margin-bottom:.3rem}
+#secondary .widget_recent_comments{display:none!important}
+
+/* 홈 상단 '홈' 페이지타이틀 배너 숨김 */
+body.home .entry-hero,body.home .page-hero-section{display:none}
+
+/* 실계좌 투자 기록(invest-log) — 표 전부 가운데 정렬 (2026-07-22 사용자 요청) */
+body.category-invest-log .entry-content table th,
+body.category-invest-log .entry-content table td,
+body.category-invest-log .hj-table th,
+body.category-invest-log .hj-table td{text-align:center}

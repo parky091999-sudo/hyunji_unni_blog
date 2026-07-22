@@ -125,7 +125,8 @@ def fetch_exchange_rate() -> str:
     try:
         if is_mock():
             return ""
-        res = _get("/api/v1/exchange-rate")
+        res = _get("/api/v1/exchange-rate",
+                   params={"baseCurrency": "USD", "quoteCurrency": "KRW"})
         return str(res.get("rate") or res.get("exchangeRate") or "")
     except Exception:
         return ""
@@ -147,6 +148,23 @@ def _fmt_krw(v) -> str:
 
 def _pct(v) -> str:
     return f"{_num(v) * 100:.2f}%"
+
+
+def _qty(v) -> str:
+    """보유/체결 수량 — 소수점 과다(6자리) 방지. 최대 3자리, 끝 0 제거."""
+    n = _num(v)
+    s = f"{n:,.3f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _money(usd, fx: float) -> str:
+    """USD 금액을 '$X (약 Y원)'으로. KRW는 API가 0이라 환율로 환산."""
+    u = _num(usd)
+    if not u:
+        return "-"
+    if fx:
+        return f"${u:,.2f} (약 {u * fx:,.0f}원)"
+    return f"${u:,.2f}"
 
 
 _MANUAL_PATH = os.path.join(DATA_DIR, "toss_manual_snapshot.json")
@@ -183,53 +201,64 @@ def build_invest_facts(period_label: str) -> dict:
     fx = fetch_exchange_rate()
 
     items = h.get("items", [])
+    fx_f = _num(fx)
     rows = []
     for it in items:
         pl = it.get("profitLoss", {})
         mv = it.get("marketValue", {})
         rows.append({
             "종목": it.get("name") or it.get("symbol", ""),
-            "시장": it.get("marketCountry", ""),
-            "수량": it.get("quantity", ""),
-            "평단가": it.get("averagePurchasePrice", ""),
-            "현재가": it.get("lastPrice", ""),
-            "평가액": mv.get("amount", ""),
-            "수익률(비용차감후)": _pct(pl.get("rateAfterCost") or pl.get("rate")),
-            "통화": it.get("currency", ""),
+            "수량": _qty(it.get("quantity")),
+            "평단가($)": f"{_num(it.get('averagePurchasePrice')):,.2f}",
+            "현재가($)": f"{_num(it.get('lastPrice')):,.2f}",
+            "평가액": _money(mv.get("amount"), fx_f),
+            "수익률": _pct(pl.get("rateAfterCost") or pl.get("rate")),
         })
 
     trades = []
+    buy_amt_usd = 0.0
     for o in orders:
         ex = o.get("execution", {})
+        if o.get("side") == "BUY":
+            buy_amt_usd += _num(ex.get("filledAmount") or o.get("orderAmount"))
         trades.append({
             "일시": (o.get("orderedAt") or "")[:10],
             "구분": "매수" if o.get("side") == "BUY" else "매도",
             "종목": o.get("symbol", ""),
-            "체결수량": ex.get("filledQuantity", ""),
-            "체결단가": ex.get("averageFilledPrice", ""),
-            "체결금액": ex.get("filledAmount", ""),
-            "통화": o.get("currency", ""),
+            "체결수량": _qty(ex.get("filledQuantity")),
+            "체결금액": _money(ex.get("filledAmount"), fx_f),
         })
+
+    # 적립식(주식 모으기) 요약 — 주문 대부분이 소액 매수면 DCA로 간주(2026-07-22 사용자 확인)
+    buys = [o for o in orders if o.get("side") == "BUY"]
+    dca = {}
+    if buys and len(buys) >= max(1, len(orders) - 1):
+        amts = sorted({int(round(_num(o.get("orderAmount")))) for o in buys if _num(o.get("orderAmount"))})
+        dca = {
+            "방식": "주식 모으기(적립식·DCA) — 매일 종목별로 정해둔 소액을 자동 매수",
+            "이번 기간 매수": f"{len(buys)}건",
+            "종목별 1회 적립액": [f"${a}" for a in amts] if amts else [],
+            "이번 기간 총 투입액": _money(buy_amt_usd, fx_f),
+        }
 
     pl = h.get("profitLoss", {})
     dpl = h.get("dailyProfitLoss", {})
     facts = {
         "기준": f"{period_label} (토스증권 Open API 실계좌 데이터, 작성 시점 기준)",
+        "투자 방식": dca or "적립식(주식 모으기) 위주 — 매일 소액 자동 매수",
         "계좌 요약": {
-            "총 매입금액": {"원화": _fmt_krw(h.get("totalPurchaseAmount", {}).get("krw")),
-                       "달러": h.get("totalPurchaseAmount", {}).get("usd", "")},
-            "평가금액": {"원화": _fmt_krw(h.get("marketValue", {}).get("amount", {}).get("krw")),
-                     "달러": h.get("marketValue", {}).get("amount", {}).get("usd", "")},
-            "누적 손익(비용차감후)": {"원화": _fmt_krw(pl.get("amountAfterCost", {}).get("krw")),
+            "총 매입금액": _money(h.get("totalPurchaseAmount", {}).get("usd"), fx_f),
+            "평가금액": _money(h.get("marketValue", {}).get("amount", {}).get("usd"), fx_f),
+            "누적 손익(비용차감후)": {"금액": _money(pl.get("amountAfterCost", {}).get("usd"), fx_f),
                              "수익률": _pct(pl.get("rateAfterCost") or pl.get("rate"))},
-            "이번 기간 손익": {"원화": _fmt_krw(dpl.get("amount", {}).get("krw")),
+            "이번 기간 손익": {"금액": _money(dpl.get("amount", {}).get("usd"), fx_f),
                          "수익률": _pct(dpl.get("rate"))},
         },
         "보유 종목": rows,
         "이번 기간 체결 내역": trades or "매매 없음(관망)",
     }
-    if fx:
-        facts["참고 환율(USD/KRW)"] = fx
+    if fx_f:
+        facts["참고 환율(USD/KRW)"] = f"1달러 = {fx_f:,.1f}원"
     if is_mock():
         facts["⚠데이터 출처"] = "MOCK(스펙 예시) — 키 발급 전 검증용. 실발행 금지"
     return facts
