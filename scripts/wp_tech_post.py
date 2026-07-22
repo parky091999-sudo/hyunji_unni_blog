@@ -161,6 +161,16 @@ _FONT_CANDS = ["/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
                "C:/Windows/Fonts/malgunbd.ttf", "C:/Windows/Fonts/malgun.ttf"]
 
 
+def _thumb_text(title: str) -> str:
+    """썸네일용 축약 문구 — 글 제목과 '완전 동일' 중복 방지(2026-07-22 사용자 피드백).
+    괄호 부연·부제(첫 구분자 이후)·범용 접미어(완벽 가이드/방법/비교 등)를 떼어 핵심만."""
+    t = re.sub(r"\s*[\(\[（【][^)\]）】]*[\)\]）】]", "", title or "")   # 괄호 부연 제거
+    t = re.sub(r"\s*[,·|/].*$", "", t)                                 # 첫 부제 구분자 이후 제거
+    t = re.sub(r"\s*(완벽|심층|완전|총)?\s*(가이드|정리|총정리|방법|비교|해결|모음)\s*$", "", t.strip())
+    t = t.strip(" ·-—|")
+    return t if len(t) >= 4 else (title or "").strip()
+
+
 def _make_featured(title: str, category: str) -> str | None:
     """대표 이미지(1200×630, og 규격) PIL 생성 — 다크 그라디언트+카테고리 액센트+제목.
     2026-07-19 사용자 피드백(이미지 0장): 목록·공유 썸네일 공백 해소. Playwright 없이 경량."""
@@ -185,8 +195,8 @@ def _make_featured(title: str, category: str) -> str | None:
         dr.rounded_rectangle([70, 70, 70 + f_label.getlength(category) + 44, 128],
                              radius=14, fill=(31, 41, 59), outline=ac, width=2)
         dr.text((92, 82), category, font=f_label, fill=(229, 231, 235))
-        # 제목 워드랩(공백 우선)
-        words, lines, cur = title.split(), [], ""
+        # 썸네일 문구(제목 축약 — 글 제목과 중복 방지) 워드랩(공백 우선)
+        words, lines, cur = _thumb_text(title).split(), [], ""
         for w in words:
             trial = (cur + " " + w).strip()
             if f_title.getlength(trial) > W - 160 and cur:
