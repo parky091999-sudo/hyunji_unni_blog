@@ -57,8 +57,9 @@ def render_account_card(holdings: dict, fx: float, period_label: str) -> str | N
         pv_usd = _num(holdings.get("marketValue", {}).get("amount", {}).get("usd"))
         pur_usd = _num(holdings.get("totalPurchaseAmount", {}).get("usd"))
         pl = holdings.get("profitLoss", {})
-        pl_usd = _num(pl.get("amountAfterCost", {}).get("usd") or pl.get("amount", {}).get("usd"))
-        rate = _num(pl.get("rateAfterCost") or pl.get("rate")) * 100
+        # 앱은 '차감 전' 수익률을 표시 → rate(비용차감전)로 맞춤(2026-07-22)
+        pl_usd = _num(pl.get("amount", {}).get("usd"))
+        rate = _num(pl.get("rate")) * 100
         col = UP if rate >= 0 else DOWN
         sign = "+" if rate >= 0 else ""
 
@@ -85,21 +86,22 @@ def render_account_card(holdings: dict, fx: float, period_label: str) -> str | N
         pur_krw = f"{pur_usd * fx:,.0f}원" if fx else "-"
         d.text((240, 370), f"{pur_krw}  (${pur_usd:,.2f})", font=f_row_b, fill=INK)
 
-        # 보유종목 상위 4 (수익률순 아님, 평가액순)
-        d.text((60, 428), "주요 보유 종목", font=f_label, fill=MUTED)
+        # 보유종목 상위 5 (평가액순) — 앱처럼 원화 평가액 + 차감전 수익률
+        d.text((60, 424), "주요 보유 종목", font=f_label, fill=MUTED)
         items = sorted(holdings.get("items", []),
-                       key=lambda it: _num(it.get("marketValue", {}).get("amount")), reverse=True)[:4]
-        y = 466
+                       key=lambda it: _num(it.get("marketValue", {}).get("amount")), reverse=True)[:5]
+        y = 458
         for it in items:
             nm = (it.get("name") or it.get("symbol") or "")[:16]
-            r = _num(it.get("profitLoss", {}).get("rateAfterCost") or it.get("profitLoss", {}).get("rate")) * 100
+            r = _num(it.get("profitLoss", {}).get("rate")) * 100
             rc = UP if r >= 0 else DOWN
             rs = "+" if r >= 0 else ""
-            d.text((60, y), nm, font=f_row_b, fill=INK)
             amt = _num(it.get("marketValue", {}).get("amount"))
-            d.text((360, y), f"${amt:,.0f}", font=f_row, fill=MUTED)
-            d.text((640, y), f"{rs}{r:.2f}%", font=f_row_b, fill=rc)
-            y += 46
+            val = f"{amt * fx:,.0f}원" if fx else f"${amt:,.0f}"
+            d.text((60, y), nm, font=f_row_b, fill=INK)
+            d.text((330, y), val, font=f_row, fill=MUTED)
+            d.text((770, y), f"{rs}{r:.2f}%", font=f_row_b, fill=rc)
+            y += 31
 
         # 푸터
         from datetime import datetime, timezone, timedelta
