@@ -28,13 +28,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
                     handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger("setup_wp_tech_home")
 
-# tech WP 5개 카테고리(2026-07-22 실측 id)
+# tech WP 카테고리 8종(기기형 5 + 기능형 3, 2026-07-22 실측 id·사용자 확정)
 TECH_HUBS = [
     {"id": 6,  "name": "스마트폰·모바일", "desc": "최신 스마트폰·앱·모바일 활용법"},
     {"id": 7,  "name": "PC·노트북",       "desc": "PC·노트북 선택과 문제 해결"},
     {"id": 8,  "name": "가전·디지털",     "desc": "가전·디지털 기기 리뷰와 구매 가이드"},
     {"id": 9,  "name": "자동차·모빌리티", "desc": "자동차·모빌리티 신기술 소식"},
     {"id": 10, "name": "AI·IT",           "desc": "AI·IT 트렌드와 실전 활용"},
+    {"id": 2,  "name": "PC 오류해결",     "desc": "PC·윈도우 오류를 원인부터 해결"},
+    {"id": 3,  "name": "AI 활용",         "desc": "챗GPT 등 AI 실전 활용·자동화"},
+    {"id": 4,  "name": "오피스·툴 활용",  "desc": "엑셀·오피스·생산성 툴 실전 팁"},
 ]
 
 
