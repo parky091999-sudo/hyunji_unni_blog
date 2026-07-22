@@ -202,14 +202,21 @@ def _build_system(category: str) -> str:
     )
 
 
-def _gate(parsed: dict) -> tuple[bool, list[str]]:
-    """심층 품질 게이트 — 통과 여부 + 이슈. WP_PIPELINE §4."""
+def _gate(parsed: dict, cfg: dict | None = None) -> tuple[bool, list[str]]:
+    """심층 품질 게이트 — 통과 여부 + 이슈. WP_PIPELINE §4.
+    cfg(topic['gate'])로 콘텐츠 유형별 완화 가능(예: 실계좌 인증글=팩트 위주 경량).
+    기본값은 심층 가이드 기준 유지(하위호환)."""
+    cfg = cfg or {}
+    body_min = cfg.get("body_min", DEEP_BODY_MIN)
+    min_calc = cfg.get("min_calc", 2)
+    min_faq  = cfg.get("min_faq", 3)
+    need_table = cfg.get("require_table", True)
     issues: list[str] = []
     body = parsed.get("body", "")
     body_len = len(_IMAGE_MARKER.sub("", body))
 
-    if body_len < DEEP_BODY_MIN:
-        issues.append(f"본문 짧음({body_len}자, 최소 {DEEP_BODY_MIN}자)")
+    if body_len < body_min:
+        issues.append(f"본문 짧음({body_len}자, 최소 {body_min}자)")
     # 무근거 인용 하드 게이트(네이버 실사고 교훈 재사용)
     if _UNSOURCED_RE.search(body):
         issues.append("무근거 인용 표현('알려져 있'류)")
@@ -221,15 +228,16 @@ def _gate(parsed: dict) -> tuple[bool, list[str]]:
     subs = [s for s in parsed.get("subheadings", []) if s != "자주 묻는 질문"]
     if len(subs) < 4:
         issues.append(f"소제목 부족({len(subs)}개, 4+ 필요)")
-    if not parsed.get("table_strs"):
+    if need_table and not parsed.get("table_strs"):
         issues.append("비교표 누락")
-    if len(parsed.get("faq_pairs", [])) < 3:
+    if min_faq and len(parsed.get("faq_pairs", [])) < min_faq:
         issues.append(f"FAQ 부족({len(parsed.get('faq_pairs', []))}개)")
-    # 계산 예시 신호 — 본문+표 합산, 최소 1개 필수
-    calc_src = body + "\n" + "\n".join(parsed.get("table_strs", []) or [])
-    calc_n = len(_CALC_SIGNAL_RE.findall(calc_src))
-    if calc_n < 2:
-        issues.append(f"계산 예시 부족({calc_n}개, 2+ 필요)")
+    # 계산 예시 신호 — 본문+표 합산
+    if min_calc:
+        calc_src = body + "\n" + "\n".join(parsed.get("table_strs", []) or [])
+        calc_n = len(_CALC_SIGNAL_RE.findall(calc_src))
+        if calc_n < min_calc:
+            issues.append(f"계산 예시 부족({calc_n}개, {min_calc}+ 필요)")
 
     # 치명적(재생성 유발)
     critical = [
@@ -275,7 +283,7 @@ def generate_deep_post(topic: dict, api_key: str) -> dict | None:
                 continue
             parsed["body"] = _sanitize_ai_patterns(_split_long_paragraphs(parsed.get("body", "")))
             parsed["title"] = _sanitize_ai_patterns(parsed.get("title", ""))
-            ok, issues = _gate(parsed)
+            ok, issues = _gate(parsed, topic.get("gate"))
             if not ok:
                 logger.warning(f"품질 미달 재생성 (시도 {attempt}): {'; '.join(issues[:3])}")
                 feedback = (

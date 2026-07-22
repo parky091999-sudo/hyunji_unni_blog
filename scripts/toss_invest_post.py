@@ -104,6 +104,8 @@ def run():
         "sources": [("토스증권 (실계좌 데이터)", "https://tossinvest.com")],
         "use_search": False,  # 계좌 팩트만 — 외부 검색 섞지 않음
         "extra_instructions": _EXTRA_INSTRUCTIONS,
+        # 실계좌 인증글은 팩트 위주 경량 — 심층 게이트(3000자·계산2·FAQ) 완화(2026-07-22)
+        "gate": {"body_min": 1400, "min_calc": 0, "min_faq": 0, "require_table": False},
     }
 
     if not GOOGLE_API_KEY:
