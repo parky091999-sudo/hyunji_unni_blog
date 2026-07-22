@@ -37,7 +37,7 @@
 1. GSC → **Sitemaps** → 새 사이트맵: `wp-sitemap.xml`
 2. 상태 **성공** 확인 (글 수에 따라 수분~수일)
 
-## 4. 애드센스 연동 (2026-09-21 이후 예정)
+## 4. 애드센스 연동 (2026-07-31 이후 예정)
 
 - Search Console 속성과 **동일 Google 계정** 사용 권장
 - 애드센스 승인 후: **사이트 → ads.txt** 또는 AdSense 코드 — WP mu-plugin 또는 Insert Headers 플러그인으로 `<head>` 삽입
