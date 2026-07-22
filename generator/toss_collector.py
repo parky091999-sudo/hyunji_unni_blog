@@ -97,18 +97,26 @@ def fetch_holdings() -> dict:
 
 
 def fetch_recent_orders(days: int = 8) -> list[dict]:
-    """최근 N일 주문 — 체결분(FILLED/PARTIAL_FILLED) 위주. 페이지네이션은 v1 단순 처리."""
+    """최근 N일 체결 주문. Order History는 status(OPEN/CLOSED) 필수 → 완료(CLOSED)분 조회.
+    주문 조회 실패 시 [] 반환(보유자산만으로도 인증글 생성되도록 graceful, 2026-07-22)."""
     if is_mock():
         orders = _mock("/api/v1/orders").get("orders", [])
     else:
-        res = _get("/api/v1/orders", account=True)
-        orders = res.get("orders", [])
+        try:
+            res = _get("/api/v1/orders", params={"status": "CLOSED"}, account=True)
+            orders = res if isinstance(res, list) else res.get("orders", [])
+        except Exception as e:
+            logger.warning(f"주문 내역 조회 실패 — 보유자산만 사용: {str(e)[:120]}")
+            return []
     cutoff = (datetime.now(KST) - timedelta(days=days)).isoformat()
     out = []
     for o in orders:
-        if (o.get("orderedAt") or "") < cutoff:
+        if not isinstance(o, dict):
             continue
-        if o.get("status") in ("FILLED", "PARTIAL_FILLED"):
+        if (o.get("orderedAt") or o.get("orderDate") or o.get("executedAt") or "") < cutoff:
+            continue
+        st = str(o.get("status", "")).upper()
+        if st in ("FILLED", "PARTIAL_FILLED", "FULLY_FILLED", "EXECUTED", "CLOSED") or o.get("executedQuantity"):
             out.append(o)
     return out
 
