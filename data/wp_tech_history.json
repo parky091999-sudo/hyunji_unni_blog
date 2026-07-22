@@ -58,5 +58,15 @@
     "title": "자동차 배터리 방전, 원인부터 예방, 긴급 대처까지 완벽 가이드",
     "post_url": "https://tech.hyunjiunni.com/car-battery-discharge-guide/",
     "status": "posted"
+  },
+  {
+    "id": "router-security",
+    "date": "2026-07-22",
+    "timestamp": "2026-07-22T21:05:27+09:00",
+    "keyword": "공유기 보안 설정 점검",
+    "category": "AI·IT",
+    "title": "공유기 보안 설정 점검: 해킹 예방을 위한 심층 가이드",
+    "post_url": "https://tech.hyunjiunni.com/router-security-checklist/",
+    "status": "posted"
   }
 ]
