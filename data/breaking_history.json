@@ -54,5 +54,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "코스피-매수사이드카-반도체급등": {
+  "date": "2026-07-22",
+  "at": "2026-07-22T15:44:54.900768+09:00",
+  "issue": "코스피 매수 사이드카 발동 및 반도체 주식 급등",
+  "track": "finance",
+  "urgency": 4,
+  "dispatched": true
  }
 }
