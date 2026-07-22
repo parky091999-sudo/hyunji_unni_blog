@@ -1,6 +1,28 @@
 [
   {
     "date": "2026-07-22",
+    "timestamp": "2026-07-22T14:53:36.727305+09:00",
+    "run_slot": "14",
+    "fmt": "pick",
+    "seed": "삼성 TV 신제품",
+    "headline": "삼성·LG디스플레이, K-디스플레이서 차세대 OLED 기술 대거 공개",
+    "category": "PC·노트북",
+    "title": "노트북, 게임, 자동차까지? 삼성·LG디스플레이, OLED로 디스플레이 판을 뒤집는 진짜 이유",
+    "tags": [
+      "K-디스플레이",
+      "OLED",
+      "삼성디스플레이",
+      "LG디스플레이",
+      "탠덤OLED",
+      "게이밍모니터",
+      "노트북OLED"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224354363635",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-22",
     "timestamp": "2026-07-22T13:09:56.779202+09:00",
     "run_slot": "13",
     "fmt": "explain",
