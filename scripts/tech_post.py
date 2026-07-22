@@ -344,6 +344,14 @@ def run():
         post["subheadings"] = post.get("subheadings", []) + ["함께 보면 좋은 글"]
         logger.info(f"내부링크 추가: 같은 카테고리({_post_category}) 과거 글 {len(related)}개")
 
+    # 네이버 마크다운 잔여 정리 (WP엔 normalize_residual_md 있으나 네이버 tech는 없어
+    # 불릿 리터럴 누출 실측 2026-07-22) — 볼드 마커 제거 + 줄머리 불릿 → '· '(U+00B7)
+    import re as _re
+    _b = post.get("body", "")
+    _b = _re.sub(r"\*\*(.+?)\*\*", r"\1", _b)
+    _b = _re.sub(r"(?m)^[ \t]*[*\-•]\s+", "· ", _b)
+    post["body"] = _b
+
     # ── 4. 포스팅 ──
     from poster.naver_blog import post_to_naver_blog
     try:

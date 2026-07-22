@@ -99,6 +99,12 @@ def main():
         post["faq_pairs"] = [[_unbrace(q), _unbrace(a)] for q, a in post["faq_pairs"]]
 
     logger.info(f"제목: {post['title']}")
+    # 네이버 마크다운 잔여 정리(볼드 제거 + 줄머리 불릿 → '· ') — WP normalize와 별개 경로(2026-07-22)
+    import re as _re
+    _b = post.get("body", "")
+    _b = _re.sub(r"\*\*(.+?)\*\*", r"\1", _b)
+    _b = _re.sub(r"(?m)^[ \t]*[*\-•]\s+", "· ", _b)
+    post["body"] = _b
     if dry_run:
         logger.info("[DRY_RUN] 원고만 생성:\n" + post.get("body", "")[:800])
         return
