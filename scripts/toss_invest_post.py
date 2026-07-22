@@ -144,22 +144,34 @@ def run():
     try:
         import glob as _glob
         import re as _re
-        caps = sorted(_glob.glob(os.path.join(DATA_DIR, "toss_captures", "*.[pjPJ]*[gG]")))[:3]
-        if caps:
-            figs = ""
-            for i, cp in enumerate(caps, 1):
-                info = upload_media_info(cp, f"{slug}-proof-{i}.png", alt_text=f"실계좌 화면 {i}")
-                if info:
+        figs = ""
+        # 자동 생성 실계좌 인증 카드(대시보드형, 항상 1장) — 2026-07-22 사용자 요청
+        try:
+            from poster.toss_card import render_account_card
+            from generator.toss_collector import fetch_holdings, fetch_exchange_rate, _num as _tnum
+            card = render_account_card(fetch_holdings(), _tnum(fetch_exchange_rate()), f"{n}주차 · {period}")
+            if card:
+                ci = upload_media_info(card, f"{slug}-card.png", alt_text="실계좌 현황 카드")
+                if ci:
                     figs += (f'<figure class="wp-block-image size-large hj-proof">'
-                             f'<img src="{info["source_url"]}" alt="실계좌 화면" loading="lazy"/>'
-                             f"<figcaption>실제 계좌 화면 ({now.strftime('%Y.%m.%d')} 캡처)</figcaption></figure>\n")
-            if figs:
-                h2s = list(_re.finditer(r'<h2 id="sec-\d+">[^<]+</h2>', r["content_html"]))
-                pos = h2s[1].start() if len(h2s) > 1 else len(r["content_html"])
-                r["content_html"] = r["content_html"][:pos] + figs + r["content_html"][pos:]
-                logger.info(f"실계좌 인증 캡처 {len(caps)}장 삽입(첫 섹션 끝)")
+                             f'<img src="{ci["source_url"]}" alt="실계좌 현황 인증" loading="lazy"/>'
+                             f'<figcaption>토스증권 Open API 실계좌 데이터 기준</figcaption></figure>\n')
+                    logger.info("실계좌 인증 카드(자동 생성) 삽입")
+        except Exception as e:
+            logger.warning(f"인증 카드 생성 실패(무시): {e}")
+        # 수동 캡처가 있으면 추가(계좌번호 없는 화면만)
+        for i, cp in enumerate(sorted(_glob.glob(os.path.join(DATA_DIR, "toss_captures", "*.[pjPJ]*[gG]")))[:3], 1):
+            info = upload_media_info(cp, f"{slug}-proof-{i}.png", alt_text=f"실계좌 화면 {i}")
+            if info:
+                figs += (f'<figure class="wp-block-image size-large hj-proof">'
+                         f'<img src="{info["source_url"]}" alt="실계좌 화면" loading="lazy"/>'
+                         f"<figcaption>실제 계좌 화면 ({now.strftime('%Y.%m.%d')} 캡처)</figcaption></figure>\n")
+        if figs:
+            h2s = list(_re.finditer(r'<h2 id="sec-\d+">[^<]+</h2>', r["content_html"]))
+            pos = h2s[1].start() if len(h2s) > 1 else len(r["content_html"])
+            r["content_html"] = r["content_html"][:pos] + figs + r["content_html"][pos:]
     except Exception as e:
-        logger.warning(f"인증 캡처 삽입 실패(무시): {e}")
+        logger.warning(f"인증 이미지 삽입 실패(무시): {e}")
     res = publish_wordpress(r, title=post["title"], status=status, category=CATEGORY)
     if not res:
         sys.exit(1)
