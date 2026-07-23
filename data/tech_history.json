@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-23",
+    "timestamp": "2026-07-23T19:52:51.387735+09:00",
+    "run_slot": "19",
+    "fmt": "explain",
+    "seed": "삼성 TV 신제품",
+    "headline": "삼성 갤럭시Z8 공개…애플 출시 전 ‘AI 생태계’ 선점",
+    "category": "가전·디지털",
+    "title": "갤럭시 Z8, AI 시대 문 열까? 애플 전에 선점하려는 삼성의 진짜 노림수",
+    "tags": [
+      "갤럭시Z8",
+      "삼성",
+      "AI폰",
+      "폴더블폰",
+      "갤럭시언팩",
+      "인공지능"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224355787090",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-23",
     "timestamp": "2026-07-23T15:56:33.965242+09:00",
     "run_slot": "15",
     "fmt": "breaking",
