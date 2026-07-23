@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-23",
+    "timestamp": "2026-07-23T23:59:07.868020+09:00",
+    "run_slot": "23",
+    "fmt": "pick",
+    "seed": "기아 EV",
+    "headline": "10만km 주행한 배터리 내구도가 97%라고?...니로·코나 일렉트릭·EV6, 1~...",
+    "category": "자동차·모빌리티",
+    "title": "10만km 탄 EV 배터리, 97%가 남았다고? 중고차 사도 될까?",
+    "tags": [
+      "기아EV",
+      "전기차",
+      "배터리내구성",
+      "중고전기차",
+      "EV6",
+      "코나일렉트릭"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224355988905",
+    "images_inserted": 2
+  },
+  {
+    "date": "2026-07-23",
     "timestamp": "2026-07-23T19:52:51.387735+09:00",
     "run_slot": "19",
     "fmt": "explain",
