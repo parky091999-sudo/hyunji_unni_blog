@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-23",
+    "timestamp": "2026-07-23T15:56:33.965242+09:00",
+    "run_slot": "15",
+    "fmt": "breaking",
+    "seed": "삼성 TV 신제품",
+    "headline": "[핫이슈] '갤럭시 언팩' 삼성전자, 신제품 대거 공개…\"차세대 인텔리전...",
+    "category": "AI·IT",
+    "title": "갤럭시 언팩: AI가 알아서 다 해주는 시대가 온다?",
+    "tags": [
+      "갤럭시 언팩",
+      "갤럭시 Z 폴드8",
+      "갤럭시 Z 플립8",
+      "제미나이 인텔리전스",
+      "갤럭시 AI",
+      "AI폰"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224355549702",
+    "images_inserted": 3
+  },
+  {
+    "date": "2026-07-23",
     "timestamp": "2026-07-23T14:43:07.437190+09:00",
     "run_slot": "14",
     "fmt": "compare",
