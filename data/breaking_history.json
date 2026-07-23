@@ -62,5 +62,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "갤럭시z폴드8-플립8-맥신제품": {
+  "date": "2026-07-23",
+  "at": "2026-07-23T15:42:40.251272+09:00",
+  "issue": "삼성전자 갤럭시 Z 폴드8·플립8 공개 및 맥 신제품 11개 대기",
+  "track": "tech",
+  "urgency": 4,
+  "dispatched": true
  }
 }
