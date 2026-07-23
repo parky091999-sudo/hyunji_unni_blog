@@ -70,5 +70,13 @@
   "track": "tech",
   "urgency": 4,
   "dispatched": true
+ },
+ "코스피급등-코스닥급등-매수사이드카": {
+  "date": "2026-07-23",
+  "at": "2026-07-23T19:36:11.078608+09:00",
+  "issue": "코스피 7000선 회복, 코스닥 5% 급등 및 매수 사이드카 발동",
+  "track": "finance",
+  "urgency": 4,
+  "dispatched": true
  }
 }
