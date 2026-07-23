@@ -1,4 +1,35 @@
-# 작업 인수인계 — 2026-07-22 집 PC 세션 마감 → 다음 세션
+# 작업 인수인계 — 2026-07-23 세션 마감 → 다음 세션(집에서 이어서)
+
+---
+
+## ★★★★★ 2026-07-23 세션 — 07-23 발행분 상세점검 + 자동 QC 게이트 구축 + 영상캡션 원본참고
+
+> **이 섹션부터.** 시작 루틴: 전 6레포 pull → 각 레포 `data/qc_log.jsonl`의 FAIL/WARN부터 확인(이제 자동 QC 게이트가 발행마다 기록).
+
+### 1) 07-23 발행분 상세 전수 점검 (7건) — 전부 기호누출 0·렌더 정상
+- WP: 증여세(현지 허브)·전기차(형수테크) / 네이버 3(한부모가족·블루스크린·갤럭시폴드8, **playwright PostView 프로브로 본문 실측** 기호누출0) / 쿠팡 [075]스팀청소기(훅↔상품 일치)·일상글.
+- **발견**: 전기차 WP 상투어 7 → 새벽 push한 수정이 **EC2 미배포** 증거(EC2는 크론 전 자동 git pull 안 함).
+
+### 2) 수정 3건 (전부 push + EC2 배포)
+- **🐛 형수테크 WP 상투어 규칙 누락**: 상투어 금지가 info/tech-naver/content/deep엔 있으나 `wp_tech_post._SYSTEM`만 빠져 형수테크 WP만 상투어 7~8(현지 WP는 0). → 동일 규칙 추가(`7d98c09`).
+- **🐛 [066] posted_ids 누락**(쿠팡): registry posted=True인데 posted_ids에 키 없어 evening_post 재선정(마커가드가 막아 라이브 중복은 없었음). `backfill_posted_ids.py`로 7건(054·056·062~066) 백필(`0048f4a`). *쿠팡은 발행직전 refresh_shared_feed=git pull이라 자동반영.*
+- **🐛 형수테크 WP 소제목 과분할·h4**(자동차배터리 26개·h4): `wp_html`에 h4↓→h3 강등(멱등)+`_SYSTEM` 과분할 억제(`bc01551`).
+- **EC2 배포**: hyunji `git pull`로 33564eb 반영(상투어·h4 확인). **오늘 21:05 형수테크 WP부터 적용.**
+
+### 3) ★자동 post-publish QC 게이트 구축·배포 (전체범위, 사용자 지시)
+- `generator/publish_qc.py`(hyunji): check_wp_html/check_naver_text/check_caption + verdict(FAIL=마커/h4, WARN=상투어>3·소제목>18) + `data/qc_log.jsonl` 기록. **qc_wp_live**=발행 후 라이브 재fetch→마커/h4면 **normalize 재PUT self-heal**.
+- 배선: wp_tech_post·wp_post(self-heal), post_to_naver_blog 초크포인트 / coupang post_thread_api / jiniee auto_post(인라인) / soyu daily_post(인라인 HTML). 전부 best-effort(발행 차단 안 함).
+- 커밋: hyunji `f8c3d1d`, coupang `ad36b40`, jiniee `28293c7`, soyu `93c3a70`. **4레포 EC2 전부 배포 + 라이브 end-to-end 검증**(hipass qc_wp_live=WARN 정확판정·로깅). EC2 경로: coupang=/home/ubuntu/ai-agent/hyunji_ssi.
+- ⚠️한계: 마커/h4는 self-heal, 상투어·이미지적합성·훅맥락은 **로깅만**(생성 개선사항).
+
+### 4) 영상 캡션에 '스레드 원본 게시글 본문' 참고 주입 (사용자 제안)
+- 종전 영상 캡션=상품명 기반만. `harvest_threads_account`가 원본 og:description을 이미 수집하나 상품명 추측에만 씀 → 캡션 생성까지 배관. `source_caption` 파라미터를 threads_text_video·generate_reels_caption·_gen_caption·`_generate_short_post`에 추가('참고만·베끼지 말것·제품 불일치시 상품명 우선', 없으면 현행 폴백). osmu `078ea41`·coupang `21ce496`. **캡션생성=빌드시점(집PC)이라 EC2 무영향, 신규 빌드분부터.**
+
+### 🔜 다음 세션(집에서 이어서)
+1. **오늘 21:05 형수테크 WP** raw 확인: 상투어 수치 하락(상투어 fix 첫 적용) + `qc_log.jsonl`에 wp_tech WARN/OK 기록됐는지.
+2. **각 레포 qc_log.jsonl 리뷰**: 발행마다 쌓이는 QC 판정 확인(FAIL 나오면 self-heal됐는지·왜).
+3. **영상 캡션 원본참고 실효 확인**: 유진/현지 재고 새로 빌드 후 `video_stock_state.json` 캡션이 원본 맥락 반영하는지.
+4. (선택) EC2 크론 스크립트(run_wp*.sh)에 시작 시 `git pull` 추가하면 코드 수정 자동배포됨(지금은 수동 pull 필요) — 인프라 개선 검토.
 
 ---
 
