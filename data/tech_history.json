@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-23",
+    "timestamp": "2026-07-23T14:43:07.437190+09:00",
+    "run_slot": "14",
+    "fmt": "compare",
+    "seed": "갤럭시 Z 폴드",
+    "headline": "필립스, 눈 편한 144Hz 아이케어 모니터 신제품 27인치 '27B2N2200G' 출시",
+    "category": "PC·노트북",
+    "title": "눈 보호는 기본, 144Hz에 가격까지? 필립스 27인치 모니터, 진짜 '갓성비'일까?",
+    "tags": [
+      "필립스",
+      "모니터",
+      "아이케어",
+      "144Hz",
+      "게이밍모니터",
+      "재택근무"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224355464138",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-23",
     "timestamp": "2026-07-23T13:06:47.086158+09:00",
     "run_slot": "12",
     "fmt": "pick",
