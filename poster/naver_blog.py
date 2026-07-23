@@ -3749,7 +3749,7 @@ def post_to_naver_blog(
     center_align: bool = False,
     style_line_markers: bool = False,
 ) -> dict | None:
-    return asyncio.run(
+    _qc_res = asyncio.run(
         _post(
             naver_id=naver_id,
             naver_pw=naver_pw,
@@ -3774,3 +3774,17 @@ def post_to_naver_blog(
             style_line_markers=style_line_markers,
         )
     )
+    # 발행 후 QC 게이트(2026-07-23): 에디터에 넣은 본문 텍스트 기호누출·상투어 점검·로깅.
+    # 네이버는 라이브 재fetch 불가라 소스 텍스트로 점검(에디터가 마크다운 렌더 안 하므로 동일).
+    if _qc_res and not draft:
+        try:
+            from generator.publish_qc import check_naver_text, record
+            parts = [summary_text or "", body or ""]
+            parts += list(subheadings or [])
+            parts += [q for q, _ in (faq_pairs or [])]
+            issues, metrics = check_naver_text("\n".join(parts))
+            ident = str((_qc_res or {}).get("post_url") or (_qc_res or {}).get("logNo") or title[:24])
+            record(f"naver_{blog_id}", ident, issues, metrics)
+        except Exception as e:
+            logger.warning(f"QC(naver) 오류(무시): {e}")
+    return _qc_res

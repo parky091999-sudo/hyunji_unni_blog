@@ -302,6 +302,14 @@ def main():
     logger.info(f"발행 {'성공' if ok else '실패 ' + str(r.status_code)}: {link}")
     if not ok:
         sys.exit(1)
+    # 발행 후 QC 게이트(2026-07-23): 라이브 재점검 + 마크다운/h4 self-heal + qc_log 기록
+    try:
+        from generator.publish_qc import qc_wp_live
+        pid = r.json().get("id")
+        if pid:
+            qc_wp_live(WP_URL, pid, _auth(), "wp_tech", post["slug"])
+    except Exception as e:
+        logger.warning(f"QC 실행 오류(무시): {e}")
     # IndexNow 핑(빙) — 키가 서버 공용이라 러너에서 처리, 여기선 URL만 로그
     print(f"POST_URL={link}")
 

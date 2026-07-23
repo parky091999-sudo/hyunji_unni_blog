@@ -254,6 +254,15 @@ def run():
         sys.exit(1)
     logger.info(f"발행 완료 [{res['status']}] id={res['id']} {res['link']}")
 
+    # 발행 후 QC 게이트(2026-07-23): 라이브 재점검 + 마크다운/h4 self-heal + qc_log 기록
+    try:
+        from generator.publish_qc import qc_wp_live
+        from config import WP_USER, WP_APP_PW
+        if res.get("id"):
+            qc_wp_live(WP_URL, res["id"], (WP_USER, WP_APP_PW), "wp_hub", topic_id)
+    except Exception as e:
+        logger.warning(f"QC 실행 오류(무시): {e}")
+
     # 대표 이미지(일러스트+타이틀) — 실패해도 발행은 유지(best-effort)
     try:
         from scripts.wp_set_featured import process_topic
