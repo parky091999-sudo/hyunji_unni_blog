@@ -15,6 +15,8 @@ import re
 _BOLD = re.compile(r"\*\*(?!\s)([^*\n]+?)\*\*")
 _BULLET = re.compile(r"^[\*\-]\s+(.+)$")
 _TRAIL_BR = re.compile(r"(?:<br\s*/?>)+\s*$")
+# 소제목 화이트리스트: h4~h6(여는/닫는) → h3 강등. 여는 그룹1=선택적 '/', 그룹2=속성.
+_HEADING_DEMOTE = re.compile(r"<(/?)h[4-6]\b([^>]*)>")
 
 
 def normalize_residual_md(html: str) -> str:
@@ -24,6 +26,9 @@ def normalize_residual_md(html: str) -> str:
     """
     if not html:
         return html
+    # 0) 소제목 화이트리스트 강제: 프롬프트 허용은 h2/h3뿐인데 LLM이 h4~h6로 과분할하는 경우가
+    #    있어(2026-07-23 '자동차 배터리' 26개·h4 다수) h4↓를 h3로 강등. 이미 h2/h3면 무영향.
+    html = _HEADING_DEMOTE.sub(r"<\1h3\2>", html)
     # 1) 볼드: **text** → <strong>text</strong> (개행/별표 미포함, 비탐욕)
     html = _BOLD.sub(r"<strong>\1</strong>", html)
     # 1-1) 음영 강조: {{문장}} → 형광펜 <mark> (프롬프트만 있고 변환 미구현이던 버그 수정, 2026-07-22)
