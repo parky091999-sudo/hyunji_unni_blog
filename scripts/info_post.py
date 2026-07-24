@@ -124,15 +124,10 @@ def _is_real_post_url(url) -> bool:
 
 
 def _append_internal_links(body: str, history: list) -> tuple:
-    """같은 카테고리 최근 글 1~2개를 본문 끝에 회색바 소제목 + 가운데정렬 링크카드로 추가"""
-    related = [h for h in history if h.get("status") == "posted" and h.get("post_url") and h.get("title")][:2]
-    if not related:
-        return body, []
-    links_text = "\n\n함께 보면 좋은 글\n"
-    for r in related:
-        links_text += f"\n[가운데] {r['post_url']}"
-    links_text += "\n"
-    return body + links_text, ["함께 보면 좋은 글"]
+    """같은 블로그 카테고리 '최신' 글 최대 3개를 본문 끝에 관련글 링크카드로 추가.
+    2026-07-24 개선: 기존 history[:2](오래된 것 고정)→관련성·최신순·자기제외(회유↑)."""
+    from generator.related_links import append_related
+    return append_related(body, history, blog_category=BLOG_CATEGORY, limit=3)
 
 
 
