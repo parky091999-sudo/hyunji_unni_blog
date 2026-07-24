@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-24",
+    "timestamp": "2026-07-24T14:44:13.991153+09:00",
+    "run_slot": "14",
+    "fmt": "breaking",
+    "seed": "무선이어폰 신제품",
+    "headline": "바르닭, 닭목살 신제품 4종 출시",
+    "category": "가전·디지털",
+    "title": "바르닭 신상 닭목살 4종 출시! 다이어터에게 희소식일까, 함정일까?",
+    "tags": [
+      "바르닭",
+      "닭목살",
+      "신제품",
+      "다이어트",
+      "간편식",
+      "에어프라이어"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224356588880",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-24",
     "timestamp": "2026-07-24T12:57:39.999915+09:00",
     "run_slot": "12",
     "fmt": "compare",
