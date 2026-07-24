@@ -78,5 +78,13 @@
   "track": "finance",
   "urgency": 4,
   "dispatched": true
+ },
+ "중동유가-증시급락": {
+  "date": "2026-07-24",
+  "at": "2026-07-24T15:42:05.465371+09:00",
+  "issue": "중동발 유가 급등락 및 국내 증시 영향",
+  "track": "finance",
+  "urgency": 4,
+  "dispatched": true
  }
 }
