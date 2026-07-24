@@ -3774,17 +3774,29 @@ def post_to_naver_blog(
             style_line_markers=style_line_markers,
         )
     )
-    # 발행 후 QC 게이트(2026-07-23): 에디터에 넣은 본문 텍스트 기호누출·상투어 점검·로깅.
-    # 네이버는 라이브 재fetch 불가라 소스 텍스트로 점검(에디터가 마크다운 렌더 안 하므로 동일).
+    # 발행 후 QC 게이트(2026-07-23, 2026-07-24 라이브화): 발행된 글을 PostView로 재접속해
+    # 렌더된 본문·이미지·표를 실측 → 에디터 렌더 실패(이미지/표 유실)까지 탐지. 프로브 실패 시
+    # 소스 텍스트로 폴백. 절대 발행을 막지 않음(사후 로깅).
     if _qc_res and not draft:
         try:
-            from generator.publish_qc import check_naver_text, record
-            parts = [summary_text or "", body or ""]
-            parts += list(subheadings or [])
-            parts += [q for q, _ in (faq_pairs or [])]
-            issues, metrics = check_naver_text("\n".join(parts))
-            ident = str((_qc_res or {}).get("post_url") or (_qc_res or {}).get("logNo") or title[:24])
-            record(f"naver_{blog_id}", ident, issues, metrics)
+            from generator.publish_qc import check_naver_text, qc_naver_live, record
+            res = _qc_res or {}
+            logno = str(res.get("logNo") or "")
+            if not logno:
+                m = re.search(r"/(\d{6,})", str(res.get("post_url") or ""))
+                logno = m.group(1) if m else ""
+            live = qc_naver_live(blog_id, logno) if logno else None
+            if live:
+                issues, metrics = check_naver_text(
+                    live["text"], img_count=live["img"], table_count=live["table"])
+                metrics["mode"] = "live"
+            else:
+                parts = [summary_text or "", body or ""]
+                parts += list(subheadings or [])
+                parts += [q for q, _ in (faq_pairs or [])]
+                issues, metrics = check_naver_text("\n".join(parts))
+                metrics["mode"] = "source"
+            record(f"naver_{blog_id}", logno or title[:24], issues, metrics)
         except Exception as e:
             logger.warning(f"QC(naver) 오류(무시): {e}")
     return _qc_res

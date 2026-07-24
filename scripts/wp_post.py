@@ -259,7 +259,8 @@ def run():
         from generator.publish_qc import qc_wp_live
         from config import WP_USER, WP_APP_PW
         if res.get("id"):
-            qc_wp_live(WP_URL, res["id"], (WP_USER, WP_APP_PW), "wp_hub", topic_id)
+            qc_wp_live(WP_URL, res["id"], (WP_USER, WP_APP_PW), "wp_hub", topic_id,
+                       expect_images=True)
     except Exception as e:
         logger.warning(f"QC 실행 오류(무시): {e}")
 
