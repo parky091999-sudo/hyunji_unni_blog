@@ -1,6 +1,27 @@
 [
   {
     "date": "2026-07-24",
+    "timestamp": "2026-07-24T15:57:39.121039+09:00",
+    "run_slot": "15",
+    "fmt": "explain",
+    "seed": "AI 스마트폰",
+    "headline": "롯데하이마트, 삼성 스마트폰 신제품 사전 예약…최대 140만원 혜택",
+    "category": "AI·IT",
+    "title": "삼성 새 AI폰, 사전 예약 놓치면 140만원 손해? 진짜 따져보니",
+    "tags": [
+      "삼성 스마트폰",
+      "갤럭시 AI",
+      "롯데하이마트",
+      "사전예약",
+      "스마트폰 보상",
+      "AI 구독 클럽"
+    ],
+    "status": "posted",
+    "post_url": "https://blog.naver.com/hyungsutech/224356670996",
+    "images_inserted": 1
+  },
+  {
+    "date": "2026-07-24",
     "timestamp": "2026-07-24T14:44:13.991153+09:00",
     "run_slot": "14",
     "fmt": "breaking",
