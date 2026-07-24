@@ -1,0 +1,2 @@
+{"ts": "2026-07-23T21:05:39+09:00", "channel": "wp_tech", "id": "appstore-googleplay-subscription-guide", "verdict": "WARN", "healed": false, "issues": ["WARN:소제목 과다 x22"], "metrics": {"h2h3": 22, "h4plus": 0, "img": 0, "table": 0, "cliche": 2}}
+{"ts": "2026-07-24T09:05:52+09:00", "channel": "wp_hub", "id": "unemployment_benefit", "verdict": "WARN", "healed": false, "issues": ["WARN:교과서체 상투어 x6"], "metrics": {"h2h3": 11, "h4plus": 0, "img": 2, "table": 1, "cliche": 6}}
